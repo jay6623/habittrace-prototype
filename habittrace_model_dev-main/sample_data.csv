@@ -1,0 +1,11 @@
+Task Name (Optional),Category,Planned Start Date & Time,Planned Duration (mins),Importance (1-5),Energy Level (1-5),Focus Level (1-5),Total Tasks Today,Actual Start Time,Actual End Time,Interruptions (Count),Stopped Early?,Task Status,Reason for Failure (If failed),user_id
+,work,2025-03-01 09:00:00,30,4,3,4,5,,,,,completed,,u1
+,work,2025-03-01 10:00:00,45,3,4,3,5,,,,,completed,,u1
+,work,2025-03-01 14:00:00,60,5,2,2,5,,,,,failed,time_underestimate,u1
+,personal,2025-03-02 09:30:00,20,2,4,4,3,,,,,completed,,u2
+,work,2025-03-02 11:00:00,90,4,3,3,4,,,,,failed,start_delay,u2
+,work,2025-03-02 15:00:00,30,3,3,3,4,,,,,completed,,u1
+,personal,2025-03-03 08:00:00,45,2,5,5,2,,,,,completed,,u2
+,work,2025-03-03 10:00:00,45,4,3,4,6,,,,,failed,interruption,u1
+,work,2025-03-03 14:00:00,60,3,2,2,6,,,,,completed,,u2
+,work,2025-03-04 09:00:00,30,5,4,4,4,,,,,completed,,u1

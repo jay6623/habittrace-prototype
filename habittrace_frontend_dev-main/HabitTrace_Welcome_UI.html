@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>HabitTrace – Dashboard</title>
+
+  <!-- Tailwind (quick UI build) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <style>
+    /* Base layout: ensure the page fills the full viewport height */
+    html, body { height: 100%; }
+
+    /* Reusable card component: white background with rounded corners and subtle border */
+    .card { @apply bg-white rounded-2xl border border-slate-200 shadow-sm; }
+
+    /* Muted text style for secondary/helper text */
+    .muted { @apply text-slate-500; }
+
+    /* Soft focus ring for interactive elements */
+    .ring-soft { box-shadow: 0 0 0 6px rgba(15,23,42,0.03); }
+
+    /* Custom scrollbar styling for chat and overflow areas */
+    .scrollbar-thin::-webkit-scrollbar { width: 8px; height: 8px; }
+    .scrollbar-thin::-webkit-scrollbar-thumb { background: rgba(15,23,42,.12); border-radius: 999px; }
+    .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+  </style>
+</head>
+
+<body class="bg-slate-50 text-slate-900">
+
+  <!-- Main layout: 3-column grid on large screens -->
+  <div class="min-h-full grid grid-cols-1 lg:grid-cols-[280px_1fr_360px]">
+
+    <!-- LEFT SIDEBAR -->
+    <aside class="bg-white border-r border-slate-200 lg:sticky lg:top-0 lg:h-screen">
+
+      <!-- App logo and title -->
+      <div class="p-5 flex items-center gap-3">
+        <div class="h-10 w-10 rounded-xl bg-slate-900 text-white grid place-items-center font-semibold">HT</div>
+        <div>
+          <div class="font-semibold leading-tight">HabitTrace</div>
+          <div class="text-xs muted">AI time + habit insights</div>
+        </div>
+      </div>
+
+      <nav class="px-3 pb-6">
+
+        <!-- Main navigation section -->
+        <div class="text-xs font-semibold text-slate-400 px-3 mt-3 mb-2">MAIN</div>
+
+        <!-- Active page: Home (highlighted in dark) -->
+        <a class="flex items-center gap-3 px-3 py-2 rounded-xl bg-slate-900 text-white" href="#">
+          <span class="inline-block h-2 w-2 rounded-full bg-emerald-400"></span>
+          <span class="font-medium">Home</span>
+        </a>
+
+        <!-- Inactive nav links: Habit Tracking, Analytics, Scheduler, Group Scheduling -->
+        <a class="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-slate-100 mt-1" href="#">
+          <span class="inline-block h-2 w-2 rounded-full bg-sky-400"></span>
+          <span class="font-medium">Habit Tracking</span>
+        </a>
+
+        <a class="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-slate-100 mt-1" href="#">
+          <span class="inline-block h-2 w-2 rounded-full bg-violet-400"></span>
+          <span class="font-medium">Analytics</span>
+        </a>
+
+        <a class="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-slate-100 mt-1" href="#">
+          <span class="inline-block h-2 w-2 rounded-full bg-amber-400"></span>
+          <span class="font-medium">Scheduler</span>
+        </a>
+
+        <!-- Group Scheduling: marked as Beta feature -->
+        <a class="flex items-center justify-between gap-3 px-3 py-2 rounded-xl hover:bg-slate-100 mt-1" href="#">
+          <span class="flex items-center gap-3">
+            <span class="inline-block h-2 w-2 rounded-full bg-rose-400"></span>
+            <span class="font-medium">Group Scheduling</span>
+          </span>
+          <span class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">Beta</span>
+        </a>
+
+        <!-- Tools navigation section -->
+        <div class="text-xs font-semibold text-slate-400 px-3 mt-6 mb-2">TOOLS</div>
+
+        <a class="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-slate-100" href="#">
+          <span class="inline-block h-2 w-2 rounded-full bg-slate-300"></span>
+          <span class="font-medium">Integrations</span>
+        </a>
+
+        <a class="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-slate-100 mt-1" href="#">
+          <span class="inline-block h-2 w-2 rounded-full bg-slate-300"></span>
+          <span class="font-medium">Settings</span>
+        </a>
+
+        <!-- Daily focus reminder card: static motivational prompt -->
+        <div class="mt-6 mx-3 p-4 rounded-2xl bg-slate-900 text-white">
+          <div class="text-sm font-semibold">Today's focus</div>
+          <div class="text-xs text-slate-200 mt-1">Keep tasks realistic. Avoid overbooking.</div>
+          <button class="mt-3 w-full rounded-xl bg-white/10 hover:bg-white/15 px-3 py-2 text-sm">
+            Review risks
+          </button>
+        </div>
+
+      </nav>
+    </aside>
+
+    <!-- CENTER MAIN PANEL -->
+    <main class="min-w-0">
+
+      <!-- Top navigation bar: breadcrumb, search, notifications, user avatar -->
+      <header class="bg-white border-b border-slate-200 sticky top-0 z-20">
+        <div class="px-5 py-3 flex items-center justify-between gap-3">
+
+          <!-- Page title / breadcrumb -->
+          <div class="flex items-center gap-3 min-w-0">
+            <!-- Hamburger menu button: only visible on mobile -->
+            <button class="lg:hidden p-2 rounded-xl hover:bg-slate-100" aria-label="Menu">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+            </button>
+            <div class="min-w-0">
+              <div class="text-sm muted">Home</div>
+              <div class="font-semibold truncate">Execution Dashboard</div>
+            </div>
+          </div>
+
+          <!-- Right side: search bar, notifications, user profile -->
+          <div class="flex items-center gap-2">
+
+            <!-- Search input: hidden on small screens -->
+            <div class="hidden md:flex items-center gap-2 bg-slate-100 rounded-xl px-3 py-2">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <path d="M21 21l-4.3-4.3m1.8-5.2a7 7 0 11-14 0 7 7 0 0114 0z"
+                      stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+              <input class="bg-transparent outline-none text-sm w-56"
+                     placeholder="Search tasks, habits, insights…" />
+            </div>
+
+            <!-- Notification bell icon -->
+            <button class="p-2 rounded-xl hover:bg-slate-100" title="Notifications">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <path d="M15 17H9m10-2V11a7 7 0 10-14 0v4l-2 2h18l-2-2z"
+                      stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+
+            <!-- User avatar and plan label -->
+            <div class="flex items-center gap-2 pl-2">
+              <div class="h-9 w-9 rounded-full bg-slate-900"></div>
+              <div class="hidden sm:block leading-tight">
+                <div class="text-sm font-semibold">User</div>
+                <div class="text-xs muted">Student plan</div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </header>
+
+      <!-- Dashboard content area -->
+      <div class="p-5 space-y-5">
+
+        <!-- Greeting Banner -->
+        <section class="card p-5 flex items-center gap-4">
+          <div class="h-12 w-12 rounded-full bg-slate-900"></div>
+          <div class="min-w-0">
+            <div class="font-semibold text-lg truncate">Good morning — ready for a focused day?</div>
+            <div class="text-sm muted">
+              HabitTrace learns the gap between plan vs execution and explains why it happens.
+            </div>
+          </div>
+          <div class="ml-auto hidden md:flex gap-2">
+            <button class="px-4 py-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800">Add plan</button>
+            <button class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200">Ask AI</button>
+          </div>
+        </section>
+
+        <!-- Charts Row -->
+        <section class="grid grid-cols-1 xl:grid-cols-2 gap-5">
+
+          <!-- Line chart: planned vs completed minutes over the week -->
+          <div class="card p-5">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <div class="font-semibold">Execution trend</div>
+                <div class="text-sm muted">Planned vs completed over time</div>
+              </div>
+              <!-- Time range selector: controls chart date range (not yet wired up) -->
+              <select class="text-sm bg-slate-100 rounded-xl px-3 py-2 outline-none">
+                <option>This week</option>
+                <option>Last 30 days</option>
+                <option>Last 90 days</option>
+              </select>
+            </div>
+            <div class="mt-4">
+              <canvas id="lineChart" height="120"></canvas>
+            </div>
+          </div>
+
+          <!-- Donut chart: breakdown of common failure patterns -->
+          <div class="card p-5">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <div class="font-semibold">Failure pattern mix</div>
+                <div class="text-sm muted">Where plans usually break</div>
+              </div>
+              <button class="text-sm px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200">Details</button>
+            </div>
+            <div class="mt-4 flex items-center justify-center">
+              <div class="w-full max-w-sm">
+                <canvas id="donutChart" height="160"></canvas>
+              </div>
+            </div>
+          </div>
+
+        </section>
+
+        <!-- Lower Row -->
+        <section class="grid grid-cols-1 xl:grid-cols-2 gap-5">
+
+          <!-- Activity Feed: recent product/feature updates -->
+          <div class="card p-5">
+            <div class="flex items-center justify-between">
+              <div>
+                <div class="font-semibold">Project updates</div>
+                <div class="text-sm muted">Recent changes and notes</div>
+              </div>
+              <a class="text-sm text-slate-700 hover:underline" href="#">View all</a>
+            </div>
+
+            <!-- TODO: Fetch these update items dynamically from backend -->
+            <div class="mt-4 space-y-4">
+              <div class="flex gap-3">
+                <div class="h-9 w-9 rounded-full bg-slate-100 grid place-items-center">🧠</div>
+                <div class="min-w-0">
+                  <div class="text-sm font-medium">Improved "time underestimation" detection</div>
+                  <div class="text-xs muted mt-0.5">Today • model now flags risky tasks earlier</div>
+                </div>
+              </div>
+
+              <div class="flex gap-3">
+                <div class="h-9 w-9 rounded-full bg-slate-100 grid place-items-center">🗓️</div>
+                <div class="min-w-0">
+                  <div class="text-sm font-medium">Scheduler tab supports multiple workstreams</div>
+                  <div class="text-xs muted mt-0.5">Yesterday • switch plans without losing context</div>
+                </div>
+              </div>
+
+              <div class="flex gap-3">
+                <div class="h-9 w-9 rounded-full bg-slate-100 grid place-items-center">🔌</div>
+                <div class="min-w-0">
+                  <div class="text-sm font-medium">Integrations panel (Transit/Uber) prototype</div>
+                  <div class="text-xs muted mt-0.5">Last week • estimate commute time automatically</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- AI Coach Chat
+               TODO: Wire up Send button to backend AI API -->
+          <div class="card p-0 overflow-hidden">
+
+            <!-- Chat header -->
+            <div class="p-5 border-b border-slate-200">
+              <div class="font-semibold">Coach chat</div>
+              <div class="text-sm muted">Ask why a plan failed, or request a new schedule</div>
+            </div>
+
+            <!-- Chat message area: scrollable conversation thread -->
+            <div class="px-5 py-4 h-[320px] overflow-y-auto scrollbar-thin space-y-3 bg-slate-50">
+
+              <!-- AI message bubble -->
+              <div class="flex gap-3">
+                <div class="h-8 w-8 rounded-full bg-slate-900"></div>
+                <div class="max-w-[80%] bg-white border border-slate-200 rounded-2xl px-4 py-3">
+                  <div class="text-sm font-medium">AI Coach</div>
+                  <div class="text-sm text-slate-700 mt-1">
+                    I noticed you often miss tasks that start after 9pm. Want to move them earlier?
+                  </div>
+                </div>
+              </div>
+
+              <!-- User message bubble (right-aligned) -->
+              <div class="flex justify-end">
+                <div class="max-w-[80%] bg-slate-900 text-white rounded-2xl px-4 py-3">
+                  <div class="text-sm">Yes—can you rearrange my evening plan?</div>
+                </div>
+              </div>
+
+              <!-- AI follow-up response -->
+              <div class="flex gap-3">
+                <div class="h-8 w-8 rounded-full bg-slate-900"></div>
+                <div class="max-w-[80%] bg-white border border-slate-200 rounded-2xl px-4 py-3">
+                  <div class="text-sm font-medium">AI Coach</div>
+                  <div class="text-sm text-slate-700 mt-1">
+                    Done. I moved "Reading" to 7:30pm and left a 20-min buffer before it.
+                    Your success probability for the evening increased from 58% → 74%.
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- Chat input area -->
+            <div class="p-4 border-t border-slate-200 bg-white">
+              <div class="flex gap-2">
+                <!-- Text input: user types their question here -->
+                <input class="flex-1 bg-slate-100 rounded-xl px-4 py-3 outline-none ring-soft focus:bg-white"
+                       placeholder="Ask HabitTrace…" />
+                <!-- Send button: triggers AI API call (TODO: implement onClick handler) -->
+                <button class="px-4 py-3 rounded-xl bg-slate-900 text-white hover:bg-slate-800">
+                  Send
+                </button>
+              </div>
+              <!-- Example prompts to guide new users -->
+              <div class="mt-2 text-xs muted">
+                Examples: "Why do I fail at writing tasks?" • "Make a realistic schedule for tomorrow."
+              </div>
+            </div>
+
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <!-- RIGHT SIDEBAR: Schedule Checker
+         TODO: Replace static values with real data from backend API-->
+    <aside class="bg-white border-l border-slate-200 lg:sticky lg:top-0 lg:h-screen">
+      <div class="p-5">
+
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="text-sm muted">Schedule checker</div>
+            <div class="font-semibold">Today's plan health</div>
+          </div>
+          <button class="text-sm px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200">Auto-fix</button>
+        </div>
+
+        <div class="mt-4 card p-4">
+          <div class="flex items-center justify-between">
+            <div class="font-medium">Overall success</div>
+            <div class="text-sm font-semibold">74%</div>
+          </div>
+          <div class="mt-3 h-2 rounded-full bg-slate-100 overflow-hidden">
+            <div class="h-full w-[74%] bg-slate-900 rounded-full"></div>
+          </div>
+          <div class="mt-3 text-sm muted">
+            Main risk: late-night tasks + no buffer between meetings.
+          </div>
+        </div>
+
+        <!-- Detected risk items: flagged issues with the current schedule -->
+        <div class="mt-4 card p-4">
+          <div class="font-medium">Detected risks</div>
+          <div class="mt-3 space-y-3">
+
+            <!-- Risk: task duration underestimated (amber = medium severity) -->
+            <div class="flex items-start gap-3">
+              <div class="mt-1 h-2 w-2 rounded-full bg-amber-400"></div>
+              <div class="min-w-0">
+                <div class="text-sm font-medium">Underestimated duration</div>
+                <div class="text-xs muted">"Project write-up" usually takes +35% longer</div>
+              </div>
+            </div>
+
+            <!-- Risk: high distraction period (rose = high severity) -->
+            <div class="flex items-start gap-3">
+              <div class="mt-1 h-2 w-2 rounded-full bg-rose-400"></div>
+              <div class="min-w-0">
+                <div class="text-sm font-medium">High distraction window</div>
+                <div class="text-xs muted">9:00–11:00pm phone usage spikes</div>
+              </div>
+            </div>
+
+            <!-- Risk: no buffer between tasks (sky = low severity) -->
+            <div class="flex items-start gap-3">
+              <div class="mt-1 h-2 w-2 rounded-full bg-sky-400"></div>
+              <div class="min-w-0">
+                <div class="text-sm font-medium">No buffer time</div>
+                <div class="text-xs muted">Two tasks scheduled back-to-back</div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Online users panel: shows how many users are currently active -->
+        <div class="mt-4 card p-4">
+          <div class="flex items-center justify-between">
+            <div class="font-medium">Online users</div>
+            <span class="text-xs px-2 py-1 rounded-full bg-slate-100 text-slate-700">18</span>
+          </div>
+
+          <!-- Avatar grid: placeholder circles representing active users -->
+          <div class="mt-3 grid grid-cols-8 gap-2">
+            <div class="h-9 w-9 rounded-full bg-slate-900"></div>
+            <div class="h-9 w-9 rounded-full bg-slate-200"></div>
+            <div class="h-9 w-9 rounded-full bg-slate-200"></div>
+            <div class="h-9 w-9 rounded-full bg-slate-200"></div>
+            <div class="h-9 w-9 rounded-full bg-slate-200"></div>
+            <div class="h-9 w-9 rounded-full bg-slate-200"></div>
+            <div class="h-9 w-9 rounded-full bg-slate-200"></div>
+            <div class="h-9 w-9 rounded-full bg-slate-200"></div>
+            <div class="h-9 w-9 rounded-full bg-slate-200"></div>
+            <div class="h-9 w-9 rounded-full bg-slate-200"></div>
+            <div class="h-9 w-9 rounded-full bg-slate-200"></div>
+            <div class="h-9 w-9 rounded-full bg-slate-200"></div>
+            <div class="h-9 w-9 rounded-full bg-slate-200"></div>
+            <div class="h-9 w-9 rounded-full bg-slate-200"></div>
+            <div class="h-9 w-9 rounded-full bg-slate-200"></div>
+            <div class="h-9 w-9 rounded-full bg-slate-200"></div>
+          </div>
+        </div>
+
+        <div class="mt-5 text-xs muted">© HabitTrace • Dashboard mock</div>
+      </div>
+    </aside>
+
+  </div>
+
+  <script>
+    // Line chart (execution trend)
+    const lineCtx = document.getElementById('lineChart');
+    new Chart(lineCtx, {
+      type: 'line',
+      data: {
+        labels: ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],
+        datasets: [
+          {
+            label: 'Planned (min)',
+            data: [220, 260, 300, 320, 280, 240, 200],
+            tension: 0.35
+          },
+          {
+            label: 'Completed (min)',
+            data: [180, 210, 240, 250, 230, 190, 170],
+            tension: 0.35
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'top' }
+        },
+        scales: {
+          y: { beginAtZero: true }
+        }
+      }
+    });
+
+    // Donut chart (failure mix)
+    const donutCtx = document.getElementById('donutChart');
+    new Chart(donutCtx, {
+      type: 'doughnut',
+      data: {
+        labels: ['Late-night tasks', 'Underestimated duration', 'No buffer', 'Context switching'],
+        datasets: [{
+          data: [38, 27, 22, 13]
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { position: 'bottom' }
+        },
+        cutout: '65%'
+      }
+    });
+  </script>
+</body>
+</html>

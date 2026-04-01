@@ -1,0 +1,423 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  ArcElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler,
+} from "chart.js";
+import { Line, Bar, Doughnut } from "react-chartjs-2";
+import { getAnalyticsSummary, type AnalyticsSummary } from "@/lib/api";
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  ArcElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler
+);
+
+// ── Shared chart styling ────────────────────────────────────────────────────
+const tooltipStyle = {
+  backgroundColor: "#0f172a",
+  titleFont: { size: 13 },
+  bodyFont: { size: 12 },
+  padding: 12,
+  cornerRadius: 12,
+  displayColors: false,
+};
+
+// ── Fallback / placeholder data (shown while loading or on error) ───────────
+const FALLBACK: AnalyticsSummary = {
+  period: "week",
+  total_tasks: 0,
+  success_rate: 0,
+  total_planned_minutes: 0,
+  avg_importance: 0,
+  avg_interruptions: 0,
+  most_failed_category: "—",
+  best_time_of_day: "—",
+  failure_by_category: {},
+  failure_by_reason: {},
+  execution_trend: [
+    { label: "Mon", planned_mins: 0, completed_mins: 0, success_rate: 0 },
+    { label: "Tue", planned_mins: 0, completed_mins: 0, success_rate: 0 },
+    { label: "Wed", planned_mins: 0, completed_mins: 0, success_rate: 0 },
+    { label: "Thu", planned_mins: 0, completed_mins: 0, success_rate: 0 },
+    { label: "Fri", planned_mins: 0, completed_mins: 0, success_rate: 0 },
+    { label: "Sat", planned_mins: 0, completed_mins: 0, success_rate: 0 },
+    { label: "Sun", planned_mins: 0, completed_mins: 0, success_rate: 0 },
+  ],
+  success_by_hour: {
+    "6-9 AM": 0,
+    "9-12 PM": 0,
+    "12-3 PM": 0,
+    "3-6 PM": 0,
+    "6-9 PM": 0,
+    "9-12 AM": 0,
+  },
+};
+
+const HOUR_COLORS: Record<string, string> = {
+  "6-9 AM":  "#34d399",
+  "9-12 PM": "#34d399",
+  "12-3 PM": "#fbbf24",
+  "3-6 PM":  "#38bdf8",
+  "6-9 PM":  "#fbbf24",
+  "9-12 AM": "#fb7185",
+};
+
+// ── Component ───────────────────────────────────────────────────────────────
+export default function AnalyticsPage() {
+  const [timeRange, setTimeRange] = useState<"week" | "month" | "3months">("week");
+  const [data, setData] = useState<AnalyticsSummary>(FALLBACK);
+  const [loading, setLoading] = useState(true);
+  const [apiError, setApiError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    getAnalyticsSummary(timeRange)
+      .then((summary) => {
+        setData(summary);
+        setApiError(null);
+      })
+      .catch((err) => {
+        console.warn("Analytics API error:", err.message);
+        setApiError("Backend not reachable — charts show placeholder data.");
+      })
+      .finally(() => setLoading(false));
+  }, [timeRange]);
+
+  // ── Derive chart datasets from API data ───────────────────────────────────
+  const trendLabels = data.execution_trend.map((p) => p.label);
+  const plannedData = data.execution_trend.map((p) => p.planned_mins);
+  const completedData = data.execution_trend.map((p) => p.completed_mins);
+  const successRateData = data.execution_trend.map((p) => p.success_rate);
+
+  const hourLabels = Object.keys(data.success_by_hour);
+  const hourData = Object.values(data.success_by_hour);
+  const hourColors = hourLabels.map((h) => HOUR_COLORS[h] ?? "#94a3b8");
+
+  const catLabels = Object.keys(data.failure_by_category);
+  const catData = Object.values(data.failure_by_category);
+
+  const reasonLabels = Object.keys(data.failure_by_reason).map((r) =>
+    r.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+  );
+  const reasonData = Object.values(data.failure_by_reason);
+  const REASON_COLORS = ["#0f172a", "#38bdf8", "#fbbf24", "#a78bfa", "#e2e8f0", "#34d399", "#fb7185"];
+
+  // ── Stat cards ────────────────────────────────────────────────────────────
+  const stats = [
+    { label: "Overall success rate", value: `${data.success_rate}%`, change: "based on completed tasks", positive: true },
+    { label: "Total tasks", value: String(data.total_tasks), change: `in this ${timeRange}`, positive: true },
+    { label: "Most failed category", value: data.most_failed_category, change: "highest failure count", positive: false },
+    { label: "Best time of day", value: data.best_time_of_day, change: "highest success rate", positive: true },
+    { label: "Avg interruptions", value: String(data.avg_interruptions), change: "per task", positive: false },
+    { label: "Avg importance", value: String(data.avg_importance), change: "out of 5", positive: true },
+  ];
+
+  // ── Chart configs ──────────────────────────────────────────────────────────
+  const executionTrendOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { position: "top" as const, labels: { usePointStyle: true, pointStyle: "circle" as const, padding: 20, font: { size: 12 } } },
+      tooltip: tooltipStyle,
+    },
+    scales: {
+      x: { grid: { display: false }, ticks: { font: { size: 12 }, color: "#94a3b8" } },
+      y: { beginAtZero: true, grid: { color: "#f1f5f9" }, ticks: { font: { size: 12 }, color: "#94a3b8" } },
+    },
+  };
+
+  const successRateOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { ...tooltipStyle, callbacks: { label: (ctx: { parsed: { y: number | null } }) => `${ctx.parsed.y ?? 0}% success rate` } },
+    },
+    scales: {
+      x: { grid: { display: false }, ticks: { font: { size: 12 }, color: "#94a3b8" } },
+      y: { min: 0, max: 100, grid: { color: "#f1f5f9" }, ticks: { font: { size: 12 }, color: "#94a3b8", callback: (v: number | string) => `${v}%` } },
+    },
+  };
+
+  const timeOfDayOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { ...tooltipStyle, callbacks: { label: (ctx: { parsed: { y: number | null } }) => `${ctx.parsed.y ?? 0}% success rate` } },
+    },
+    scales: {
+      x: { grid: { display: false }, ticks: { font: { size: 12 }, color: "#94a3b8" } },
+      y: { min: 0, max: 100, grid: { color: "#f1f5f9" }, ticks: { font: { size: 12 }, color: "#94a3b8", callback: (v: number | string) => `${v}%` } },
+    },
+  };
+
+  const failureByCategoryOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    indexAxis: "y" as const,
+    plugins: { legend: { display: false }, tooltip: tooltipStyle },
+    scales: {
+      x: { grid: { color: "#f1f5f9" }, ticks: { font: { size: 12 }, color: "#94a3b8" } },
+      y: { grid: { display: false }, ticks: { font: { size: 12 }, color: "#64748b" } },
+    },
+  };
+
+  const failureReasonsOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { position: "bottom" as const, labels: { usePointStyle: true, pointStyle: "circle" as const, padding: 14, font: { size: 11 } } },
+      tooltip: { ...tooltipStyle, callbacks: { label: (ctx: { label: string; parsed: number | null }) => ` ${ctx.label}: ${ctx.parsed ?? 0}` } },
+    },
+    cutout: "65%",
+  };
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <div className="text-sm text-slate-500">Analytics</div>
+          <h1 className="text-2xl font-bold">Performance Insights</h1>
+        </div>
+        <div className="flex rounded-xl border border-slate-200 overflow-hidden">
+          {(["week", "month", "3months"] as const).map((range) => (
+            <button
+              key={range}
+              onClick={() => setTimeRange(range)}
+              className={`px-4 py-2 text-sm font-medium transition-colors border-r border-slate-200 last:border-r-0 ${
+                timeRange === range
+                  ? "bg-slate-900 text-white"
+                  : "bg-white text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              {range === "week" ? "This week" : range === "month" ? "This month" : "3 months"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* API error */}
+      {apiError && (
+        <div className="px-4 py-3 rounded-xl bg-amber-50 border border-amber-100 text-sm text-amber-700">
+          {apiError}
+        </div>
+      )}
+
+      {/* Stats Row */}
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+        {stats.map((stat) => (
+          <div key={stat.label} className="bg-white rounded-2xl border border-slate-200 p-4">
+            <div className="text-xs text-slate-500">{stat.label}</div>
+            <div className={`text-xl font-bold mt-1 ${loading ? "animate-pulse text-slate-300" : ""}`}>
+              {loading ? "—" : stat.value}
+            </div>
+            <div className={`text-xs mt-1 ${stat.positive ? "text-emerald-600" : "text-slate-500"}`}>
+              {stat.change}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Row 1: Execution Trend + Success Rate */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+        <div className="bg-white rounded-2xl border border-slate-200 p-5">
+          <div className="font-semibold">Execution trend</div>
+          <div className="text-sm text-slate-500 mb-4">Planned vs completed minutes</div>
+          <div className="h-[260px]">
+            <Line
+              options={executionTrendOptions}
+              data={{
+                labels: trendLabels,
+                datasets: [
+                  { label: "Planned (min)", data: plannedData, borderColor: "#0f172a", backgroundColor: "rgba(15,23,42,0.05)", fill: true, borderWidth: 2, tension: 0.35 },
+                  { label: "Completed (min)", data: completedData, borderColor: "#34d399", backgroundColor: "rgba(52,211,153,0.05)", fill: true, borderWidth: 2, tension: 0.35 },
+                ],
+              }}
+            />
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-slate-200 p-5">
+          <div className="font-semibold">Success rate over time</div>
+          <div className="text-sm text-slate-500 mb-4">Percentage of tasks completed successfully</div>
+          <div className="h-[260px]">
+            <Line
+              options={successRateOptions}
+              data={{
+                labels: trendLabels,
+                datasets: [
+                  { label: "Success rate %", data: successRateData, borderColor: "#34d399", backgroundColor: "rgba(52,211,153,0.1)", fill: true, borderWidth: 2, tension: 0.35, pointBackgroundColor: "#34d399" },
+                ],
+              }}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Row 2: Time of Day + Failure by Category */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+        <div className="bg-white rounded-2xl border border-slate-200 p-5">
+          <div className="font-semibold">Performance by time of day</div>
+          <div className="text-sm text-slate-500 mb-4">When you&apos;re most likely to succeed</div>
+          <div className="h-[260px]">
+            <Bar
+              options={timeOfDayOptions}
+              data={{
+                labels: hourLabels,
+                datasets: [
+                  { label: "Success rate %", data: hourData, backgroundColor: hourColors, borderWidth: 0, borderRadius: 8 },
+                ],
+              }}
+            />
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-slate-200 p-5">
+          <div className="font-semibold">Failures by category</div>
+          <div className="text-sm text-slate-500 mb-4">Which types of tasks fail most</div>
+          <div className="h-[260px]">
+            {catLabels.length > 0 ? (
+              <Bar
+                options={failureByCategoryOptions}
+                data={{
+                  labels: catLabels,
+                  datasets: [
+                    { label: "Failed tasks", data: catData, backgroundColor: ["#38bdf8", "#a78bfa", "#34d399", "#94a3b8", "#fbbf24", "#fb7185"], borderWidth: 0, borderRadius: 8 },
+                  ],
+                }}
+              />
+            ) : (
+              <div className="h-full flex items-center justify-center text-sm text-slate-400">
+                {loading ? "Loading…" : "No failure data yet"}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Row 3: Failure Reasons + Key Insights */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+        <div className="bg-white rounded-2xl border border-slate-200 p-5">
+          <div className="font-semibold">Why tasks fail</div>
+          <div className="text-sm text-slate-500 mb-4">Most common failure reasons</div>
+          <div className="h-[280px]">
+            {reasonLabels.length > 0 ? (
+              <Doughnut
+                options={failureReasonsOptions}
+                data={{
+                  labels: reasonLabels,
+                  datasets: [{ data: reasonData, backgroundColor: REASON_COLORS.slice(0, reasonLabels.length), borderWidth: 0, hoverOffset: 6 }],
+                }}
+              />
+            ) : (
+              <div className="h-full flex items-center justify-center text-sm text-slate-400">
+                {loading ? "Loading…" : "No failure data yet"}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-slate-200 p-5">
+          <div className="font-semibold">Key insights</div>
+          <div className="text-sm text-slate-500 mb-4">Observations from your data</div>
+
+          <div className="space-y-3">
+            {data.best_time_of_day !== "—" && (
+              <div className="flex items-start gap-3 p-3 rounded-xl bg-emerald-50 border border-emerald-100">
+                <div className="mt-0.5 h-2 w-2 rounded-full bg-emerald-400 shrink-0" />
+                <div>
+                  <div className="text-sm font-medium text-emerald-900">
+                    Best performance: {data.best_time_of_day}
+                  </div>
+                  <div className="text-xs text-emerald-700 mt-0.5">
+                    {data.success_by_hour[data.best_time_of_day] ?? 0}% success rate — schedule important tasks here.
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {data.most_failed_category !== "—" && data.most_failed_category !== "N/A" && (
+              <div className="flex items-start gap-3 p-3 rounded-xl bg-rose-50 border border-rose-100">
+                <div className="mt-0.5 h-2 w-2 rounded-full bg-rose-400 shrink-0" />
+                <div>
+                  <div className="text-sm font-medium text-rose-900">
+                    Most failures: {data.most_failed_category}
+                  </div>
+                  <div className="text-xs text-rose-700 mt-0.5">
+                    {data.failure_by_category[data.most_failed_category] ?? 0} failed tasks in this category.
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {data.avg_interruptions > 1.5 && (
+              <div className="flex items-start gap-3 p-3 rounded-xl bg-amber-50 border border-amber-100">
+                <div className="mt-0.5 h-2 w-2 rounded-full bg-amber-400 shrink-0" />
+                <div>
+                  <div className="text-sm font-medium text-amber-900">
+                    High interruption rate: {data.avg_interruptions} per task
+                  </div>
+                  <div className="text-xs text-amber-700 mt-0.5">
+                    Try scheduling focus blocks with Do Not Disturb enabled.
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {data.success_rate > 0 && (
+              <div className="flex items-start gap-3 p-3 rounded-xl bg-sky-50 border border-sky-100">
+                <div className="mt-0.5 h-2 w-2 rounded-full bg-sky-400 shrink-0" />
+                <div>
+                  <div className="text-sm font-medium text-sky-900">
+                    Overall success rate: {data.success_rate}%
+                  </div>
+                  <div className="text-xs text-sky-700 mt-0.5">
+                    Based on {data.total_tasks} tasks tracked this period.
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {data.total_tasks === 0 && !loading && (
+              <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
+                <div className="mt-0.5 h-2 w-2 rounded-full bg-slate-300 shrink-0" />
+                <div>
+                  <div className="text-sm font-medium text-slate-600">No data yet for this period</div>
+                  <div className="text-xs text-slate-500 mt-0.5">
+                    Add and complete tasks in the Habits tab to see insights here.
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="text-xs text-slate-400 text-center py-2">
+        {apiError
+          ? "Showing placeholder data — connect the backend to see real analytics."
+          : "Analytics based on your tracked tasks from Supabase."}
+      </div>
+    </div>
+  );
+}

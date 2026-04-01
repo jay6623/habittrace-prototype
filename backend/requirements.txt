@@ -1,0 +1,14 @@
+# FastAPI stack
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+pydantic>=2.7.0
+pydantic-settings>=2.2.0
+
+# Supabase
+supabase>=2.4.0
+
+# ML (same constraints as the model repo)
+pandas>=1.5.0
+numpy>=1.21.0
+scikit-learn>=1.2.0
+joblib>=1.2.0

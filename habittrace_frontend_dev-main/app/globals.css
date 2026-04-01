@@ -1,0 +1,20 @@
+@import "tailwindcss";
+
+/* ── Custom Theme (Tailwind v4 way) ── */
+@theme {
+  --color-brand: #0f172a;
+  --color-brand-light: #1e293b;
+  --color-brand-subtle: #334155;
+
+  --color-accent-emerald: #34d399;
+  --color-accent-sky: #38bdf8;
+  --color-accent-violet: #a78bfa;
+  --color-accent-amber: #fbbf24;
+  --color-accent-rose: #fb7185;
+
+  --color-surface: #ffffff;
+  --color-surface-muted: #f8fafc;
+  --color-surface-border: #e2e8f0;
+
+  --radius-2xl: 1rem;
+}
