@@ -225,13 +225,7 @@ export default function CoachChat() {
   function confirmTask(msgIdx: number, task: TaskCreate) {
     return async (edited: TaskCreate) => {
       try {
-        await createTask({
-          total_tasks_today: 1,
-          importance: 3,
-          energy_level: 3,
-          focus_level: 3,
-          ...edited,
-        });
+        await createTask(edited);
         setMessages((prev) =>
           prev.map((m, i) =>
             i === msgIdx ? { ...m, taskStatus: "confirmed" } : m

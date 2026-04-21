@@ -2,7 +2,7 @@
  * HabitTrace API client
  *
  * All functions communicate with the FastAPI backend at NEXT_PUBLIC_API_URL
- * (defaults to http://localhost:8000).
+ * (defaults to http://localhost:8000). Trailing slashes are stripped.
  *
  * Auth:
  *   - If Supabase is configured and the user is signed in, the session JWT is
@@ -13,8 +13,13 @@
 
 import { supabase } from "./supabase";
 
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+function normalizeApiBaseUrl(url: string): string {
+  return url.trim().replace(/\/+$/, "");
+}
+
+const API_URL = normalizeApiBaseUrl(
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
+);
 
 // ── Types mirroring the backend schemas ────────────────────────────────────
 

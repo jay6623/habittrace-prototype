@@ -73,7 +73,11 @@ cp .env.example .env
 | `SUPABASE_URL` | Supabase → Settings → API → Project URL |
 | `SUPABASE_SERVICE_KEY` | Supabase → Settings → API → service_role (secret) |
 | `SUPABASE_ANON_KEY` | Supabase → Settings → API → anon public |
-| `FRONTEND_URL` | `http://localhost:3000` |
+| `FRONTEND_URL` | Browser origin for your Next.js app (local: `http://localhost:3000`; production: `https://your-app.example.com`) |
+| `CORS_ORIGINS` | Optional. Comma-separated allowed origins when you do not want the default list. When set, only these origins are allowed (no automatic `localhost`). |
+| `TRUST_FORWARDED_HEADERS` | Set to `true` behind nginx/Caddy/a load balancer so HTTPS and client IP are correct. |
+| `PROXY_TRUSTED_HOSTS` | Who may send `X-Forwarded-*` (often `*` on managed hosts). |
+| `API_ROOT_PATH` | If the API is mounted under a sub-path (e.g. `/api`), set it here. |
 
 **Start the backend:**
 
@@ -111,7 +115,8 @@ cp .env.local.example .env.local
 |---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase Project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon/public key |
-| `NEXT_PUBLIC_API_URL` | `http://localhost:8000` |
+| `NEXT_PUBLIC_API_URL` | API base URL (`http://localhost:8000` locally; production: `https://api.example.com`, no trailing slash) |
+| `NEXT_PUBLIC_SITE_URL` | Optional. Canonical site origin for OAuth redirects; must match Supabase redirect allowlist. |
 
 **Start the frontend:**
 
@@ -186,6 +191,34 @@ Then open [http://localhost:3000](http://localhost:3000).
 
 ---
 
+## Production (domain, HTTPS, API URL)
+
+Deploy the Next.js app and FastAPI service on your host(s), both reachable over **HTTPS** so the browser can call the API without mixed-content blocking.
+
+**Frontend**
+
+- Set **`NEXT_PUBLIC_API_URL`** to your deployed API origin (for example `https://api.example.com`). The client strips a trailing slash automatically.
+- Set **`NEXT_PUBLIC_SITE_URL`** if the canonical URL must match **Supabase → Authentication → URL Configuration** exactly (for example preview vs production domains). OAuth `redirectTo` values use this when set, otherwise the current browser origin.
+- Run `npm run build` and `npm start`, or use your platform’s Next.js integration.
+
+**Backend**
+
+- Set **`FRONTEND_URL`** to your live Next.js origin, or set **`CORS_ORIGINS`** to a comma-separated list of allowed `Origin` values (scheme + host, no path). If `CORS_ORIGINS` is set, it replaces the default list (localhost is not added automatically).
+- Enable **`TRUST_FORWARDED_HEADERS=true`** when a reverse proxy terminates TLS. Set **`PROXY_TRUSTED_HOSTS`** appropriately (`*` is common on PaaS where only the platform proxy connects to your process).
+- If the API is exposed under a path prefix (for example `https://example.com/api`), set **`API_ROOT_PATH`** (for example `/api`).
+- For Ollama behind another host, set **`OLLAMA_CHAT_URL`** and **`OLLAMA_MODEL`** in `backend/.env`.
+
+**Supabase (redirects and callbacks)**
+
+- **Site URL**: your production app origin (for example `https://app.example.com`).
+- **Redirect URLs**: include the origins and paths used after Google OAuth (for example `https://app.example.com/**`, plus `/dashboard` and `/onboarding/profile` if you list paths explicitly).
+
+**Interactive API docs**
+
+Use `https://<your-api-host>/docs` in production (same paths as local OpenAPI).
+
+---
+
 ## Features
 
 | Feature | Description |
@@ -215,7 +248,7 @@ Then open [http://localhost:3000](http://localhost:3000).
 | `GET` | `/analytics/plan-health` | Today's plan health + risks |
 | `POST` | `/chat` | AI Coach chat (SSE streaming) |
 
-Full interactive docs: [http://localhost:8000/docs](http://localhost:8000/docs)
+Local interactive docs: [http://localhost:8000/docs](http://localhost:8000/docs) — in production, use `https://<your-api-host>/docs`.
 
 ---
 
