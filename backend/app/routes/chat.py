@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, Header, Request
 from fastapi.responses import StreamingResponse
 from typing import Optional
 
+from ..config import settings
+from ..rate_limit import RateLimitSpec, get_request_identity, rate_limiter
 from ..schemas.chat import ChatRequest
 from ..services.chat_service import ChatService
 from ..db.supabase_client import get_supabase, is_supabase_configured
@@ -13,6 +15,7 @@ router = APIRouter()
 @router.post("")
 async def chat(
     body: ChatRequest,
+    request: Request,
     x_user_id: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
@@ -21,6 +24,15 @@ async def chat(
     Requires Ollama to be running locally with the phi3 model pulled.
     """
     user_id = _get_user_id(x_user_id, authorization)
+    identity = get_request_identity(request, user_id)
+    rate_limiter.enforce(
+        key=f"chat:{identity}",
+        spec=RateLimitSpec(
+            requests=settings.chat_requests_per_window,
+            window_seconds=settings.rate_limit_window_seconds,
+        ),
+    )
+
     db      = get_supabase() if is_supabase_configured() else None
     svc     = ChatService(db)
 

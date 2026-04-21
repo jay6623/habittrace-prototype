@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     ollama_chat_url: str = "http://localhost:11434/api/chat"
     ollama_model: str = "phi3"
 
+    # Basic rate limiting for expensive endpoints (per key, per window)
+    rate_limit_window_seconds: int = 60
+    predict_requests_per_window: int = 30
+    chat_requests_per_window: int = 10
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
