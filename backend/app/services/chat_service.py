@@ -1,10 +1,10 @@
 """
-AI Coach chat service — streams responses from a local Ollama Phi-3 instance.
+AI Coach chat service — streams responses from Ollama (Phi-3 by default).
 
 Requirements:
   1. Install Ollama: https://ollama.com
   2. Pull the model:  ollama pull phi3
-  3. Ollama runs automatically on http://localhost:11434
+  3. Set OLLAMA_CHAT_URL / OLLAMA_MODEL in backend/.env if not using localhost defaults
 """
 from __future__ import annotations
 
@@ -16,10 +16,9 @@ from typing import AsyncGenerator, Optional
 
 import httpx
 
-logger = logging.getLogger(__name__)
+from ..config import settings
 
-OLLAMA_URL   = "http://localhost:11434/api/chat"
-OLLAMA_MODEL = "phi3"
+logger = logging.getLogger(__name__)
 MAX_HISTORY  = 6   # keep last N message pairs in context
 
 TASK_TAG_RE = re.compile(r"\[TASK\](.*?)\[/TASK\]", re.DOTALL)
@@ -123,7 +122,7 @@ class ChatService:
         messages.append({"role": "user", "content": message})
 
         payload = {
-            "model":    OLLAMA_MODEL,
+            "model":    settings.ollama_model,
             "messages": messages,
             "stream":   True,
             "options":  {"temperature": 0.7, "num_predict": 400},
@@ -131,7 +130,9 @@ class ChatService:
 
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
-                async with client.stream("POST", OLLAMA_URL, json=payload) as resp:
+                async with client.stream(
+                    "POST", settings.ollama_chat_url, json=payload
+                ) as resp:
                     if resp.status_code != 200:
                         yield _sse_error(
                             "Ollama returned an error. "

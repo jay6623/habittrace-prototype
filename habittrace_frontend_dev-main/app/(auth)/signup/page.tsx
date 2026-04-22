@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { getOAuthRedirectBaseUrl } from "@/lib/site";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -69,7 +70,9 @@ export default function SignupPage() {
     try {
       const { error: authError } = await supabase.auth.signInWithOAuth({
         provider: "google",
-        options: { redirectTo: `${window.location.origin}/onboarding/profile` },
+        options: {
+          redirectTo: `${getOAuthRedirectBaseUrl()}/onboarding/profile`,
+        },
       });
       if (authError) throw authError;
     } catch (err: unknown) {

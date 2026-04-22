@@ -1,6 +1,8 @@
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, HTTPException, Header, Request
 from typing import Optional
 
+from ..config import settings
+from ..rate_limit import RateLimitSpec, get_request_identity, rate_limiter
 from ..schemas.prediction import PredictRequest, PredictResponse
 from ..services.ml_service import get_ml_service
 from .tasks import _get_user_id
@@ -12,6 +14,7 @@ router = APIRouter()
 @router.post("", response_model=PredictResponse)
 def predict(
     body: PredictRequest,
+    request: Request,
     x_user_id: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
@@ -31,6 +34,15 @@ def predict(
     user_id = body.user_id or _get_user_id(x_user_id, authorization)
     if user_id == "demo-user":
         user_id = None  # no personalization for demo
+
+    identity = get_request_identity(request, user_id or "demo-user")
+    rate_limiter.enforce(
+        key=f"predict:{identity}",
+        spec=RateLimitSpec(
+            requests=settings.predict_requests_per_window,
+            window_seconds=settings.rate_limit_window_seconds,
+        ),
+    )
 
     try:
         result = ml.predict(
