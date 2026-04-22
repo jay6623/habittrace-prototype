@@ -288,7 +288,7 @@ export default function CoachChat() {
       </div>
 
       {/* Message area */}
-      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 bg-slate-50 min-h-[260px] max-h-[340px]">
+      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 bg-slate-50 min-h-0">
 
         {/* Welcome + suggestions */}
         {showWelcome && (

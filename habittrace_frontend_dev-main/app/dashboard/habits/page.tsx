@@ -71,6 +71,14 @@ function parseTimeStr(s: string): { h: string; m: string; mer: "AM" | "PM" } {
   return { h: "9", m: "00", mer: "AM" };
 }
 
+function timeToMinutes(timeStr: string): number {
+  const { h, m, mer } = parseTimeStr(timeStr);
+  let hours = parseInt(h);
+  if (mer === "AM" && hours === 12) hours = 0;
+  else if (mer === "PM" && hours !== 12) hours += 12;
+  return hours * 60 + parseInt(m);
+}
+
 function nowTimeParts(): { h: string; m: string; mer: "AM" | "PM" } {
   const now = new Date();
   let h = now.getHours();
@@ -661,7 +669,7 @@ export default function HabitTrackingPage() {
           <div className="px-5 py-12 text-center text-sm text-slate-400 animate-pulse">Loading tasks…</div>
         ) : (
           <div className="divide-y divide-slate-100">
-            {tasks.map((task) => (
+            {[...tasks].sort((a, b) => timeToMinutes(a.planned_start_time) - timeToMinutes(b.planned_start_time)).map((task) => (
               <div key={task.id}>
                 {/* Task row */}
                 <div className={`px-5 py-4 transition-colors ${

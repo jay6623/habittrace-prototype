@@ -93,7 +93,7 @@ export default function ExecutionTrendChart({ labels, planned, completed }: Prop
   };
 
   return (
-    <div className="h-[240px]">
+    <div className="h-full">
       <Line options={options} data={data} />
     </div>
   );

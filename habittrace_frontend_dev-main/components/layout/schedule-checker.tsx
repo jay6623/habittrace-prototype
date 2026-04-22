@@ -86,7 +86,7 @@ export default function ScheduleChecker() {
         <div className="flex items-center justify-between">
           <div>
             <div className="text-xs text-slate-500">Schedule checker</div>
-            <div className="font-semibold text-sm">Today&apos;s plan health</div>
+            <div className="font-semibold text-sm">Today&apos;s plan</div>
           </div>
           <button
             onClick={fetchHealth}

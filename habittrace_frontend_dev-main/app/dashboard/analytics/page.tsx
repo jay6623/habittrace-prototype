@@ -192,58 +192,58 @@ export default function AnalyticsPage() {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-3">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex items-center justify-between">
         <div>
-          <div className="text-sm text-slate-500">Analytics</div>
-          <h1 className="text-2xl font-bold">Performance Insights</h1>
+          <div className="text-xs text-slate-500">Analytics</div>
+          <h1 className="text-xl font-bold">Performance Insights</h1>
         </div>
-        <div className="flex rounded-xl border border-slate-200 overflow-hidden">
-          {(["week", "month", "3months"] as const).map((range) => (
-            <button
-              key={range}
-              onClick={() => setTimeRange(range)}
-              className={`px-4 py-2 text-sm font-medium transition-colors border-r border-slate-200 last:border-r-0 ${
-                timeRange === range
-                  ? "bg-slate-900 text-white"
-                  : "bg-white text-slate-500 hover:text-slate-700"
-              }`}
-            >
-              {range === "week" ? "This week" : range === "month" ? "This month" : "3 months"}
-            </button>
-          ))}
+        <div className="flex items-center gap-3">
+          {apiError && (
+            <div className="px-3 py-1.5 rounded-lg bg-amber-50 border border-amber-100 text-xs text-amber-700">
+              Showing placeholder data
+            </div>
+          )}
+          <div className="flex rounded-xl border border-slate-200 overflow-hidden">
+            {(["week", "month", "3months"] as const).map((range) => (
+              <button
+                key={range}
+                onClick={() => setTimeRange(range)}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors border-r border-slate-200 last:border-r-0 ${
+                  timeRange === range
+                    ? "bg-slate-900 text-white"
+                    : "bg-white text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                {range === "week" ? "Week" : range === "month" ? "Month" : "3 months"}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* API error */}
-      {apiError && (
-        <div className="px-4 py-3 rounded-xl bg-amber-50 border border-amber-100 text-sm text-amber-700">
-          {apiError}
-        </div>
-      )}
-
       {/* Stats Row */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+      <div className="grid grid-cols-6 gap-3">
         {stats.map((stat) => (
-          <div key={stat.label} className="bg-white rounded-2xl border border-slate-200 p-4">
-            <div className="text-xs text-slate-500">{stat.label}</div>
-            <div className={`text-xl font-bold mt-1 ${loading ? "animate-pulse text-slate-300" : ""}`}>
+          <div key={stat.label} className="bg-white rounded-xl border border-slate-200 p-3">
+            <div className="text-xs text-slate-500 leading-tight">{stat.label}</div>
+            <div className={`text-lg font-bold mt-0.5 ${loading ? "animate-pulse text-slate-300" : ""}`}>
               {loading ? "—" : stat.value}
             </div>
-            <div className={`text-xs mt-1 ${stat.positive ? "text-emerald-600" : "text-slate-500"}`}>
+            <div className={`text-xs mt-0.5 ${stat.positive ? "text-emerald-600" : "text-slate-500"}`}>
               {stat.change}
             </div>
           </div>
         ))}
       </div>
 
-      {/* Row 1: Execution Trend + Success Rate */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-        <div className="bg-white rounded-2xl border border-slate-200 p-5">
-          <div className="font-semibold">Execution trend</div>
-          <div className="text-sm text-slate-500 mb-4">Planned vs completed minutes</div>
-          <div className="h-[260px]">
+      {/* Row 1: Execution Trend + Success Rate + Time of Day */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="bg-white rounded-xl border border-slate-200 p-3">
+          <div className="text-sm font-semibold">Execution trend</div>
+          <div className="text-xs text-slate-500 mb-2">Planned vs completed minutes</div>
+          <div className="h-[155px]">
             <Line
               options={executionTrendOptions}
               data={{
@@ -257,10 +257,10 @@ export default function AnalyticsPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200 p-5">
-          <div className="font-semibold">Success rate over time</div>
-          <div className="text-sm text-slate-500 mb-4">Percentage of tasks completed successfully</div>
-          <div className="h-[260px]">
+        <div className="bg-white rounded-xl border border-slate-200 p-3">
+          <div className="text-sm font-semibold">Success rate over time</div>
+          <div className="text-xs text-slate-500 mb-2">% of tasks completed successfully</div>
+          <div className="h-[155px]">
             <Line
               options={successRateOptions}
               data={{
@@ -272,37 +272,37 @@ export default function AnalyticsPage() {
             />
           </div>
         </div>
-      </div>
 
-      {/* Row 2: Time of Day + Failure by Category */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-        <div className="bg-white rounded-2xl border border-slate-200 p-5">
-          <div className="font-semibold">Performance by time of day</div>
-          <div className="text-sm text-slate-500 mb-4">When you&apos;re most likely to succeed</div>
-          <div className="h-[260px]">
+        <div className="bg-white rounded-xl border border-slate-200 p-3">
+          <div className="text-sm font-semibold">Performance by time of day</div>
+          <div className="text-xs text-slate-500 mb-2">When you&apos;re most likely to succeed</div>
+          <div className="h-[155px]">
             <Bar
               options={timeOfDayOptions}
               data={{
                 labels: hourLabels,
                 datasets: [
-                  { label: "Success rate %", data: hourData, backgroundColor: hourColors, borderWidth: 0, borderRadius: 8 },
+                  { label: "Success rate %", data: hourData, backgroundColor: hourColors, borderWidth: 0, borderRadius: 6 },
                 ],
               }}
             />
           </div>
         </div>
+      </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200 p-5">
-          <div className="font-semibold">Failures by category</div>
-          <div className="text-sm text-slate-500 mb-4">Which types of tasks fail most</div>
-          <div className="h-[260px]">
+      {/* Row 2: Failures by Category + Why tasks fail + Key Insights */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="bg-white rounded-xl border border-slate-200 p-3">
+          <div className="text-sm font-semibold">Failures by category</div>
+          <div className="text-xs text-slate-500 mb-2">Which types of tasks fail most</div>
+          <div className="h-[155px]">
             {catLabels.length > 0 ? (
               <Bar
                 options={failureByCategoryOptions}
                 data={{
                   labels: catLabels,
                   datasets: [
-                    { label: "Failed tasks", data: catData, backgroundColor: ["#38bdf8", "#a78bfa", "#34d399", "#94a3b8", "#fbbf24", "#fb7185"], borderWidth: 0, borderRadius: 8 },
+                    { label: "Failed tasks", data: catData, backgroundColor: ["#38bdf8", "#a78bfa", "#34d399", "#94a3b8", "#fbbf24", "#fb7185"], borderWidth: 0, borderRadius: 6 },
                   ],
                 }}
               />
@@ -313,14 +313,11 @@ export default function AnalyticsPage() {
             )}
           </div>
         </div>
-      </div>
 
-      {/* Row 3: Failure Reasons + Key Insights */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-        <div className="bg-white rounded-2xl border border-slate-200 p-5">
-          <div className="font-semibold">Why tasks fail</div>
-          <div className="text-sm text-slate-500 mb-4">Most common failure reasons</div>
-          <div className="h-[280px]">
+        <div className="bg-white rounded-xl border border-slate-200 p-3">
+          <div className="text-sm font-semibold">Why tasks fail</div>
+          <div className="text-xs text-slate-500 mb-2">Most common failure reasons</div>
+          <div className="h-[155px]">
             {reasonLabels.length > 0 ? (
               <Doughnut
                 options={failureReasonsOptions}
@@ -337,86 +334,62 @@ export default function AnalyticsPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200 p-5">
-          <div className="font-semibold">Key insights</div>
-          <div className="text-sm text-slate-500 mb-4">Observations from your data</div>
+        <div className="bg-white rounded-xl border border-slate-200 p-3">
+          <div className="text-sm font-semibold">Key insights</div>
+          <div className="text-xs text-slate-500 mb-2">Observations from your data</div>
 
-          <div className="space-y-3">
+          <div className="space-y-2">
             {data.best_time_of_day !== "—" && (
-              <div className="flex items-start gap-3 p-3 rounded-xl bg-emerald-50 border border-emerald-100">
-                <div className="mt-0.5 h-2 w-2 rounded-full bg-emerald-400 shrink-0" />
+              <div className="flex items-start gap-2 p-2 rounded-lg bg-emerald-50 border border-emerald-100">
+                <div className="mt-1 h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0" />
                 <div>
-                  <div className="text-sm font-medium text-emerald-900">
-                    Best performance: {data.best_time_of_day}
-                  </div>
-                  <div className="text-xs text-emerald-700 mt-0.5">
-                    {data.success_by_hour[data.best_time_of_day] ?? 0}% success rate — schedule important tasks here.
-                  </div>
+                  <div className="text-xs font-medium text-emerald-900">Best: {data.best_time_of_day}</div>
+                  <div className="text-xs text-emerald-700">{data.success_by_hour[data.best_time_of_day] ?? 0}% success rate</div>
                 </div>
               </div>
             )}
 
             {data.most_failed_category !== "—" && data.most_failed_category !== "N/A" && (
-              <div className="flex items-start gap-3 p-3 rounded-xl bg-rose-50 border border-rose-100">
-                <div className="mt-0.5 h-2 w-2 rounded-full bg-rose-400 shrink-0" />
+              <div className="flex items-start gap-2 p-2 rounded-lg bg-rose-50 border border-rose-100">
+                <div className="mt-1 h-1.5 w-1.5 rounded-full bg-rose-400 shrink-0" />
                 <div>
-                  <div className="text-sm font-medium text-rose-900">
-                    Most failures: {data.most_failed_category}
-                  </div>
-                  <div className="text-xs text-rose-700 mt-0.5">
-                    {data.failure_by_category[data.most_failed_category] ?? 0} failed tasks in this category.
-                  </div>
+                  <div className="text-xs font-medium text-rose-900">Most failures: {data.most_failed_category}</div>
+                  <div className="text-xs text-rose-700">{data.failure_by_category[data.most_failed_category] ?? 0} failed tasks</div>
                 </div>
               </div>
             )}
 
             {data.avg_interruptions > 1.5 && (
-              <div className="flex items-start gap-3 p-3 rounded-xl bg-amber-50 border border-amber-100">
-                <div className="mt-0.5 h-2 w-2 rounded-full bg-amber-400 shrink-0" />
+              <div className="flex items-start gap-2 p-2 rounded-lg bg-amber-50 border border-amber-100">
+                <div className="mt-1 h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
                 <div>
-                  <div className="text-sm font-medium text-amber-900">
-                    High interruption rate: {data.avg_interruptions} per task
-                  </div>
-                  <div className="text-xs text-amber-700 mt-0.5">
-                    Try scheduling focus blocks with Do Not Disturb enabled.
-                  </div>
+                  <div className="text-xs font-medium text-amber-900">High interruptions: {data.avg_interruptions}/task</div>
+                  <div className="text-xs text-amber-700">Try scheduling focus blocks</div>
                 </div>
               </div>
             )}
 
             {data.success_rate > 0 && (
-              <div className="flex items-start gap-3 p-3 rounded-xl bg-sky-50 border border-sky-100">
-                <div className="mt-0.5 h-2 w-2 rounded-full bg-sky-400 shrink-0" />
+              <div className="flex items-start gap-2 p-2 rounded-lg bg-sky-50 border border-sky-100">
+                <div className="mt-1 h-1.5 w-1.5 rounded-full bg-sky-400 shrink-0" />
                 <div>
-                  <div className="text-sm font-medium text-sky-900">
-                    Overall success rate: {data.success_rate}%
-                  </div>
-                  <div className="text-xs text-sky-700 mt-0.5">
-                    Based on {data.total_tasks} tasks tracked this period.
-                  </div>
+                  <div className="text-xs font-medium text-sky-900">Success rate: {data.success_rate}%</div>
+                  <div className="text-xs text-sky-700">{data.total_tasks} tasks tracked</div>
                 </div>
               </div>
             )}
 
             {data.total_tasks === 0 && !loading && (
-              <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
-                <div className="mt-0.5 h-2 w-2 rounded-full bg-slate-300 shrink-0" />
+              <div className="flex items-start gap-2 p-2 rounded-lg bg-slate-50 border border-slate-100">
+                <div className="mt-1 h-1.5 w-1.5 rounded-full bg-slate-300 shrink-0" />
                 <div>
-                  <div className="text-sm font-medium text-slate-600">No data yet for this period</div>
-                  <div className="text-xs text-slate-500 mt-0.5">
-                    Add and complete tasks in the Habits tab to see insights here.
-                  </div>
+                  <div className="text-xs font-medium text-slate-600">No data yet</div>
+                  <div className="text-xs text-slate-500">Add tasks in the Habits tab</div>
                 </div>
               </div>
             )}
           </div>
         </div>
-      </div>
-
-      <div className="text-xs text-slate-400 text-center py-2">
-        {apiError
-          ? "Showing placeholder data — connect the backend to see real analytics."
-          : "Analytics based on your tracked tasks from Supabase."}
       </div>
     </div>
   );

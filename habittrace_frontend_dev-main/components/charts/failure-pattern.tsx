@@ -60,7 +60,7 @@ export default function FailurePatternChart({ labels, data }: Props) {
   };
 
   return (
-    <div className="h-[240px] flex items-center justify-center">
+    <div className="h-full flex items-center justify-center">
       <div className="w-full max-w-[280px] h-full">
         <Doughnut options={options} data={chartData} />
       </div>
