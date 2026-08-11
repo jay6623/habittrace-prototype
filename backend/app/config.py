@@ -19,10 +19,26 @@ class Settings(BaseSettings):
     supabase_service_key: str = ""  # service_role key (bypasses RLS, used server-side only)
     supabase_anon_key: str = ""
 
+    # AI V2 data can live in a separate Supabase project. These credentials are
+    # backend-only and are never shared with Next.js.
+    ai_supabase_url: str = ""
+    ai_supabase_service_role_key: str = ""
+
+    # Bearer tokens may come from the existing V1 Auth project or another
+    # dedicated Auth project. When blank, the existing Supabase URL/anon key is
+    # used for token validation.
+    auth_supabase_url: str = ""
+    auth_supabase_anon_key: str = ""
+
     # ML artifacts directory — defaults to the sibling model repo
     model_artifacts_dir: str = str(_PROJECT_ROOT / "habittrace_model_dev-main" / "artifacts")
     # Root of the ml Python package (the directory that contains the ml/ folder)
     ml_code_dir: str = str(_PROJECT_ROOT / "habittrace_model_dev-main")
+    # AI V2 package and artifact directory. Override for a real trained model.
+    ai_v2_code_dir: str = str(_PROJECT_ROOT / "habittrace_ai_v2")
+    ai_v2_artifacts_dir: str = str(
+        _PROJECT_ROOT / "habittrace_ai_v2" / "artifacts" / "synthetic"
+    )
 
     # Browser origin for your Next.js app (used for CORS when CORS_ORIGINS is unset)
     frontend_url: str = "http://localhost:3000"
@@ -31,9 +47,9 @@ class Settings(BaseSettings):
     # When set, this list is used as-is (localhost is NOT added automatically).
     cors_origins: str = ""
 
-    # When True, trust X-Forwarded-Proto / X-Forwarded-For from a reverse proxy (nginx, Caddy, load balancer).
+    # When True, trust forwarded request headers from a reverse proxy.
     trust_forwarded_headers: bool = False
-    # Hosts/networks allowed to send forwarded headers (see uvicorn ProxyHeadersMiddleware). Use * behind a known proxy.
+    # Hosts/networks allowed to send them. Use * only behind a known proxy.
     proxy_trusted_hosts: str = "127.0.0.1,::1"
 
     # If the API is mounted under a sub-path (e.g. https://domain.com/api), set this to /api

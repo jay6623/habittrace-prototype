@@ -2,8 +2,10 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
-  getTasks, createTask, updateTask, deleteTask, logExecution, predict,
-  type Task, type Prediction, type TaskUpdate,
+  getTasks, createTask, updateTask, deleteTask, logExecution, createAIOutcome,
+  predict, predictAIPlan, getAIPlanPrediction, reviseAIPlan, clearAIPlan,
+  createTimeRecommendation, selectTimeCandidate,
+  type Task, type TaskCreate, type Prediction, type TaskUpdate, type TimeRecommendation,
 } from "@/lib/api";
 
 // ── Constants ─────────────────────────────────────────────────────────────
@@ -90,6 +92,22 @@ function nowTimeParts(): { h: string; m: string; mer: "AM" | "PM" } {
   return { h: String(h), m, mer };
 }
 
+function candidateToTaskTime(candidateStart: string): Pick<TaskUpdate, "planned_start_time" | "planned_date"> {
+  const date = new Date(candidateStart);
+  if (Number.isNaN(date.getTime())) throw new Error("Invalid recommended time.");
+  const hour24 = date.getHours();
+  const mer: "AM" | "PM" = hour24 < 12 ? "AM" : "PM";
+  const hour12 = hour24 % 12 || 12;
+  return {
+    planned_start_time: formatTimeStr(
+      String(hour12),
+      String(date.getMinutes()).padStart(2, "0"),
+      mer,
+    ),
+    planned_date: localDateStr(date),
+  };
+}
+
 // ── Sub-components ────────────────────────────────────────────────────────
 interface LocalTask extends Task {
   actual_start_time: string;
@@ -152,7 +170,7 @@ function TimePicker({ h, m, mer, onH, onM, onMer, label }: {
 }
 
 function PredictionBadge({ prediction, loading }: { prediction?: Prediction; loading?: boolean }) {
-  if (loading) return (
+  if (loading && !prediction) return (
     <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-400 animate-pulse">
       predicting…
     </span>
@@ -162,7 +180,14 @@ function PredictionBadge({ prediction, loading }: { prediction?: Prediction; loa
   const color = pct >= 70 ? "bg-emerald-100 text-emerald-800"
               : pct >= 50 ? "bg-amber-100 text-amber-800"
               :             "bg-rose-100 text-rose-800";
-  return <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${color}`}>{pct}% success</span>;
+  return (
+    <span
+      title={loading ? "Updating success probability" : "Predicted success probability"}
+      className={`text-xs px-2 py-0.5 rounded-full font-medium ${color} ${loading ? "opacity-70 animate-pulse" : ""}`}
+    >
+      {pct}% success{loading ? " · updating" : ""}
+    </span>
+  );
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────
@@ -177,6 +202,8 @@ export default function HabitTrackingPage() {
   const [saving, setSaving] = useState(false);
   // Track which task IDs have predictions loading
   const [predLoading, setPredLoading] = useState<Set<string>>(new Set());
+  const [timeRecommendations, setTimeRecommendations] = useState<Record<string, TimeRecommendation>>({});
+  const [timeRecommendationLoading, setTimeRecommendationLoading] = useState<Set<string>>(new Set());
 
   // ── Add form ──────────────────────────────────────────────────────────
   const [newTitle,      setNewTitle]      = useState("");
@@ -229,16 +256,21 @@ export default function HabitTrackingPage() {
     });
 
     pendingTasks.forEach((t) => {
-      predict({
-        task_category: t.task_category,
-        planned_start_time: t.planned_start_time,
-        planned_date: t.planned_date,
-        planned_duration_min: t.planned_duration_min,
-        importance: t.importance,
-        energy_level: t.energy_level,
-        focus_level: t.focus_level,
-        total_tasks_today: total,
-      })
+      const predictionRequest = t.ai_plan_input_id
+        ? getAIPlanPrediction(t.ai_plan_input_id).then(
+            (existing) => existing ?? predictAIPlan(t.ai_plan_input_id as string)
+          )
+        : predict({
+            task_category: t.task_category,
+            planned_start_time: t.planned_start_time,
+            planned_date: t.planned_date,
+            planned_duration_min: t.planned_duration_min,
+            importance: t.importance,
+            energy_level: t.energy_level,
+            focus_level: t.focus_level,
+            total_tasks_today: total,
+          });
+      predictionRequest
         .then((pred) => {
           setTasks((prev) => prev.map((x) =>
             x.id === t.id ? { ...x, prediction: pred } : x
@@ -253,6 +285,128 @@ export default function HabitTrackingPage() {
           });
         });
     });
+  }
+
+  async function requestTimeRecommendation(task: LocalTask) {
+    if (!task.ai_plan_input_id) {
+      alert("Time recommendations require a signed-in AI plan.");
+      return;
+    }
+    setTimeRecommendationLoading((prev) => new Set(prev).add(task.id));
+    try {
+      const recommendation = await createTimeRecommendation(
+        task.ai_plan_input_id,
+        task.planned_date,
+      );
+      setTimeRecommendations((prev) => ({ ...prev, [task.id]: recommendation }));
+    } catch (error) {
+      console.warn("Time recommendation failed:", error);
+      alert("Could not generate time recommendations for this task.");
+    } finally {
+      setTimeRecommendationLoading((prev) => {
+        const next = new Set(prev);
+        next.delete(task.id);
+        return next;
+      });
+    }
+  }
+
+  async function chooseTimeCandidate(taskId: string, recommendation: TimeRecommendation, candidateId: string) {
+    const task = tasks.find((item) => item.id === taskId);
+    const candidate = recommendation.candidates.find((item) => item.id === candidateId);
+    if (!task || !candidate) return;
+
+    // Update the card immediately so the user gets feedback even while the
+    // persistence request is in flight. The server response remains the source
+    // of truth once it arrives.
+    setTimeRecommendations((prev) => ({
+      ...prev,
+      [taskId]: { ...recommendation, selected_candidate_id: candidateId, status: "accepted" },
+    }));
+    try {
+      const updated = await selectTimeCandidate(recommendation.id, candidateId);
+      const savedRecommendation = {
+        ...updated,
+        // Keep the visual selection even if an older backend response omits
+        // the selected id from its representation.
+        selected_candidate_id: updated.selected_candidate_id ?? candidateId,
+      };
+      setTimeRecommendations((prev) => ({
+        ...prev,
+        [taskId]: savedRecommendation,
+      }));
+
+      // Keep the legacy service task and the visible task list in sync with the
+      // accepted AI recommendation.
+      try {
+        const taskUpdate = candidateToTaskTime(candidate.candidate_start);
+        const updatedTask = await updateTask(taskId, taskUpdate);
+        const revisedTask: TaskCreate = {
+          title: updatedTask.title,
+          task_category: updatedTask.task_category,
+          planned_start_time: updatedTask.planned_start_time,
+          planned_date: updatedTask.planned_date,
+          planned_duration_min: updatedTask.planned_duration_min,
+          importance: updatedTask.importance,
+          energy_level: updatedTask.energy_level,
+          focus_level: updatedTask.focus_level,
+          total_tasks_today: tasks.length,
+        };
+
+        // A changed start time is a new immutable AI plan revision. This makes
+        // the task-list prediction reflect the accepted recommendation rather
+        // than leaving the old success probability attached to the task.
+        let revisedPlanId = task.ai_plan_input_id;
+        if (task.ai_plan_input_id) {
+          try {
+            revisedPlanId = await reviseAIPlan(taskId, task.ai_plan_input_id, revisedTask);
+          } catch (error) {
+            clearAIPlan(taskId);
+            revisedPlanId = undefined;
+            console.warn("AI plan revision after time selection failed:", error);
+          }
+        }
+
+        const patchedTask: LocalTask = {
+          ...task,
+          ...updatedTask,
+          ai_plan_input_id: revisedPlanId,
+          // Keep the previous value visible until the revised prediction
+          // arrives, instead of making the task row appear empty.
+          prediction: task.prediction,
+        };
+        setTasks((prev) => prev.map((item) => (
+          item.id === taskId ? patchedTask : item
+        )));
+        firePredictions([patchedTask], tasks.length);
+      } catch (error) {
+        console.warn("Task update after time selection failed:", error);
+        const detail = error instanceof Error ? error.message : "Unknown API error";
+        alert(`추천 시간은 저장되었지만 작업 목록 업데이트에 실패했습니다.\n${detail}`);
+      }
+    } catch (error) {
+      setTimeRecommendations((prev) => ({ ...prev, [taskId]: recommendation }));
+      console.warn("Time candidate selection failed:", error);
+      const detail = error instanceof Error ? error.message : "Unknown API error";
+      alert(`Could not save the selected time.\n${detail}`);
+    }
+  }
+
+  function previewTimeCandidate(
+    taskId: string,
+    recommendation: TimeRecommendation,
+    candidateId: string,
+  ) {
+    setTimeRecommendations((prev) => ({
+      ...prev,
+      [taskId]: {
+        ...recommendation,
+        selected_candidate_id: candidateId,
+        status: recommendation.selected_candidate_id === candidateId
+          ? recommendation.status
+          : "generated",
+      },
+    }));
   }
 
   // ── Load tasks ────────────────────────────────────────────────────────
@@ -323,6 +477,7 @@ export default function HabitTrackingPage() {
         importance: newImportance, energy_level: newEnergy,
         focus_level: newFocus, total_tasks_today: totalToday,
         task_status: "pending", created_at: new Date().toISOString(),
+        ai_plan_input_id: serverTask?.ai_plan_input_id,
         actual_start_time: "", actual_end_time: "",
         interruption_count: 0, stopped_early: false, failure_reason: "",
       };
@@ -370,21 +525,62 @@ export default function HabitTrackingPage() {
     };
     setSaving(true);
     try {
+      const currentTask = tasks.find((t) => t.id === editingTaskId);
+      if (!currentTask) return;
+
+      const revisedTask: TaskCreate = {
+        title: update.title ?? currentTask.title,
+        task_category: update.task_category ?? currentTask.task_category,
+        planned_start_time: update.planned_start_time ?? currentTask.planned_start_time,
+        planned_date: update.planned_date ?? currentTask.planned_date,
+        planned_duration_min: update.planned_duration_min ?? currentTask.planned_duration_min,
+        importance: update.importance ?? currentTask.importance,
+        energy_level: update.energy_level ?? currentTask.energy_level,
+        focus_level: update.focus_level ?? currentTask.focus_level,
+        total_tasks_today: tasks.length,
+      };
+
       // Optimistic update
       setTasks((prev) => prev.map((t) =>
         t.id !== editingTaskId ? t
         : { ...t, ...update, prediction: undefined }
       ));
-      // Re-predict after edit
-      const updatedTask = tasks.find((t) => t.id === editingTaskId);
-      if (updatedTask) {
-        const patched: LocalTask = { ...updatedTask, ...update, prediction: undefined };
-        firePredictions([patched], tasks.length);
+
+      // Persist the legacy task and create an immutable AI revision separately.
+      let serviceUpdateSucceeded = true;
+      await updateTask(editingTaskId, update).catch((e) => {
+        serviceUpdateSucceeded = false;
+        console.warn("updateTask failed, local only:", e);
+      });
+
+      let revisedPlanId = currentTask.ai_plan_input_id;
+      if (currentTask.ai_plan_input_id && serviceUpdateSucceeded) {
+        try {
+          revisedPlanId = await reviseAIPlan(
+            editingTaskId,
+            currentTask.ai_plan_input_id,
+            revisedTask,
+          );
+        } catch (error) {
+          clearAIPlan(editingTaskId);
+          revisedPlanId = undefined;
+          console.warn("AI V2 plan revision was not created:", error);
+        }
+      } else if (!serviceUpdateSucceeded) {
+        clearAIPlan(editingTaskId);
+        revisedPlanId = undefined;
       }
-      // Persist to backend
-      updateTask(editingTaskId, update).catch((e) =>
-        console.warn("updateTask failed, local only:", e)
-      );
+
+      const patched: LocalTask = {
+        ...currentTask,
+        ...update,
+        ai_plan_input_id: revisedPlanId,
+        prediction: undefined,
+      };
+      setTasks((prev) => prev.map((t) =>
+        t.id === editingTaskId ? patched : t
+      ));
+      firePredictions([patched], tasks.length);
       setEditingTaskId(null);
     } finally { setSaving(false); }
   }
@@ -417,6 +613,7 @@ export default function HabitTrackingPage() {
     setSaving(true);
     try {
       if (completingTaskId) {
+        const completedTask = tasks.find((task) => task.id === completingTaskId);
         await logExecution({
           task_id: completingTaskId,
           actual_start_time: startStr, actual_end_time: endStr,
@@ -424,6 +621,17 @@ export default function HabitTrackingPage() {
           stopped_early: stoppedEarly, task_status: taskResult,
           failure_reason: taskResult === "failed" ? failureReason : undefined,
         }).catch((e) => console.warn("logExecution failed:", e));
+        if (completedTask?.ai_plan_input_id) {
+          await createAIOutcome({
+            task: completedTask,
+            taskResult,
+            actualStartTime: startStr,
+            actualEndTime: endStr,
+            interruptionCount: parseInt(interruptions),
+            stoppedEarly,
+            failureReason: taskResult === "failed" ? failureReason : undefined,
+          }).catch((e) => console.warn("AI V2 outcome was not created:", e));
+        }
       }
       setTasks((prev) => prev.map((t) => {
         if (t.id !== completingTaskId) return t;
@@ -710,6 +918,19 @@ export default function HabitTrackingPage() {
                           Watch out: {task.prediction.predicted_failure_reason.replace(/_/g, " ")}
                         </div>
                       )}
+                      {task.task_status === "pending" && task.prediction?.recommended_actions?.length ? (
+                        <div className="mt-2 rounded-xl bg-slate-50 border border-slate-100 px-3 py-2">
+                          <div className="text-[11px] font-semibold text-slate-600">Try this</div>
+                          <div className="mt-1 flex flex-wrap gap-1.5">
+                            {task.prediction.recommended_actions.slice(0, 2).map((action) => (
+                              <span key={action.code} title={action.detail}
+                                className="text-[11px] px-2 py-1 rounded-lg bg-white border border-slate-200 text-slate-600">
+                                {action.title}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
                       {task.task_status !== "pending" && (
                         <div className="text-xs mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5">
                           <span className="text-slate-500">Actual: {task.actual_start_time} – {task.actual_end_time}</span>
@@ -730,6 +951,15 @@ export default function HabitTrackingPage() {
                         <button onClick={() => { openCompleteForm(task); }}
                           className="text-xs px-3 py-1.5 rounded-lg bg-emerald-100 text-emerald-700 hover:bg-emerald-200 font-medium transition-colors">
                           Log results
+                        </button>
+                      )}
+                      {task.task_status === "pending" && task.ai_plan_input_id && (
+                        <button
+                          onClick={() => requestTimeRecommendation(task)}
+                          disabled={timeRecommendationLoading.has(task.id)}
+                          className="text-xs px-3 py-1.5 rounded-lg bg-indigo-100 text-indigo-700 hover:bg-indigo-200 font-medium transition-colors disabled:opacity-60"
+                        >
+                          {timeRecommendationLoading.has(task.id) ? "Finding…" : "Suggest time"}
                         </button>
                       )}
                       {task.task_status !== "pending" && (
@@ -756,6 +986,68 @@ export default function HabitTrackingPage() {
                     </div>
                   </div>
                 </div>
+
+                {timeRecommendations[task.id] && (
+                  <div className="mx-4 mb-4 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4">
+                    <div className="flex items-center justify-between gap-3 mb-3">
+                      <div>
+                        <div className="text-xs font-semibold text-indigo-900">Suggested times</div>
+                        <div className="text-xs text-indigo-700/70">Scored by schedule conflicts and task success probability</div>
+                      </div>
+                      {timeRecommendations[task.id].status === "accepted" && (
+                        <span className="rounded-full bg-indigo-600 px-2 py-1 text-[11px] font-semibold text-white">
+                          Saved
+                        </span>
+                      )}
+                      <button
+                        onClick={() => setTimeRecommendations((prev) => {
+                          const next = { ...prev };
+                          delete next[task.id];
+                          return next;
+                        })}
+                        className="text-xs text-indigo-700 hover:text-indigo-900"
+                      >Close</button>
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      {timeRecommendations[task.id].candidates.slice(0, 3).map((candidate) => {
+                        const selected = timeRecommendations[task.id].selected_candidate_id === candidate.id;
+                        const label = new Date(candidate.candidate_start).toLocaleTimeString([], {
+                          hour: "numeric", minute: "2-digit",
+                        });
+                        return (
+                          <div key={candidate.id} className="space-y-1">
+                            <button
+                              type="button"
+                              onClick={() => previewTimeCandidate(task.id, timeRecommendations[task.id], candidate.id)}
+                              onDoubleClick={() => chooseTimeCandidate(task.id, timeRecommendations[task.id], candidate.id)}
+                              title="Click to select; double-click to save"
+                              className={`w-full rounded-xl border px-3 py-2 text-left transition-colors ${
+                                selected
+                                  ? "border-indigo-500 bg-indigo-600 text-white"
+                                  : "border-indigo-100 bg-white text-indigo-900 hover:border-indigo-300"
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-2 text-xs font-semibold">
+                                <span>#{candidate.rank} · {label}</span>
+                                {selected && <span className="text-[10px] uppercase tracking-wide">Selected</span>}
+                              </div>
+                              <div className={`text-xs mt-0.5 ${selected ? "text-indigo-100" : "text-indigo-700/70"}`}>
+                                {Math.round(candidate.predicted_success_probability * 100)}% success
+                              </div>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => chooseTimeCandidate(task.id, timeRecommendations[task.id], candidate.id)}
+                              className="w-full rounded-lg border border-indigo-200 bg-white px-2 py-1 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100"
+                            >
+                              {selected && timeRecommendations[task.id].status === "accepted" ? "Saved" : "Select"}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 {/* Inline edit form */}
                 {editingTaskId === task.id && (

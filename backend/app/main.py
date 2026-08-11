@@ -16,8 +16,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from .config import get_cors_allow_origins, get_settings, parse_proxy_trusted_hosts
+from .core.errors import register_application_error_handlers
+from .routes import analytics, chat, executions, health, predict, tasks
+from .routes.v2.router import router as ai_v2_router
+from .services.ai_v2_ml_service import get_ai_v2_ml_service
 from .services.ml_service import get_ml_service
-from .routes import health, tasks, executions, predict, analytics, chat
 
 logging.basicConfig(
     level=logging.INFO,
@@ -36,6 +39,10 @@ async def lifespan(app: FastAPI):
         ml.load()
     except Exception as exc:
         logger.error("ML model loading failed: %s", exc)
+    try:
+        get_ai_v2_ml_service().load()
+    except Exception as exc:
+        logger.error("AI V2 model loading failed: %s", exc)
     yield
     # (shutdown logic could go here)
 
@@ -51,6 +58,7 @@ if _rp:
     _app_kwargs["root_path"] = _rp.rstrip("/") or "/"
 
 app = FastAPI(**_app_kwargs)
+register_application_error_handlers(app)
 
 # ── CORS (inner) ────────────────────────────────────────────────────────────
 app.add_middleware(
@@ -75,3 +83,4 @@ app.include_router(executions.router, prefix="/executions", tags=["executions"])
 app.include_router(predict.router, prefix="/predict", tags=["predict"])
 app.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
 app.include_router(chat.router, prefix="/chat", tags=["chat"])
+app.include_router(ai_v2_router)

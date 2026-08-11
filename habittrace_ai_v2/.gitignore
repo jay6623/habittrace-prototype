@@ -1,0 +1,24 @@
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.py[cod]
+*.egg-info/
+.venv/
+.env
+.env.*
+!.env.example
+
+# Keep the small synthetic model artifacts used by the backend deployment.
+artifacts/*
+!artifacts/synthetic/
+!artifacts/synthetic/*.joblib
+!artifacts/synthetic/*.json
+
+# Never commit private or locally generated datasets.
+data/local/
+data/real/
+artifacts/real-candidate/
+test-tmp/
+tests/_artifact_test.joblib*
+pytest-cache-files-*/

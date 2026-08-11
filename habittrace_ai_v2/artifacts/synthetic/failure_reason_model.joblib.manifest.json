@@ -1,0 +1,143 @@
+{
+  "artifact_format_version": 1,
+  "created_at": "2026-08-10T22:03:40.316777+00:00",
+  "feature_columns": [
+    "input_source",
+    "category",
+    "planned_duration_minutes",
+    "importance",
+    "difficulty",
+    "required_energy",
+    "required_focus",
+    "current_energy",
+    "current_focus",
+    "sleep_hours",
+    "stress_level",
+    "tasks_before_count",
+    "planned_minutes_before",
+    "daily_planned_minutes",
+    "minutes_since_previous",
+    "is_fixed_time",
+    "planned_local_hour_sin",
+    "planned_local_hour_cos",
+    "planned_local_day_sin",
+    "planned_local_day_cos",
+    "planned_local_is_weekend",
+    "deadline_slack_minutes",
+    "energy_gap",
+    "focus_gap",
+    "deadline_at_missing",
+    "current_energy_missing",
+    "current_focus_missing",
+    "sleep_hours_missing",
+    "stress_level_missing",
+    "minutes_since_previous_missing"
+  ],
+  "label_policy": "failed outcomes only; one primary plus zero or more secondary labels; all labels must be user_confirmed=true",
+  "metrics": {
+    "test": {
+      "interruption": {
+        "brier_score": 0.2788239716596757,
+        "log_loss": 0.7604291312550697,
+        "pr_auc": 0.5731055107949312,
+        "roc_auc": 0.5138248847926268
+      },
+      "low_readiness": {
+        "brier_score": 0.12933480011990253,
+        "log_loss": 0.3967765343518074,
+        "pr_auc": 0.9051363364582148,
+        "roc_auc": 0.9089861751152073
+      },
+      "other": {
+        "brier_score": 0.00903031462857587,
+        "log_loss": 0.028661736495491082,
+        "pr_auc": 1.0,
+        "roc_auc": 1.0
+      },
+      "schedule_overload": {
+        "brier_score": 0.08537460518260229,
+        "log_loss": 0.29966434347915205,
+        "pr_auc": 0.709564393939394,
+        "roc_auc": 0.8946078431372548
+      },
+      "task_too_difficult": {
+        "brier_score": 0.08399883784215485,
+        "log_loss": 0.2654603942931141,
+        "pr_auc": 0.20735930735930735,
+        "roc_auc": 0.8363636363636364
+      },
+      "unclear_plan": {
+        "brier_score": 0.06958068477455744,
+        "log_loss": 0.3271725720018282,
+        "pr_auc": 0.0875059173598431,
+        "roc_auc": 0.5136363636363637
+      },
+      "underestimated_time": {
+        "brier_score": 0.025891405790041157,
+        "log_loss": 0.09958591407745,
+        "pr_auc": 0.125,
+        "roc_auc": 0.8793103448275862
+      },
+      "unexpected_event": {
+        "brier_score": 0.018599834998694654,
+        "log_loss": 0.11035885111605308,
+        "pr_auc": 0.037037037037037035,
+        "roc_auc": 0.5517241379310345
+      }
+    },
+    "validation": {
+      "interruption": {
+        "brier_score": 0.24504295617750835,
+        "log_loss": 0.6940704171870912,
+        "pr_auc": 0.6523688409028969,
+        "roc_auc": 0.6232439335887612
+      },
+      "low_readiness": {
+        "brier_score": 0.08190218999452685,
+        "log_loss": 0.2784791266433192,
+        "pr_auc": 0.9521995223749609,
+        "roc_auc": 0.9551020408163265
+      },
+      "other": {
+        "brier_score": 0.0003565331830702637,
+        "log_loss": 0.007646033787955378,
+        "pr_auc": null,
+        "roc_auc": null
+      },
+      "schedule_overload": {
+        "brier_score": 0.0604564260019514,
+        "log_loss": 0.2129274076503656,
+        "pr_auc": 0.8519580419580419,
+        "roc_auc": 0.9456521739130435
+      },
+      "task_too_difficult": {
+        "brier_score": 0.11603628885822623,
+        "log_loss": 0.40249011363845544,
+        "pr_auc": 0.42484391614826394,
+        "roc_auc": 0.8108747044917257
+      },
+      "unclear_plan": {
+        "brier_score": 0.054468377505840736,
+        "log_loss": 0.19648426338235425,
+        "pr_auc": 0.4656084656084656,
+        "roc_auc": 0.8176100628930818
+      },
+      "underestimated_time": {
+        "brier_score": 0.02133164480051037,
+        "log_loss": 0.0846286615572924,
+        "pr_auc": 0.125,
+        "roc_auc": 0.8727272727272728
+      },
+      "unexpected_event": {
+        "brier_score": 0.02191094198093052,
+        "log_loss": 0.14312787684985478,
+        "pr_auc": 0.5227272727272727,
+        "roc_auc": 0.6111111111111112
+      }
+    }
+  },
+  "model_sha256": "bf46eadb2b638c7ccf314f8aee1e40ce071a247af0e960d920cf7cf0e339c219",
+  "model_type": "failure_reason_independent_logistic_regression",
+  "model_version": "synthetic-baseline-1",
+  "training_data_sha256": "273d268acd508c6cdfb05eb3aaaed07d3d3c148b5c3f0f2df556e5cd30a5a542"
+}

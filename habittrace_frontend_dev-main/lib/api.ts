@@ -37,6 +37,8 @@ export interface Task {
   total_tasks_today: number;
   task_status: "pending" | "success" | "failed";
   created_at: string;
+  /** AI V2 immutable plan snapshot created for this task, when available. */
+  ai_plan_input_id?: string;
   prediction?: Prediction;
 }
 
@@ -50,6 +52,50 @@ export interface TaskCreate {
   energy_level: number;
   focus_level: number;
   total_tasks_today: number;
+}
+
+interface AIPlanInputResponse {
+  id: string;
+}
+
+export interface AIOutcomeInput {
+  task: Pick<Task, "ai_plan_input_id" | "planned_date">;
+  taskResult: "success" | "failed";
+  actualStartTime: string;
+  actualEndTime: string;
+  interruptionCount: number;
+  stoppedEarly: boolean;
+  failureReason?: string;
+}
+
+interface AIOutcomeResponse {
+  id: string;
+}
+
+const AI_PLAN_MAP_KEY = "habittrace_ai_plan_ids";
+
+function readAIPlanMap(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    return JSON.parse(localStorage.getItem(AI_PLAN_MAP_KEY) ?? "{}") as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
+function rememberAIPlan(taskId: string, planId: string): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(AI_PLAN_MAP_KEY, JSON.stringify({
+    ...readAIPlanMap(),
+    [taskId]: planId,
+  }));
+}
+
+function forgetAIPlan(taskId: string): void {
+  if (typeof window === "undefined") return;
+  const plans = readAIPlanMap();
+  delete plans[taskId];
+  localStorage.setItem(AI_PLAN_MAP_KEY, JSON.stringify(plans));
 }
 
 export interface ExecutionCreate {
@@ -81,6 +127,48 @@ export interface Prediction {
   failure_probabilities: Record<string, number>;
   top_positive_factors: { feature: string; contribution: number; value: number }[];
   top_negative_factors: { feature: string; contribution: number; value: number }[];
+  explanation?: {
+    source?: string;
+    factors?: { feature: string; direction: string; value: number; message: string }[];
+  };
+  recommended_actions?: { code: string; title: string; detail: string }[];
+}
+
+export interface TimeCandidate {
+  id: string;
+  recommendation_id: string;
+  candidate_start: string;
+  candidate_end: string;
+  predicted_success_probability: number;
+  conflict_penalty: number;
+  overload_penalty: number;
+  preference_penalty: number;
+  final_score: number;
+  rank: number;
+  reason_snapshot: { predicted_failure_reason?: string | null; strategy?: string };
+}
+
+export interface TimeRecommendation {
+  id: string;
+  plan_input_id: string;
+  model_version_id: string;
+  earliest_start: string;
+  latest_end: string;
+  slot_interval_minutes: number;
+  minimum_buffer_minutes: number;
+  status: "generated" | "accepted" | "modified" | "dismissed" | "expired";
+  selected_candidate_id: string | null;
+  created_at: string;
+  candidates: TimeCandidate[];
+}
+
+interface PersistedAIPredictionResponse {
+  model_version: string;
+  success_probability: number;
+  failure_reason_probabilities: Record<string, number>;
+  predicted_failure_reason: string | null;
+  explanation?: Prediction["explanation"];
+  recommended_actions?: Prediction["recommended_actions"];
 }
 
 export interface AnalyticsSummary {
@@ -177,14 +265,161 @@ async function apiFetch<T>(
 
 export async function getTasks(date?: string): Promise<Task[]> {
   const qs = date ? `?date=${date}` : "";
-  return apiFetch<Task[]>(`/tasks${qs}`);
+  const tasks = await apiFetch<Task[]>(`/tasks${qs}`);
+  const aiPlanMap = readAIPlanMap();
+  return tasks.map((task) => ({
+    ...task,
+    ai_plan_input_id: task.ai_plan_input_id ?? aiPlanMap[task.id],
+  }));
 }
 
 export async function createTask(task: TaskCreate): Promise<Task> {
-  return apiFetch<Task>("/tasks", {
+  const created = await apiFetch<Task>("/tasks", {
     method: "POST",
     body: JSON.stringify(task),
   });
+
+  // AI V2 requires a real Supabase user token. Keep legacy/demo task creation
+  // independent so an unavailable AI database never breaks the main app.
+  try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session?.access_token) return created;
+
+    const aiPlan = await apiFetch<AIPlanInputResponse>("/api/v2/ai/plans", {
+      method: "POST",
+      body: JSON.stringify(toAIPlanInput(task)),
+    });
+    rememberAIPlan(created.id, aiPlan.id);
+    return { ...created, ai_plan_input_id: aiPlan.id };
+  } catch (error) {
+    console.warn("AI V2 plan snapshot was not created:", error);
+    return created;
+  }
+}
+
+/** Create the immutable AI revision corresponding to an edited task. */
+export async function reviseAIPlan(
+  taskId: string,
+  parentPlanInputId: string,
+  task: TaskCreate,
+): Promise<string> {
+  const aiPlan = await apiFetch<AIPlanInputResponse>("/api/v2/ai/plans", {
+    method: "POST",
+    body: JSON.stringify({
+      ...toAIPlanInput(task),
+      parent_plan_input_id: parentPlanInputId,
+      input_source: "reschedule",
+    }),
+  });
+  rememberAIPlan(taskId, aiPlan.id);
+  return aiPlan.id;
+}
+
+export function clearAIPlan(taskId: string): void {
+  forgetAIPlan(taskId);
+}
+
+export async function createAIOutcome(input: AIOutcomeInput): Promise<AIOutcomeResponse | null> {
+  const planId = input.task.ai_plan_input_id;
+  if (!planId) return null;
+
+  const date = input.task.planned_date ?? new Date().toISOString().slice(0, 10);
+  const actualStart = parsePlannedStart(input.actualStartTime, date);
+  const actualEnd = parsePlannedStart(input.actualEndTime, date);
+  const startMs = Date.parse(actualStart);
+  const endMs = Date.parse(actualEnd);
+  const activeMinutes = Math.max(0, Math.round((endMs - startMs) / 60000));
+  const isSuccess = input.taskResult === "success";
+
+  const outcome = await apiFetch<AIOutcomeResponse>(
+    `/api/v2/ai/plans/${planId}/outcome`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        outcome_status: isSuccess ? "completed" : "partial",
+        actual_start: actualStart,
+        actual_end: actualEnd,
+        active_minutes: activeMinutes,
+        completion_ratio: isSuccess ? 1 : 0,
+        interruption_count: input.interruptionCount,
+        stopped_early: input.stoppedEarly,
+        user_note: null,
+      }),
+    }
+  );
+
+  if (!isSuccess && input.failureReason) {
+    await apiFetch(`/api/v2/ai/outcomes/${outcome.id}/failure-reasons`, {
+      method: "POST",
+      body: JSON.stringify({
+        primary_reason_code: toAIReasonCode(input.failureReason),
+        secondary_reason_codes: [],
+      }),
+    });
+  }
+  return outcome;
+}
+
+function toAIReasonCode(reason: string): string {
+  const mapping: Record<string, string> = {
+    low_energy: "low_readiness",
+    low_focus: "low_readiness",
+    start_delay: "unclear_plan",
+    interruptions: "interruption",
+    time_underestimate: "underestimated_time",
+    schedule_conflict: "schedule_overload",
+    unexpected_event: "unexpected_event",
+    other: "other",
+  };
+  return mapping[reason] ?? "other";
+}
+
+function toAIPlanInput(task: TaskCreate): Record<string, unknown> {
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const plannedDate = task.planned_date ?? new Date().toISOString().slice(0, 10);
+  const plannedStart = parsePlannedStart(task.planned_start_time, plannedDate);
+
+  return {
+    input_source: "user",
+    title: task.title,
+    description: null,
+    category: task.task_category,
+    planned_start: plannedStart,
+    planned_duration_minutes: task.planned_duration_min,
+    importance: task.importance,
+    difficulty: 3,
+    required_energy: task.energy_level,
+    required_focus: task.focus_level,
+    current_energy: task.energy_level,
+    current_focus: task.focus_level,
+    sleep_hours: null,
+    stress_level: null,
+    timezone_name: timezone,
+    is_fixed_time: true,
+  };
+}
+
+function parsePlannedStart(time: string, date: string): string {
+  const match = time.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+  if (!match) {
+    throw new Error(`Invalid planned_start_time: ${time}`);
+  }
+
+  let hour = Number(match[1]);
+  const minute = Number(match[2]);
+  const meridiem = match[3]?.toUpperCase();
+  if (meridiem) {
+    if (hour < 1 || hour > 12) throw new Error(`Invalid planned_start_time: ${time}`);
+    if (meridiem === "PM" && hour !== 12) hour += 12;
+    if (meridiem === "AM" && hour === 12) hour = 0;
+  }
+  if (hour > 23 || minute > 59) throw new Error(`Invalid planned_start_time: ${time}`);
+
+  const local = new Date(`${date}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00`);
+  if (Number.isNaN(local.getTime())) throw new Error(`Invalid planned date: ${date}`);
+  return local.toISOString();
 }
 
 export interface TaskUpdate {
@@ -225,6 +460,73 @@ export async function predict(req: PredictRequest): Promise<Prediction> {
     method: "POST",
     body: JSON.stringify(req),
   });
+}
+
+/** Run the AI V2 model for an owned plan and persist the prediction in AI DB. */
+export async function predictAIPlan(planInputId: string): Promise<Prediction> {
+  const result = await apiFetch<PersistedAIPredictionResponse>(
+    `/api/v2/ai/plans/${planInputId}/predict`,
+    { method: "POST" }
+  );
+  return {
+    success_probability: result.success_probability,
+    personalized: false,
+    predicted_failure_reason: result.predicted_failure_reason,
+    failure_probabilities: result.failure_reason_probabilities,
+    top_positive_factors: [],
+    top_negative_factors: [],
+    explanation: result.explanation,
+    recommended_actions: result.recommended_actions,
+  };
+}
+
+export async function createTimeRecommendation(
+  planInputId: string,
+  date: string,
+): Promise<TimeRecommendation> {
+  return apiFetch<TimeRecommendation>(
+    `/api/v2/ai/plans/${planInputId}/time-recommendations`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        earliest_start: parsePlannedStart("8:00 AM", date),
+        latest_end: parsePlannedStart("10:00 PM", date),
+        slot_interval_minutes: 30,
+        minimum_buffer_minutes: 15,
+      }),
+    },
+  );
+}
+
+export async function selectTimeCandidate(
+  recommendationId: string,
+  candidateId: string,
+): Promise<TimeRecommendation> {
+  return apiFetch<TimeRecommendation>(
+    `/api/v2/ai/time-recommendations/${recommendationId}/select`,
+    {
+      method: "POST",
+      body: JSON.stringify({ candidate_id: candidateId, status: "accepted" }),
+    },
+  );
+}
+
+/** Read the latest persisted prediction without creating another database row. */
+export async function getAIPlanPrediction(planInputId: string): Promise<Prediction | null> {
+  const response = await apiFetch<{ prediction: PersistedAIPredictionResponse | null }>(
+    `/api/v2/ai/plans/${planInputId}/prediction`
+  );
+  if (!response.prediction) return null;
+  return {
+    success_probability: response.prediction.success_probability,
+    personalized: false,
+    predicted_failure_reason: response.prediction.predicted_failure_reason,
+    failure_probabilities: response.prediction.failure_reason_probabilities,
+    top_positive_factors: [],
+    top_negative_factors: [],
+    explanation: response.prediction.explanation,
+    recommended_actions: response.prediction.recommended_actions,
+  };
 }
 
 // ── Analytics ────────────────────────────────────────────────────────────────

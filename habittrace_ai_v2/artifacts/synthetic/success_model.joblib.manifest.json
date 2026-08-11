@@ -1,0 +1,55 @@
+{
+  "artifact_format_version": 1,
+  "created_at": "2026-08-10T22:03:40.305113+00:00",
+  "feature_columns": [
+    "input_source",
+    "category",
+    "planned_duration_minutes",
+    "importance",
+    "difficulty",
+    "required_energy",
+    "required_focus",
+    "current_energy",
+    "current_focus",
+    "sleep_hours",
+    "stress_level",
+    "tasks_before_count",
+    "planned_minutes_before",
+    "daily_planned_minutes",
+    "minutes_since_previous",
+    "is_fixed_time",
+    "planned_local_hour_sin",
+    "planned_local_hour_cos",
+    "planned_local_day_sin",
+    "planned_local_day_cos",
+    "planned_local_is_weekend",
+    "deadline_slack_minutes",
+    "energy_gap",
+    "focus_gap",
+    "deadline_at_missing",
+    "current_energy_missing",
+    "current_focus_missing",
+    "sleep_hours_missing",
+    "stress_level_missing",
+    "minutes_since_previous_missing"
+  ],
+  "label_policy": "outcome_status == \"completed\" and completion_ratio >= 0.8",
+  "metrics": {
+    "test": {
+      "brier_score": 0.21354750447465287,
+      "log_loss": 0.6357206873128058,
+      "pr_auc": 0.761377519150995,
+      "roc_auc": 0.7304987212276214
+    },
+    "validation": {
+      "brier_score": 0.1781082655716677,
+      "log_loss": 0.5348313865102876,
+      "pr_auc": 0.868854572147244,
+      "roc_auc": 0.7654014876978829
+    }
+  },
+  "model_sha256": "9bc9350d4a1e7607963a3ba0d2aef6cc27643400fa2de396f40dae079df200fc",
+  "model_type": "success_logistic_regression",
+  "model_version": "synthetic-baseline-1",
+  "training_data_sha256": "273d268acd508c6cdfb05eb3aaaed07d3d3c148b5c3f0f2df556e5cd30a5a542"
+}

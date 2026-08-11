@@ -51,6 +51,11 @@ Install the following before running the project:
    - **service_role key** (for the backend — keep secret)
 4. (Optional) Enable Google OAuth in **Authentication → Providers**
 
+For AI V2, run `supabase/ai_schema.sql` in the separate AI Supabase project.
+That schema enables RLS on all AI tables without browser policies; only the
+FastAPI service-role client can access them. Do not put the AI service-role key
+in the frontend project.
+
 ---
 
 ### 2. Backend
@@ -73,6 +78,10 @@ cp .env.example .env
 | `SUPABASE_URL` | Supabase → Settings → API → Project URL |
 | `SUPABASE_SERVICE_KEY` | Supabase → Settings → API → service_role (secret) |
 | `SUPABASE_ANON_KEY` | Supabase → Settings → API → anon public |
+| `AI_SUPABASE_URL` | AI V2 Supabase project URL (backend only) |
+| `AI_SUPABASE_SERVICE_ROLE_KEY` | AI V2 service_role key (backend only; never `NEXT_PUBLIC_`) |
+| `AUTH_SUPABASE_URL` | Optional token-issuer project URL; defaults to `SUPABASE_URL` |
+| `AUTH_SUPABASE_ANON_KEY` | Optional token-issuer anon key; defaults to `SUPABASE_ANON_KEY` |
 | `FRONTEND_URL` | Browser origin for your Next.js app (local: `http://localhost:3000`; production: `https://your-app.example.com`) |
 | `CORS_ORIGINS` | Optional. Comma-separated allowed origins when you do not want the default list. When set, only these origins are allowed (no automatic `localhost`). |
 | `TRUST_FORWARDED_HEADERS` | Set to `true` behind nginx/Caddy/a load balancer so HTTPS and client IP are correct. |
@@ -89,7 +98,7 @@ uvicorn app.main:app --reload --port 8000
 
 ```bash
 curl http://localhost:8000/health
-# → {"status":"ok","ml_models_loaded":true,"supabase_configured":true}
+# Includes V1 DB, AI V2 DB, Auth, and legacy ML readiness flags.
 ```
 
 > The ML artifacts are loaded automatically from `../habittrace_model_dev-main/artifacts/`. No extra setup needed.
@@ -247,6 +256,17 @@ Use `https://<your-api-host>/docs` in production (same paths as local OpenAPI).
 | `GET` | `/analytics/summary?period=week` | Aggregated analytics |
 | `GET` | `/analytics/plan-health` | Today's plan health + risks |
 | `POST` | `/chat` | AI Coach chat (SSE streaming) |
+| `POST` | `/api/v2/ai/plans` | Create an immutable AI plan snapshot or revision (`parent_plan_input_id` + `reschedule`) |
+| `GET` | `/api/v2/ai/plans/{plan_input_id}` | Read an owned AI plan snapshot |
+| `POST` | `/api/v2/ai/plans/{plan_input_id}/outcome` | Record the plan's single outcome |
+| `POST` | `/api/v2/ai/outcomes/{outcome_id}/failure-reasons` | Store user-confirmed failure reasons |
+| `GET` | `/api/v2/ai/failure-reasons` | List active failure-reason definitions |
+| `GET` | `/api/v2/ai/plans/{plan_input_id}/prediction` | Read the latest persisted prediction without creating a new one |
+| `POST` | `/api/v2/ai/predict` | Run the AI V2 success/failure baseline (development artifact) |
+| `POST` | `/api/v2/ai/plans/{plan_input_id}/predict` | Run and persist an AI V2 prediction for an owned plan |
+| `POST` | `/api/v2/ai/plans/{plan_input_id}/time-recommendations` | Generate conflict-free time candidates scored by success probability |
+| `GET` | `/api/v2/ai/time-recommendations/{recommendation_id}` | Read an owned time recommendation |
+| `POST` | `/api/v2/ai/time-recommendations/{recommendation_id}/select` | Save the user's selected time candidate |
 
 Local interactive docs: [http://localhost:8000/docs](http://localhost:8000/docs) — in production, use `https://<your-api-host>/docs`.
 
@@ -265,4 +285,16 @@ To retrain:
 ```bash
 cd habittrace_model_dev-main
 python -m ml.cli train --csv plan_execution_train_set.csv
+```
+
+The model and CSV files above are V1 legacy assets. New AI-only experiments live
+in `habittrace_ai_v2/`; they do not connect to Supabase or load service-role
+credentials. Its leakage, temporal-split, baseline-model, and artifact tests run
+with:
+
+```bash
+cd habittrace_ai_v2
+python -m pytest -q
+python -m ruff check src tests
+python -m mypy src
 ```

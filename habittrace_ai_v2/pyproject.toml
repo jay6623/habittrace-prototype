@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "habittrace-ai-v2"
+version = "0.1.0"
+description = "Leakage-safe training utilities for the HabitTrace AI-only schema"
+requires-python = ">=3.11"
+dependencies = [
+  "joblib>=1.4",
+  "numpy>=2.0",
+  "pandas>=2.2",
+  "scikit-learn>=1.5",
+  "tzdata>=2025.1; platform_system == 'Windows'",
+]
+
+[project.optional-dependencies]
+catboost = ["catboost>=1.2"]
+dev = [
+  "mypy>=1.14",
+  "pandas-stubs>=2.2",
+  "pytest>=8.3",
+  "ruff>=0.9",
+]
+
+[project.scripts]
+habittrace-ai-train = "habittrace_ai.train:main"
+habittrace-ai-export = "habittrace_ai.export_db:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = ["-p", "no:cacheprovider"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
+files = ["src"]
