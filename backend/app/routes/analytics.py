@@ -24,7 +24,7 @@ def _require_db():
 # ── GET /analytics/summary ───────────────────────────────────────────────────
 @router.get("/summary", response_model=AnalyticsSummary)
 def analytics_summary(
-    period: str = Query("week", regex="^(week|month|3months)$"),
+    period: str = Query("week", pattern="^(week|month|3months)$"),
     x_user_id: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):

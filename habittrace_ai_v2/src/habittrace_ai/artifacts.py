@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TypeAlias
 
 import joblib
 import numpy as np
 import pandas as pd
+
+UTC = timezone.utc
 
 ARTIFACT_FORMAT_VERSION = 1
 JSONValue: TypeAlias = (

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import pandas as pd
@@ -17,6 +17,8 @@ from habittrace_ai.contracts import (
     require_columns,
 )
 from habittrace_ai.labels import derive_success_labels
+
+UTC = timezone.utc
 
 
 @dataclass(frozen=True)

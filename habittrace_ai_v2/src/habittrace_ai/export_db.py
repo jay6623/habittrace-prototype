@@ -11,7 +11,7 @@ import argparse
 import hashlib
 import json
 import os
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -26,6 +26,8 @@ from habittrace_ai.contracts import (
     REQUIRED_PLAN_COLUMNS,
 )
 from habittrace_ai.dataset import build_training_datasets
+
+UTC = timezone.utc
 
 TABLES = {
     "plans": ("ai_plan_inputs", "created_at", REQUIRED_PLAN_COLUMNS),

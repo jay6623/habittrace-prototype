@@ -1,11 +1,13 @@
 """Supabase access for time recommendation requests and candidates."""
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from uuid import UUID
 
 from ..core.errors import DatabaseUnavailableError, RepositoryError
 from .base import BaseRepository
+
+UTC = timezone.utc
 
 
 class AITimeRecommendationRepository(BaseRepository):

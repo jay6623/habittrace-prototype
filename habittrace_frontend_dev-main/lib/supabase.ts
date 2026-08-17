@@ -8,12 +8,20 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
  * All callers should handle the case where this may be a stub in demo mode.
  */
 function createSupabaseClient(): SupabaseClient {
+  const options = {
+    auth: {
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+      persistSession: true,
+    },
+  };
+
   if (!supabaseUrl || !supabaseAnonKey) {
     // Return a stub that throws informative errors on use
     // createClient requires a URL, so we provide a dummy one and catch errors at the call site.
-    return createClient("https://placeholder.supabase.co", "placeholder-key");
+    return createClient("https://placeholder.supabase.co", "placeholder-key", options);
   }
-  return createClient(supabaseUrl, supabaseAnonKey);
+  return createClient(supabaseUrl, supabaseAnonKey, options);
 }
 
 export const supabase = createSupabaseClient();

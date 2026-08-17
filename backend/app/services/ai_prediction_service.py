@@ -1,7 +1,7 @@
 """Persisted AI V2 inference for owned plan snapshots."""
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
 
@@ -10,6 +10,8 @@ from ..core.errors import ResourceNotFoundError
 from ..repositories.ai_plan_repository import AIPlanRepository
 from ..repositories.ai_prediction_repository import AIPredictionRepository
 from .ai_v2_ml_service import AIV2MLService
+
+UTC = timezone.utc
 
 
 class AIPredictionService:

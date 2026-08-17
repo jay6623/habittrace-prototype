@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import pytest
+
+UTC = timezone.utc
 
 
 @pytest.fixture

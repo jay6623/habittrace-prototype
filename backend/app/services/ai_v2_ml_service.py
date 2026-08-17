@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import sys
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +13,7 @@ from ..config import settings
 from .ai_explanation import build_plan_explanation
 
 logger = logging.getLogger(__name__)
+UTC = timezone.utc
 
 _AI_V2_ROOT = Path(settings.ai_v2_code_dir)
 _AI_V2_SRC = _AI_V2_ROOT / "src"

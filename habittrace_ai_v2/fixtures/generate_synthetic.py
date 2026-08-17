@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
 
@@ -17,6 +17,8 @@ import numpy as np
 import pandas as pd
 
 from habittrace_ai.contracts import FAILURE_REASON_CODES
+
+UTC = timezone.utc
 
 
 def _sigmoid(value: float) -> float:
