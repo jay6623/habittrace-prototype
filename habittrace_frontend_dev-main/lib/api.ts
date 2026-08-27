@@ -5,10 +5,10 @@
  * (defaults to http://localhost:8000). Trailing slashes are stripped.
  *
  * Auth:
- *   - If Supabase is configured and the user is signed in, the session JWT is
- *     sent as `Authorization: Bearer <token>`.
- *   - Otherwise, a demo user ID is sent via `X-User-Id` so the backend still
- *     works for local development without auth configured.
+ *   - The signed-in Supabase session JWT is sent as
+ *     `Authorization: Bearer <token>`.
+ *   - User-owned endpoints never accept a client-supplied user ID; the backend
+ *     scopes service-role access to the verified JWT owner.
  */
 
 import { supabase } from "./supabase";
@@ -106,6 +106,35 @@ export interface ExecutionCreate {
   stopped_early: boolean;
   task_status: "success" | "failed";
   failure_reason?: string;
+}
+
+export interface Execution {
+  id: string;
+  task_id: string;
+  user_id: string;
+  actual_start_time: string;
+  actual_end_time: string | null;
+  interruption_count: number;
+  stopped_early: boolean;
+  task_status: "success" | "failed" | null;
+  failure_reason: string | null;
+  created_at: string;
+}
+
+export interface ExecutionCompleteInput {
+  interruption_count?: number;
+  stopped_early?: boolean;
+  task_status: "success" | "failed";
+  failure_reason?: string;
+}
+
+export type MobileOutcomeStatus = "completed" | "partial" | "abandoned";
+
+export interface MobileAIOutcomeInput {
+  task: Pick<Task, "ai_plan_input_id" | "planned_date">;
+  execution: Pick<Execution, "actual_start_time" | "actual_end_time">;
+  outcomeStatus: MobileOutcomeStatus;
+  failureReason?: string;
 }
 
 export interface PredictRequest {
@@ -219,23 +248,14 @@ async function buildHeaders(): Promise<HeadersInit> {
       headers["Authorization"] = `Bearer ${session.access_token}`;
       return headers;
     }
-  } catch {
-    // Supabase not configured or call failed — fall through to demo mode
+  } catch (error) {
+    throw new Error("We couldn't verify your session. Try again.", {
+      cause: error,
+    });
   }
 
-  // Demo / development: use a stable ID stored in localStorage
-  if (typeof window !== "undefined") {
-    let demoId = localStorage.getItem("habittrace_demo_user_id");
-    if (!demoId) {
-      demoId = `demo-${Math.random().toString(36).slice(2, 10)}`;
-      localStorage.setItem("habittrace_demo_user_id", demoId);
-    }
-    headers["X-User-Id"] = demoId;
-  } else {
-    headers["X-User-Id"] = "demo-user";
-  }
-
-  return headers;
+  // User-owned endpoints require a verified Supabase identity.
+  throw new Error("You need to sign in.");
 }
 
 // ── Generic fetch wrapper ───────────────────────────────────────────────────
@@ -247,6 +267,7 @@ async function apiFetch<T>(
   const headers = await buildHeaders();
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
+    cache: options.cache ?? "no-store",
     headers: { ...headers, ...(options.headers ?? {}) },
   });
 
@@ -271,6 +292,15 @@ export async function getTasks(date?: string): Promise<Task[]> {
     ...task,
     ai_plan_input_id: task.ai_plan_input_id ?? aiPlanMap[task.id],
   }));
+}
+
+export async function getTask(taskId: string): Promise<Task> {
+  const task = await apiFetch<Task>(`/tasks/${taskId}`);
+  const aiPlanMap = readAIPlanMap();
+  return {
+    ...task,
+    ai_plan_input_id: task.ai_plan_input_id ?? aiPlanMap[task.id],
+  };
 }
 
 export async function createTask(task: TaskCreate): Promise<Task> {
@@ -326,31 +356,84 @@ export async function createAIOutcome(input: AIOutcomeInput): Promise<AIOutcomeR
   if (!planId) return null;
 
   const date = input.task.planned_date ?? new Date().toISOString().slice(0, 10);
-  const actualStart = parsePlannedStart(input.actualStartTime, date);
-  const actualEnd = parsePlannedStart(input.actualEndTime, date);
-  const startMs = Date.parse(actualStart);
-  const endMs = Date.parse(actualEnd);
-  const activeMinutes = Math.max(0, Math.round((endMs - startMs) / 60000));
+  const actualStart = normalizeActualTime(input.actualStartTime, date);
+  const actualEnd = normalizeActualTime(input.actualEndTime, date);
   const isSuccess = input.taskResult === "success";
 
+  return persistAIOutcome({
+    planId,
+    outcomeStatus: isSuccess ? "completed" : "partial",
+    actualStart,
+    actualEnd,
+    completionRatio: isSuccess ? 1 : 0,
+    interruptionCount: input.interruptionCount,
+    stoppedEarly: input.stoppedEarly,
+    failureReason: input.failureReason,
+  });
+}
+
+export async function createMobileAIOutcome(
+  input: MobileAIOutcomeInput,
+): Promise<AIOutcomeResponse | null> {
+  const planId = input.task.ai_plan_input_id;
+  const actualEnd = input.execution.actual_end_time;
+  if (!planId || !actualEnd) return null;
+
+  return persistAIOutcome({
+    planId,
+    outcomeStatus: input.outcomeStatus,
+    actualStart: normalizeActualTime(
+      input.execution.actual_start_time,
+      input.task.planned_date,
+    ),
+    actualEnd: normalizeActualTime(actualEnd, input.task.planned_date),
+    completionRatio:
+      input.outcomeStatus === "completed"
+        ? 1
+        : input.outcomeStatus === "partial"
+          ? 0.5
+          : 0,
+    interruptionCount: 0,
+    stoppedEarly: input.outcomeStatus !== "completed",
+    failureReason: input.failureReason,
+  });
+}
+
+interface PersistAIOutcomeInput {
+  planId: string;
+  outcomeStatus: MobileOutcomeStatus;
+  actualStart: string;
+  actualEnd: string;
+  completionRatio: number;
+  interruptionCount: number;
+  stoppedEarly: boolean;
+  failureReason?: string;
+}
+
+async function persistAIOutcome(
+  input: PersistAIOutcomeInput,
+): Promise<AIOutcomeResponse> {
+  const startMs = Date.parse(input.actualStart);
+  const endMs = Date.parse(input.actualEnd);
+  const activeMinutes = Math.max(0, Math.round((endMs - startMs) / 60000));
   const outcome = await apiFetch<AIOutcomeResponse>(
-    `/api/v2/ai/plans/${planId}/outcome`,
+    `/api/v2/ai/plans/${input.planId}/outcome`,
     {
       method: "POST",
       body: JSON.stringify({
-        outcome_status: isSuccess ? "completed" : "partial",
-        actual_start: actualStart,
-        actual_end: actualEnd,
+        outcome_status: input.outcomeStatus,
+        actual_start: input.actualStart,
+        actual_end: input.actualEnd,
         active_minutes: activeMinutes,
-        completion_ratio: isSuccess ? 1 : 0,
+        completion_ratio: input.completionRatio,
         interruption_count: input.interruptionCount,
         stopped_early: input.stoppedEarly,
         user_note: null,
       }),
-    }
+    },
   );
 
-  if (!isSuccess && input.failureReason) {
+  if (input.outcomeStatus !== "completed" && input.failureReason) {
     await apiFetch(`/api/v2/ai/outcomes/${outcome.id}/failure-reasons`, {
       method: "POST",
       body: JSON.stringify({
@@ -363,6 +446,18 @@ export async function createAIOutcome(input: AIOutcomeInput): Promise<AIOutcomeR
 }
 
 function toAIReasonCode(reason: string): string {
+  const canonicalCodes = new Set([
+    "low_readiness",
+    "schedule_overload",
+    "underestimated_time",
+    "interruption",
+    "unexpected_event",
+    "unclear_plan",
+    "task_too_difficult",
+    "other",
+  ]);
+  if (canonicalCodes.has(reason)) return reason;
+
   const mapping: Record<string, string> = {
     low_energy: "low_readiness",
     low_focus: "low_readiness",
@@ -374,6 +469,14 @@ function toAIReasonCode(reason: string): string {
     other: "other",
   };
   return mapping[reason] ?? "other";
+}
+
+function normalizeActualTime(value: string, date: string): string {
+  if (value.includes("T")) {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
+  }
+  return parsePlannedStart(value, date);
 }
 
 function toAIPlanInput(task: TaskCreate): Record<string, unknown> {
@@ -446,10 +549,31 @@ export async function deleteTask(taskId: string): Promise<void> {
 
 // ── Executions ───────────────────────────────────────────────────────────────
 
-export async function logExecution(execution: ExecutionCreate): Promise<void> {
-  return apiFetch<void>("/executions", {
+export async function logExecution(execution: ExecutionCreate): Promise<Execution> {
+  return apiFetch<Execution>("/executions", {
     method: "POST",
     body: JSON.stringify(execution),
+  });
+}
+
+export async function getActiveExecutions(): Promise<Execution[]> {
+  return apiFetch<Execution[]>("/executions?active=true");
+}
+
+export async function startExecution(taskId: string): Promise<Execution> {
+  return apiFetch<Execution>("/executions/start", {
+    method: "POST",
+    body: JSON.stringify({ task_id: taskId }),
+  });
+}
+
+export async function completeExecution(
+  executionId: string,
+  input: ExecutionCompleteInput,
+): Promise<Execution> {
+  return apiFetch<Execution>(`/executions/${executionId}/complete`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
   });
 }
 

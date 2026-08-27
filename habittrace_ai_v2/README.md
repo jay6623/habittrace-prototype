@@ -1,76 +1,155 @@
 # HabitTrace AI V2
 
-새 AI 전용 테이블에서 만든 학습용 데이터로 모델 구조를 독립적으로 검증하는 패키지입니다.
-기존 `habittrace_model_dev-main`이나 FastAPI 런타임과 연결되지 않으며, Supabase client와
-환경변수 로딩 코드도 포함하지 않습니다. 따라서 이 폴더에는 `service_role` key가 필요하지
-않습니다.
+HabitTrace AI V2 is a standalone Python package for building and validating models from the dedicated AI Supabase schema. It is designed to reduce label leakage, preserve plan-revision lineage, and produce reviewable model artifacts.
 
-## 현재 범위
+The package does not create browser clients, load frontend environment variables, or modify the legacy V1 model directory. Database export is read-only.
 
-- 성공 라벨을 실행 결과에서 동적으로 계산
-- 계획 당시 알 수 있던 값만 feature로 변환
-- 사용자가 확인한 실패 원인만 multi-label 정답으로 사용
-- 무작위 분할 대신 label 가용 시각을 고려한 시간순 train/validation/test 분할
-- 같은 시각의 행은 한 partition에 유지하고, 경계를 넘는 revision 계보는 평가에서 제외
-- 성공확률 Logistic Regression baseline
-- 실패 원인별 독립 Logistic Regression baseline
-- 모델 파일과 manifest의 SHA-256 검증
+## Current scope
 
-초기 성공 정의는 아래와 같으며 DB에 별도 boolean으로 저장하지 않습니다.
+- Derive success labels from recorded outcomes instead of storing a duplicated boolean
+- Use only information known at planning time as model features
+- Use only server-confirmed user failure reasons as targets
+- Split data chronologically using label-availability time
+- Keep equal timestamps in one partition
+- Exclude revision lineages that cross evaluation boundaries
+- Train an unweighted logistic-regression baseline for success probability
+- Train independent logistic-regression baselines for multi-label failure reasons
+- Evaluate probability quality and classification quality
+- Save joblib artifacts with manifests and SHA-256 checks
+- Export validated snapshots from AI Supabase through a read-only REST client
+
+CatBoost remains an optional dependency for future comparison experiments. There is no LLM coach in this package. The FastAPI time-recommendation service uses success predictions to score candidate slots; AI V2 does not currently train a separate time-ranking model.
+
+## Label policy
+
+The initial success definition is derived at dataset-build time:
 
 ```text
 outcome_status == "completed" AND completion_ratio >= 0.8
 ```
 
-CatBoost, 시간 추천, LLM 코치는 아직 구현 범위가 아닙니다. `catboost`는 나중의 비교 실험을
-위한 선택적 dependency로만 선언되어 있습니다.
+It is not stored as a separate database boolean.
 
-현재 Logistic Regression은 class weight로 사전확률을 인위적으로 바꾸지 않는 baseline입니다.
-그래도 `predict_proba`가 곧바로 운영용 확률이라는 뜻은 아닙니다. 실제 시간 추천에 연결하기
-전에는 untouched temporal validation 데이터에서 Brier/log-loss와 calibration curve를 확인하고,
-필요하면 sigmoid 또는 isotonic calibration을 별도 학습해야 합니다.
+Failure targets come only from rows that satisfy the database truth constraints, including `user_confirmed = true`. A reason attached to a successful outcome or an unknown reason definition is rejected.
 
-시간순 평가에서 학습 행은 `label_available_at`이 validation 시작 시각보다 이른 경우만,
-validation 행은 해당 값이 test 시작 시각보다 이른 경우만 사용됩니다. 실패 원인 데이터의 이
-시각은 outcome 기록 시각과 사용자 원인 확인 시각 중 더 늦은 값입니다. X/y는 같은 index를
-유지하며 `temporal_split_aligned()`로 함께 나눕니다.
+## Leakage controls
 
-joblib은 신뢰된 backend artifact만 로드해야 합니다. SHA-256 manifest는 우발적인 손상이나
-파일 불일치를 탐지하지만, 공격자가 model과 manifest를 함께 바꾸는 상황을 막는 서명은
-아닙니다.
+The success and failure datasets use a fixed planning-time feature schema. Actual start/end times, completion ratio, stopped-early state, and failure-reason confirmation timestamps are labels or label-availability metadata, not prediction inputs.
 
-## 실행
+Temporal splitting observes these rules:
 
-저장소의 backend 개발 dependency가 설치되어 있다면 바로 검사할 수 있습니다.
+- A training row is usable only when `label_available_at` is earlier than the validation boundary.
+- A validation row is usable only when `label_available_at` is earlier than the test boundary.
+- Failure label availability is the later of outcome creation and user reason confirmation.
+- Revisions related across a split boundary are excluded from evaluation.
+- `temporal_split_aligned()` keeps feature and target indexes aligned.
+
+## Requirements and installation
+
+Python 3.11 or newer is required.
 
 ```powershell
 cd habittrace_ai_v2
-python -m pytest -q
-python -m ruff check src tests
-python -m mypy src
+python -m pip install -e ".[dev]"
 ```
 
-## Real-data export
-
-Use the read-only exporter to create a validated snapshot from the AI
-Supabase tables. It writes `plans.csv`, `outcomes.csv`, `failure_reasons.csv`,
-and `manifest.json` without modifying the database.
+CatBoost is optional:
 
 ```powershell
-cd habittrace_ai_v2
+python -m pip install -e ".[catboost]"
+```
+
+## Generate synthetic fixtures
+
+```powershell
+python fixtures/generate_synthetic.py --rows 800
+```
+
+See `fixtures/README.md` for the fixture contract and safety rules.
+
+## Export a real-data snapshot
+
+The exporter reads `ai_plan_inputs`, `ai_plan_outcomes`, and confirmed failure reasons through Supabase REST. It never writes to the database.
+
+```powershell
 python -m habittrace_ai.export_db `
   --env-file ..\backend\.env `
   --outdir data\real
 ```
 
-Review `data\real\manifest.json` before training with `habittrace_ai.train`.
-Keep real snapshots and service-role keys out of the frontend and source control.
+It writes:
 
-별도 가상환경에서는 다음처럼 설치합니다.
+- `plans.csv`
+- `outcomes.csv`
+- `failure_reasons.csv`
+- `manifest.json`
+
+By default, invalid or empty training snapshots fail closed. `--allow-invalid` is for controlled diagnostics only and must not be used to approve training data.
+
+Review `manifest.json` before training. Never commit real user exports, service-role keys, access tokens, or free-form user notes.
+
+## Train baseline artifacts
+
+Synthetic example:
 
 ```powershell
-python -m pip install -e ".[dev]"
+python -m habittrace_ai.train `
+  --plans fixtures\synthetic_plans.csv `
+  --outcomes fixtures\synthetic_outcomes.csv `
+  --failure-reasons fixtures\synthetic_failure_reasons.csv `
+  --outdir artifacts\synthetic `
+  --model-version synthetic-baseline
 ```
 
-실제 DB export는 이 패키지 밖의 backend 또는 별도 보안 export 작업이 담당해야 합니다.
-원본 DB key, access token, 사용자 메모가 들어간 파일을 이 폴더에 커밋하지 마세요.
+Real snapshot example:
+
+```powershell
+python -m habittrace_ai.train `
+  --plans data\real\plans.csv `
+  --outcomes data\real\outcomes.csv `
+  --failure-reasons data\real\failure_reasons.csv `
+  --outdir artifacts\real `
+  --model-version real-baseline-001
+```
+
+Training writes:
+
+| File | Purpose |
+|---|---|
+| `success_model.joblib` | Success-probability pipeline |
+| `success_model.joblib.manifest.json` | Version, schema, label policy, metrics, data hash, and model hash |
+| `failure_reason_model.joblib` | Independent failure-reason models |
+| `failure_reason_model.joblib.manifest.json` | Failure artifact metadata and hashes |
+| `metrics.json` | Row counts and evaluation output |
+
+## Probability interpretation
+
+The current logistic-regression baseline does not use class weights that intentionally shift the prior. That does not make raw `predict_proba` output production-calibrated.
+
+Before using a model for user-facing recommendations, evaluate it on untouched temporal data with Brier score, log loss, and calibration curves. Fit sigmoid or isotonic calibration separately when validation evidence supports it.
+
+## Artifact safety
+
+Load joblib files only from trusted backend artifact storage. SHA-256 manifests detect accidental corruption and mismatched files, but they are not digital signatures. An attacker who can replace both a model and its manifest can bypass a checksum comparison.
+
+Artifact loading validates model type, feature schema, label policy, manifest fields, and the serialized model hash.
+
+## Tests and static checks
+
+```powershell
+python -m pytest -q
+python -m ruff check src tests
+python -m mypy src
+```
+
+The test suite covers label derivation, feature leakage boundaries, timezone handling, temporal splits, revision lineage, exporter quality checks, independent failure probabilities, artifact round trips, and checksum/contract validation.
+
+## Backend integration
+
+The FastAPI backend can load the development baseline from:
+
+```text
+../habittrace_ai_v2/artifacts/synthetic
+```
+
+Override it with `AI_V2_CODE_DIR` and `AI_V2_ARTIFACTS_DIR` in `backend/.env`. The AI database service-role key belongs only in `backend/.env`; this training package does not need it unless the read-only exporter is explicitly run.

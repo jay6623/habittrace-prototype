@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">HabitTrace temporary app icon</title>
+  <desc id="desc">White HT letters and an emerald check trace on a slate background.</desc>
+  <rect width="512" height="512" rx="112" fill="#0f172a"/>
+  <path d="M122 142v228M122 256h132M254 142v228M300 142h126M363 142v116" fill="none" stroke="#fff" stroke-width="42" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m293 326 42 42 83-103" fill="none" stroke="#34d399" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

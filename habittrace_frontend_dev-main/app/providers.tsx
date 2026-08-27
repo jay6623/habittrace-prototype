@@ -24,14 +24,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // 현재 세션 로드
+    // Load the current session.
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
     });
 
-    // 로그인/로그아웃 상태 변화 감지
+    // Watch for sign-in and sign-out changes.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => {
         setSession(session);
@@ -43,7 +43,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  // 유저 표시 이름 추출
+  // Resolve the user's display name.
   const displayName =
     user?.user_metadata?.first_name ||
     user?.email?.split("@")[0] ||

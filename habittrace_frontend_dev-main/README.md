@@ -1,95 +1,187 @@
-# HabitTrace_frontend_dev
+# HabitTrace Frontend
 
-This is the Next.js frontend for the HabitTrace project.
+This directory contains the HabitTrace web application and installable mobile PWA.
 
+## Stack
 
-## Test and Deploy
+- Next.js 16.1 with the App Router
+- React 19
+- TypeScript with strict mode
+- Tailwind CSS 4
+- Supabase Auth in the browser
+- Chart.js for desktop analytics
+- A dependency-free Service Worker for offline navigation fallback
 
-Use the built-in continuous integration in GitLab.
+## Product split
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+The same Next.js project serves two focused experiences.
 
-***
+### Desktop
 
-# Editing this README
+Desktop routes retain the full planning and analysis tools:
 
-## Name
-Choose a self-explaining name for your project.
+| Route | Purpose |
+|---|---|
+| `/dashboard` | Dashboard overview |
+| `/dashboard/habits` | Task management and prediction |
+| `/dashboard/calendar` | Desktop month/week calendar |
+| `/dashboard/scheduler` | Timeline scheduling and recommendations |
+| `/dashboard/analytics` | Trends and failure-pattern analytics |
+| `/dashboard/settings` | Full settings and account controls |
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+### Mobile PWA
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+Mobile routes use a lightweight shell without the desktop sidebar, charts, or schedule checker:
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+| Route | Purpose |
+|---|---|
+| `/dashboard/today` | Active/next plan, Quick Add, start, and outcome logging |
+| `/dashboard/today/calendar` | Month calendar, selected-day agenda, and date-prefilled Quick Add |
+| `/dashboard/today/account` | Display name, email, password reset, and sign-out |
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+The bottom navigation contains only **Today** and **Calendar**. Quick Add remains prominent inside the Today and Calendar screens. The `HT` button opens mobile account management.
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+## Authentication and data ownership
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+`app/providers.tsx` restores and observes the Supabase browser session. `lib/api.ts` attaches the current access token to API requests as `Authorization: Bearer <token>`.
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+Unauthenticated dashboard routes redirect to `/login?next=<original-route>`. After login, the app returns to that safe internal dashboard route. A direct mobile or installed-PWA login defaults to `/dashboard/today`; a direct desktop login defaults to `/dashboard`.
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+The display name shown on Today is resolved in this order:
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+1. `user.user_metadata.first_name`
+2. The part of the email address before `@`
+3. `there`
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+The display name is not a database ownership key. The backend derives ownership from the verified Supabase user UUID.
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+## Environment
 
-## License
-For open source projects, say how it is licensed.
+Create `.env.local` in this directory. It is intentionally ignored by Git.
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
-
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
-
-## Getting Started
-
-First, run the development server:
-
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```dotenv
+NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-public-key
+NEXT_PUBLIC_API_URL=http://localhost:8000
+# Optional canonical production origin for OAuth:
+# NEXT_PUBLIC_SITE_URL=https://app.example.com
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Never place a Supabase service-role key in a `NEXT_PUBLIC_` variable or browser code.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+`NEXT_PUBLIC_API_URL` defaults to `http://localhost:8000` when omitted. A production browser and API must both use HTTPS to avoid mixed-content blocking.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Development
 
-## Learn More
+Node.js 20.9 or newer is required by Next.js 16.
 
-To learn more about Next.js, take a look at the following resources:
+```powershell
+npm install
+npm run dev
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Open `http://localhost:3000`. The root route redirects to `/login`.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Available scripts:
 
-## Deploy on Vercel
+| Command | Purpose |
+|---|---|
+| `npm run dev` | Start the development server |
+| `npm run build` | Create a production build |
+| `npm start` | Serve an existing production build |
+| `npm run lint` | Run ESLint |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+TypeScript can be checked independently:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```powershell
+npx tsc --noEmit
+```
+
+## Mobile task flow
+
+```text
+Sign in → Today → Quick Add → Start → Finish → Select outcome
+```
+
+Quick Add creates the existing backend `TaskCreate` shape. Category, importance, energy, and focus receive explicit defaults unless the user opens More options. Mobile outcome choices map safely to the existing data model:
+
+| Mobile choice | V1 task/execution status | AI V2 outcome |
+|---|---|---|
+| Completed | `success` | `completed` |
+| Partially done | `failed` with `stopped_early=true` | `partial` |
+| Not completed | `failed` | `abandoned` |
+| Still in progress | Open execution and pending task | No final outcome yet |
+
+Partial and failed outcomes use canonical failure-reason codes from `lib/mobile-task.ts`. The UI labels remain separate from the stored codes.
+
+## PWA implementation
+
+- `app/manifest.ts`: app identity, standalone start URL, icons, and Quick Add shortcut
+- `components/pwa/service-worker-registration.tsx`: Service Worker registration
+- `public/sw.js`: network-first navigation and offline fallback
+- `public/offline.html`: English offline screen
+- `public/icons/`: 180, 192, 512, and maskable icons
+
+The Service Worker deliberately does not cache authenticated HTML, API responses, or private plan data. Offline navigation displays the fallback page, but creating or updating plans requires a network connection.
+
+Push notifications are not implemented. Adding them requires permission UX, Push API subscriptions, a user-owned subscription table, server-side scheduling and delivery, and `push`/`notificationclick` Service Worker handlers.
+
+## Install testing
+
+For a production-like local check:
+
+```powershell
+npm run build
+npm start
+```
+
+Check:
+
+- `/manifest.webmanifest`
+- `/sw.js`
+- `/offline.html`
+- `/dashboard/today`
+
+Real phone installation requires HTTPS:
+
+- Android Chrome: **Install app** or **Add to Home screen**
+- iPhone Safari: **Share** → **Add to Home Screen**
+
+## Development cache troubleshooting
+
+Do not run `npm run build` while `npm run dev` is active in the same working tree. Next.js writes both modes under `.next`, and overlapping operations can produce errors such as:
+
+```text
+Persisting failed: Another write batch or compaction is already active
+ENOENT ... .next/dev/.../build-manifest.json
+```
+
+Recovery:
+
+1. Stop every `next dev`, `next build`, and `next start` process for this frontend.
+2. Remove only this directory's generated `.next` folder.
+3. Start `npm run dev` again.
+
+On Windows, OneDrive can hold generated files or Turbopack cache entries open. If the problem repeats, keep the active repository outside OneDrive or pause synchronization while developing. Do not delete source directories to repair a Next.js cache error.
+
+## Validation
+
+Run these sequentially so they do not compete for `.next/types`:
+
+```powershell
+npx tsc --noEmit
+npm run lint
+npm run build
+```
+
+The build may download the existing Geist fonts through `next/font`, so network access is required when the font cache is cold.
+
+## Deployment
+
+1. Set the public frontend environment variables on the hosting platform.
+2. Set `NEXT_PUBLIC_API_URL` to the HTTPS FastAPI origin without a trailing slash.
+3. Add the production origin and OAuth return paths to Supabase Auth URL Configuration.
+4. Build with `npm run build` and serve with `npm start`, or use a platform's supported Next.js integration.
+5. Confirm that `/sw.js` is served with `Cache-Control: no-cache, no-store, must-revalidate` and `Service-Worker-Allowed: /`.
+
+The icons in `public/icons` are current temporary HabitTrace assets and can be replaced in place when final brand artwork is available.

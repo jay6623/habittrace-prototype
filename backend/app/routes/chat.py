@@ -1,13 +1,12 @@
-from fastapi import APIRouter, Header, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
-from typing import Optional
 
 from ..config import settings
+from ..db.supabase_client import get_supabase, is_supabase_configured
+from ..dependencies.auth import CurrentUserId
 from ..rate_limit import RateLimitSpec, get_request_identity, rate_limiter
 from ..schemas.chat import ChatRequest
 from ..services.chat_service import ChatService
-from ..db.supabase_client import get_supabase, is_supabase_configured
-from .tasks import _get_user_id
 
 router = APIRouter()
 
@@ -16,15 +15,14 @@ router = APIRouter()
 async def chat(
     body: ChatRequest,
     request: Request,
-    x_user_id: Optional[str] = Header(None),
-    authorization: Optional[str] = Header(None),
+    user_id: CurrentUserId,
 ):
     """
     Stream an AI coach response from Ollama (Phi-3 Mini).
     Requires Ollama to be running locally with the phi3 model pulled.
     """
-    user_id = _get_user_id(x_user_id, authorization)
-    identity = get_request_identity(request, user_id)
+    owned_user_id = str(user_id)
+    identity = get_request_identity(request, owned_user_id)
     rate_limiter.enforce(
         key=f"chat:{identity}",
         spec=RateLimitSpec(
@@ -37,7 +35,7 @@ async def chat(
     svc     = ChatService(db)
 
     return StreamingResponse(
-        svc.stream(user_id, body.message, [m.model_dump() for m in body.history]),
+        svc.stream(owned_user_id, body.message, [m.model_dump() for m in body.history]),
         media_type="text/event-stream",
         headers={
             "Cache-Control":    "no-cache",

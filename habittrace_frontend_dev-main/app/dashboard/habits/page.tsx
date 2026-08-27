@@ -382,7 +382,7 @@ export default function HabitTrackingPage() {
       } catch (error) {
         console.warn("Task update after time selection failed:", error);
         const detail = error instanceof Error ? error.message : "Unknown API error";
-        alert(`추천 시간은 저장되었지만 작업 목록 업데이트에 실패했습니다.\n${detail}`);
+        alert(`The recommended time was saved, but the task list could not be updated.\n${detail}`);
       }
     } catch (error) {
       setTimeRecommendations((prev) => ({ ...prev, [taskId]: recommendation }));
@@ -430,7 +430,6 @@ export default function HabitTrackingPage() {
         setApiError("Backend not reachable — showing local data only.");
       })
       .finally(() => setLoading(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => { loadTasks(viewDate); }, [viewDate, loadTasks]);

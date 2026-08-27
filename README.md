@@ -1,300 +1,255 @@
 # HabitTrace
 
-A habit-tracking + ML prediction system. Users log planned tasks; the backend runs a trained scikit-learn model to predict task success probability and the most likely failure reason. An AI Coach (powered by Phi-3 Mini via Ollama) lets users chat about their habits and add tasks via natural language.
+HabitTrace is a planning and execution-tracking application with a Next.js frontend, a FastAPI API, Supabase authentication and storage, and two machine-learning pipelines.
 
----
+The desktop experience focuses on scheduling, analytics, patterns, and predictions. The installable mobile PWA focuses on the shortest path through four actions: add a plan, see what is next, start it, and record the outcome.
+
+## Repository layout
+
+```text
+habittrace_prototype/
+├── backend/                        FastAPI API and Supabase service layer
+├── habittrace_frontend_dev-main/  Next.js App Router frontend and mobile PWA
+├── habittrace_model_dev-main/     Legacy V1 scikit-learn pipeline and artifacts
+├── habittrace_ai_v2/              Leakage-safe AI V2 training package
+└── supabase/                       V1 and AI V2 SQL schemas
+```
+
+## Current product surfaces
+
+### Desktop web
+
+- Dashboard and plan health
+- Task management
+- Month and week calendar
+- Scheduler and time recommendations
+- Analytics and failure patterns
+- AI Coach backed by Ollama when configured
+- Profile and account settings
+
+### Mobile PWA
+
+- English mobile-first login using the same Supabase account as desktop
+- Today view with the active or nearest plan
+- Quick Add with date, start time, duration, and optional details
+- Idempotent start recording with a server-generated timestamp
+- Completed, partially done, not completed, and still-in-progress outcome flows
+- Canonical failure-reason buttons for partial and failed outcomes
+- Month calendar with date selection and date-prefilled Quick Add
+- Account screen opened from the `HT` button, including display-name editing and sign-out
+- Web App Manifest, install icons, standalone mode, and a privacy-preserving offline fallback
+
+The current Service Worker does not cache private plan data. Push notifications, offline write synchronization, Apple/Google Calendar synchronization, and native iOS/Android projects are not implemented.
 
 ## Architecture
 
-```
-habittrace_combine/
-├── habittrace_frontend_dev-main/   # Next.js 16 + TypeScript + Tailwind
-├── habittrace_model_dev-main/      # Python ML pipeline + trained artifacts
-├── backend/                        # FastAPI backend (wraps ML + Supabase)
-└── supabase/schema.sql             # Database schema
-```
-
-**Data flow:**
-
-```
-Browser (Next.js)
-  ↓  REST API calls
-FastAPI backend (port 8000)
-  ├──→ Supabase (auth + database)
-  ├──→ ML model (scikit-learn, .joblib artifacts)
-  └──→ Ollama / Phi-3 Mini (local LLM for AI Coach)
+```text
+Browser / installed PWA
+  │ Supabase session JWT in Authorization: Bearer <token>
+  ▼
+FastAPI API
+  ├── Primary Supabase: Auth, profiles, tasks, executions, predictions
+  ├── AI V2 Supabase: immutable plan inputs, outcomes, reasons, predictions
+  ├── V1 scikit-learn artifacts
+  └── Ollama / Phi-3 Mini for the optional AI Coach
 ```
 
----
+User-owned API routes validate the Supabase access token. The backend derives `user_id` from the verified token and filters every task and execution operation by that UUID; client-supplied demo user headers are not accepted.
 
-## Prerequisites
+## Requirements
 
-Install the following before running the project:
-
-| Tool | Purpose | Install |
-|------|---------|---------|
-| **Node.js 18+** | Frontend | [nodejs.org](https://nodejs.org) |
-| **Python 3.10+** | Backend | [python.org](https://python.org) |
-| **Ollama** | Local LLM (AI Coach) | [ollama.com/download](https://ollama.com/download) or `brew install ollama` |
-
----
+| Tool | Version | Used by |
+|---|---:|---|
+| Node.js | 20.9 or newer | Next.js 16 frontend |
+| npm | Compatible with the selected Node.js release | Frontend dependencies and scripts |
+| Python | 3.10 or newer | FastAPI and V1 ML |
+| Python | 3.11 or newer | AI V2 package |
+| Supabase | Two projects recommended | Primary application data and isolated AI V2 data |
+| Ollama | Optional | Local AI Coach |
 
 ## Setup
 
-### 1. Supabase
+### 1. Primary Supabase project
 
-1. Create a free project at [supabase.com](https://supabase.com)
-2. Open **SQL Editor** → paste and run `supabase/schema.sql`
-3. Go to **Settings → API** and copy:
-   - **Project URL**
-   - **anon/public key** (for the frontend)
-   - **service_role key** (for the backend — keep secret)
-4. (Optional) Enable Google OAuth in **Authentication → Providers**
+1. Create a Supabase project.
+2. Run `supabase/schema.sql` in the SQL Editor.
+3. Copy the project URL, anon key, and service-role key from the project API settings.
+4. Configure the desired Auth providers and redirect URLs.
 
-For AI V2, run `supabase/ai_schema.sql` in the separate AI Supabase project.
-That schema enables RLS on all AI tables without browser policies; only the
-FastAPI service-role client can access them. Do not put the AI service-role key
-in the frontend project.
+`schema.sql` includes the partial unique index that allows only one open execution per task. Existing databases must run the latest schema SQL so concurrent Start requests receive the database-level guarantee.
 
----
+### 2. AI V2 Supabase project
 
-### 2. Backend
+Use a separate project for AI V2 when possible:
 
-```bash
+1. Back up an existing database before applying changes.
+2. Run `supabase/ai_schema.sql`.
+3. Run the read-only checks in `supabase/verify_ai_schema.sql`.
+4. Keep the AI service-role key in the backend environment only.
+
+AI V2 tables have RLS enabled without browser policies. They are accessed through the authenticated FastAPI boundary with a backend-only service-role client.
+
+### 3. Backend
+
+```powershell
 cd backend
-
-# Install dependencies (with conda active, no venv needed)
-pip install -r requirements.txt
-
-# Copy and fill in environment variables
-cp .env.example .env
-# Edit .env — add your Supabase URL and keys
+python -m pip install -r requirements.txt
+Copy-Item .env.example .env
 ```
 
-**Required `.env` variables:**
+Fill in `backend/.env`:
 
-| Variable | Where to find |
-|---|---|
-| `SUPABASE_URL` | Supabase → Settings → API → Project URL |
-| `SUPABASE_SERVICE_KEY` | Supabase → Settings → API → service_role (secret) |
-| `SUPABASE_ANON_KEY` | Supabase → Settings → API → anon public |
-| `AI_SUPABASE_URL` | AI V2 Supabase project URL (backend only) |
-| `AI_SUPABASE_SERVICE_ROLE_KEY` | AI V2 service_role key (backend only; never `NEXT_PUBLIC_`) |
-| `AUTH_SUPABASE_URL` | Optional token-issuer project URL; defaults to `SUPABASE_URL` |
-| `AUTH_SUPABASE_ANON_KEY` | Optional token-issuer anon key; defaults to `SUPABASE_ANON_KEY` |
-| `FRONTEND_URL` | Browser origin for your Next.js app (local: `http://localhost:3000`; production: `https://your-app.example.com`) |
-| `CORS_ORIGINS` | Optional. Comma-separated allowed origins when you do not want the default list. When set, only these origins are allowed (no automatic `localhost`). |
-| `TRUST_FORWARDED_HEADERS` | Set to `true` behind nginx/Caddy/a load balancer so HTTPS and client IP are correct. |
-| `PROXY_TRUSTED_HOSTS` | Who may send `X-Forwarded-*` (often `*` on managed hosts). |
-| `API_ROOT_PATH` | If the API is mounted under a sub-path (e.g. `/api`), set it here. |
+| Variable | Required | Purpose |
+|---|---|---|
+| `SUPABASE_URL` | Yes | Primary Supabase project URL |
+| `SUPABASE_SERVICE_KEY` | Yes | Primary backend-only service-role key |
+| `SUPABASE_ANON_KEY` | Yes | Token verification client |
+| `AI_SUPABASE_URL` | For AI V2 | AI Supabase project URL |
+| `AI_SUPABASE_SERVICE_ROLE_KEY` | For AI V2 | AI backend-only service-role key |
+| `AUTH_SUPABASE_URL` | Optional | Separate token issuer; defaults to `SUPABASE_URL` |
+| `AUTH_SUPABASE_ANON_KEY` | Optional | Must be paired with `AUTH_SUPABASE_URL` |
+| `FRONTEND_URL` | Yes | Frontend origin; local default is `http://localhost:3000` |
+| `CORS_ORIGINS` | Optional | Comma-separated production browser origins |
+| `TRUST_FORWARDED_HEADERS` | Production-dependent | Trust reverse-proxy scheme and client IP headers |
+| `PROXY_TRUSTED_HOSTS` | Production-dependent | Hosts allowed to supply forwarded headers |
+| `API_ROOT_PATH` | Optional | Reverse-proxy path prefix such as `/api` |
+| `OLLAMA_CHAT_URL` | Optional | Ollama chat endpoint |
+| `OLLAMA_MODEL` | Optional | Ollama model name; default is `phi3` |
 
-**Start the backend:**
+Start the API:
 
-```bash
+```powershell
 uvicorn app.main:app --reload --port 8000
 ```
 
-**Verify it's running:**
+Verify it:
 
-```bash
-curl http://localhost:8000/health
-# Includes V1 DB, AI V2 DB, Auth, and legacy ML readiness flags.
+```powershell
+Invoke-RestMethod http://localhost:8000/health
 ```
 
-> The ML artifacts are loaded automatically from `../habittrace_model_dev-main/artifacts/`. No extra setup needed.
+Interactive API documentation is available at `http://localhost:8000/docs`.
 
----
+### 4. Frontend
 
-### 3. Frontend
-
-```bash
+```powershell
 cd habittrace_frontend_dev-main
-
-# Install dependencies
 npm install
-
-# Copy and fill in environment variables
-cp .env.local.example .env.local
-# Edit .env.local with your Supabase keys and backend URL
 ```
 
-**Required `.env.local` variables:**
+Create `habittrace_frontend_dev-main/.env.local` manually. Do not commit it.
 
-| Variable | Value |
-|---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase Project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon/public key |
-| `NEXT_PUBLIC_API_URL` | API base URL (`http://localhost:8000` locally; production: `https://api.example.com`, no trailing slash) |
-| `NEXT_PUBLIC_SITE_URL` | Optional. Canonical site origin for OAuth redirects; must match Supabase redirect allowlist. |
+```dotenv
+NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-public-key
+NEXT_PUBLIC_API_URL=http://localhost:8000
+# Optional canonical production origin used by OAuth redirects:
+# NEXT_PUBLIC_SITE_URL=https://app.example.com
+```
 
-**Start the frontend:**
+Start the frontend:
 
-```bash
+```powershell
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open `http://localhost:3000`. The root route redirects to login. The primary mobile route is `http://localhost:3000/dashboard/today`.
 
----
+### 5. Optional AI Coach
 
-### 4. AI Coach (Ollama + Phi-3 Mini)
-
-The AI Coach uses Phi-3 Mini running locally via Ollama. Required only for the chat feature.
-
-**Install Ollama:**
-
-```bash
-# macOS
-brew install ollama
-
-# Or download from https://ollama.com/download
-```
-
-**Accept Xcode license if prompted (macOS):**
-
-```bash
-sudo xcodebuild -license accept
-```
-
-**Download the Phi-3 Mini model (~2.3 GB, one-time):**
-
-```bash
+```powershell
 ollama pull phi3
-```
-
-**Start Ollama (run this before starting the backend):**
-
-```bash
 ollama serve
 ```
 
-> If you installed the Ollama desktop app, you can also start it from the menu bar instead.
+Confirm Ollama is available at `http://localhost:11434/api/tags` before using chat.
 
-**Verify Ollama is running:**
+## Running the stack
 
-```bash
-curl http://localhost:11434/api/tags
-# Should list phi3 in the models
-```
+Use separate terminals:
 
----
-
-## Running the Full Stack
-
-Open **3 terminal windows** and run one command in each:
-
-```bash
-# Terminal 1 — Ollama (AI Coach)
-ollama serve
-
-# Terminal 2 — Backend
-cd ~/Desktop/habitTrace_combine/backend
+```powershell
+# Terminal 1
+cd backend
 uvicorn app.main:app --reload --port 8000
 
-# Terminal 3 — Frontend
-cd ~/Desktop/habitTrace_combine/habittrace_frontend_dev-main
+# Terminal 2
+cd habittrace_frontend_dev-main
 npm run dev
+
+# Optional Terminal 3
+ollama serve
 ```
 
-Then open [http://localhost:3000](http://localhost:3000).
+Do not run `next build` while `next dev` is using the same working tree. On OneDrive, simultaneous cache writes can corrupt `.next/dev`. If the development server reports a missing `build-manifest.json`, stop all frontend dev/build processes, remove only `habittrace_frontend_dev-main/.next`, and restart `npm run dev`. Keeping active development work outside a synchronized folder is the most reliable option.
 
----
+## Mobile PWA installation
 
-## Production (domain, HTTPS, API URL)
+For local functional testing, use `/dashboard/today`. Production installation requires HTTPS.
 
-Deploy the Next.js app and FastAPI service on your host(s), both reachable over **HTTPS** so the browser can call the API without mixed-content blocking.
+- Android Chrome: open the HTTPS site and choose **Install app** or **Add to Home screen**.
+- iPhone Safari: open the HTTPS site, choose **Share**, then **Add to Home Screen**.
 
-**Frontend**
+The installed app starts at `/dashboard/today`. Authentication persists through the Supabase browser session. Sign-out is available from the `HT` account button.
 
-- Set **`NEXT_PUBLIC_API_URL`** to your deployed API origin (for example `https://api.example.com`). The client strips a trailing slash automatically.
-- Set **`NEXT_PUBLIC_SITE_URL`** if the canonical URL must match **Supabase → Authentication → URL Configuration** exactly (for example preview vs production domains). OAuth `redirectTo` values use this when set, otherwise the current browser origin.
-- Run `npm run build` and `npm start`, or use your platform’s Next.js integration.
+## Core API
 
-**Backend**
+All routes below except `/health` require a valid Supabase bearer token.
 
-- Set **`FRONTEND_URL`** to your live Next.js origin, or set **`CORS_ORIGINS`** to a comma-separated list of allowed `Origin` values (scheme + host, no path). If `CORS_ORIGINS` is set, it replaces the default list (localhost is not added automatically).
-- Enable **`TRUST_FORWARDED_HEADERS=true`** when a reverse proxy terminates TLS. Set **`PROXY_TRUSTED_HOSTS`** appropriately (`*` is common on PaaS where only the platform proxy connects to your process).
-- If the API is exposed under a path prefix (for example `https://example.com/api`), set **`API_ROOT_PATH`** (for example `/api`).
-- For Ollama behind another host, set **`OLLAMA_CHAT_URL`** and **`OLLAMA_MODEL`** in `backend/.env`.
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/health` | Report primary DB, AI DB, Auth, and model readiness |
+| `GET` | `/tasks?date=YYYY-MM-DD` | List the signed-in user's tasks, optionally by date |
+| `POST` | `/tasks` | Create an owned task |
+| `GET` | `/tasks/{task_id}` | Read an owned task |
+| `PATCH` | `/tasks/{task_id}` | Update an owned task |
+| `DELETE` | `/tasks/{task_id}` | Delete an owned task |
+| `GET` | `/executions?active=true` | List active executions |
+| `POST` | `/executions/start` | Start a task idempotently using server time |
+| `PATCH` | `/executions/{execution_id}/complete` | Complete an execution and synchronize task status |
+| `POST` | `/executions` | Record a completed legacy execution |
+| `POST` | `/predict` | Run the V1 prediction model |
+| `GET` | `/analytics/summary?period=week` | Read aggregated analytics |
+| `GET` | `/analytics/plan-health` | Read today's plan health and risks |
+| `POST` | `/chat` | Stream AI Coach events over SSE |
 
-**Supabase (redirects and callbacks)**
+AI V2 routes use the `/api/v2/ai` prefix and cover immutable plan snapshots, one outcome per snapshot, confirmed failure reasons, persisted predictions, and ranked time recommendations. See the OpenAPI page for complete request and response contracts.
 
-- **Site URL**: your production app origin (for example `https://app.example.com`).
-- **Redirect URLs**: include the origins and paths used after Google OAuth (for example `https://app.example.com/**`, plus `/dashboard` and `/onboarding/profile` if you list paths explicitly).
+## Validation
 
-**Interactive API docs**
+Frontend:
 
-Use `https://<your-api-host>/docs` in production (same paths as local OpenAPI).
-
----
-
-## Features
-
-| Feature | Description |
-|---------|-------------|
-| **Habits** | Add, edit, and track daily tasks with a structured time picker and date navigation |
-| **ML Prediction** | Per-task success probability and failure reason from a trained scikit-learn model |
-| **Calendar** | Monthly/weekly view of all tasks color-coded by status |
-| **Scheduler** | Day timeline with energy/focus sliders and ML predictions |
-| **Schedule Checker** | Sidebar showing today's plan health and risk analysis |
-| **AI Coach Chat** | Chat with Phi-3 Mini about your habits; type naturally to add tasks (e.g. "I'll study at 9pm tomorrow") |
-| **Analytics** | Execution trend charts, failure pattern breakdown, weekly summary |
-| **Settings** | Profile editing, notification preferences, data export |
-
----
-
-## API Reference
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/health` | Server + ML + DB status |
-| `GET` | `/tasks?date=YYYY-MM-DD` | List tasks for a date |
-| `POST` | `/tasks` | Create a new task |
-| `PATCH` | `/tasks/{id}` | Update a task |
-| `DELETE` | `/tasks/{id}` | Delete a task |
-| `POST` | `/predict` | Run ML prediction for a task |
-| `GET` | `/analytics/summary?period=week` | Aggregated analytics |
-| `GET` | `/analytics/plan-health` | Today's plan health + risks |
-| `POST` | `/chat` | AI Coach chat (SSE streaming) |
-| `POST` | `/api/v2/ai/plans` | Create an immutable AI plan snapshot or revision (`parent_plan_input_id` + `reschedule`) |
-| `GET` | `/api/v2/ai/plans/{plan_input_id}` | Read an owned AI plan snapshot |
-| `POST` | `/api/v2/ai/plans/{plan_input_id}/outcome` | Record the plan's single outcome |
-| `POST` | `/api/v2/ai/outcomes/{outcome_id}/failure-reasons` | Store user-confirmed failure reasons |
-| `GET` | `/api/v2/ai/failure-reasons` | List active failure-reason definitions |
-| `GET` | `/api/v2/ai/plans/{plan_input_id}/prediction` | Read the latest persisted prediction without creating a new one |
-| `POST` | `/api/v2/ai/predict` | Run the AI V2 success/failure baseline (development artifact) |
-| `POST` | `/api/v2/ai/plans/{plan_input_id}/predict` | Run and persist an AI V2 prediction for an owned plan |
-| `POST` | `/api/v2/ai/plans/{plan_input_id}/time-recommendations` | Generate conflict-free time candidates scored by success probability |
-| `GET` | `/api/v2/ai/time-recommendations/{recommendation_id}` | Read an owned time recommendation |
-| `POST` | `/api/v2/ai/time-recommendations/{recommendation_id}/select` | Save the user's selected time candidate |
-
-Local interactive docs: [http://localhost:8000/docs](http://localhost:8000/docs) — in production, use `https://<your-api-host>/docs`.
-
----
-
-## ML Model Notes
-
-- **Model 1** (`success_model.joblib`): Logistic Regression — predicts P(task completed)
-- **Model 2** (`failure_model.joblib`): Multinomial LR — predicts the most likely failure reason (7 classes)
-- **Features**: 32 engineered features from planned task data (category, time-of-day, duration, energy, focus, interaction terms)
-- **Personalization**: Per-user sigmoid calibration via `calib_params.json` — activates after 30+ tasks logged
-- Both models are loaded once at backend startup for fast inference
-
-To retrain:
-
-```bash
-cd habittrace_model_dev-main
-python -m ml.cli train --csv plan_execution_train_set.csv
+```powershell
+cd habittrace_frontend_dev-main
+npx tsc --noEmit
+npm run lint
+npm run build
 ```
 
-The model and CSV files above are V1 legacy assets. New AI-only experiments live
-in `habittrace_ai_v2/`; they do not connect to Supabase or load service-role
-credentials. Its leakage, temporal-split, baseline-model, and artifact tests run
-with:
+Backend:
 
-```bash
+```powershell
+cd backend
+python -m pytest -q
+python -m ruff check app tests
+```
+
+AI V2:
+
+```powershell
 cd habittrace_ai_v2
 python -m pytest -q
 python -m ruff check src tests
 python -m mypy src
 ```
+
+The V1 model package does not currently include an automated test suite; validate changes with its CLI train, evaluate, and predict commands.
+
+## Component documentation
+
+- `habittrace_frontend_dev-main/README.md`: frontend routes, PWA behavior, scripts, and deployment
+- `habittrace_model_dev-main/README.md`: V1 model data contract and CLI
+- `habittrace_model_dev-main/README 2.md`: V1 model design and compatibility notes
+- `habittrace_ai_v2/README.md`: AI V2 dataset, leakage controls, export, training, and artifacts
+- `habittrace_ai_v2/fixtures/README.md`: synthetic fixture policy
+- `supabase/README.md`: database schema responsibilities and deployment order

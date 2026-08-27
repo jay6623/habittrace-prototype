@@ -1,12 +1,12 @@
 import logging
-from fastapi import APIRouter, HTTPException, Header, Query
-from typing import Optional
 
+from fastapi import APIRouter, HTTPException, Query
+
+from ..db.supabase_client import get_supabase, is_supabase_configured
+from ..dependencies.auth import CurrentUserId
 from ..schemas.analytics import AnalyticsSummary, PlanHealth
 from ..services.analytics_service import AnalyticsService
 from ..services.ml_service import get_ml_service
-from ..db.supabase_client import get_supabase, is_supabase_configured
-from .tasks import _get_user_id
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -16,7 +16,10 @@ def _require_db():
     if not is_supabase_configured():
         raise HTTPException(
             status_code=503,
-            detail="Database not configured. Set SUPABASE_URL and SUPABASE_SERVICE_KEY in backend/.env",
+            detail=(
+                "Database not configured. Set SUPABASE_URL and "
+                "SUPABASE_SERVICE_KEY in backend/.env"
+            ),
         )
     return get_supabase()
 
@@ -24,26 +27,23 @@ def _require_db():
 # ── GET /analytics/summary ───────────────────────────────────────────────────
 @router.get("/summary", response_model=AnalyticsSummary)
 def analytics_summary(
+    user_id: CurrentUserId,
     period: str = Query("week", pattern="^(week|month|3months)$"),
-    x_user_id: Optional[str] = Header(None),
-    authorization: Optional[str] = Header(None),
 ):
-    user_id = _get_user_id(x_user_id, authorization)
     db = _require_db()
     svc = AnalyticsService(db)
-    return svc.get_summary(user_id, period=period)
+    return svc.get_summary(str(user_id), period=period)
 
 
 # ── GET /analytics/plan-health ───────────────────────────────────────────────
 @router.get("/plan-health", response_model=PlanHealth)
 def plan_health(
-    x_user_id: Optional[str] = Header(None),
-    authorization: Optional[str] = Header(None),
+    user_id: CurrentUserId,
 ):
-    user_id = _get_user_id(x_user_id, authorization)
+    owned_user_id = str(user_id)
     db = _require_db()
     svc = AnalyticsService(db)
-    health = svc.get_plan_health(user_id)
+    health = svc.get_plan_health(owned_user_id)
 
     # ── Enhance with ML predictions ────────────────────────────────────────
     ml = get_ml_service()
@@ -53,12 +53,11 @@ def plan_health(
 
         for task_summary in health["tasks"]:
             # Find the original task data (we need energy/focus/importance)
-            from datetime import date
-            today = date.today().isoformat()
             task_rows = (
                 db.table("tasks")
                 .select("*")
                 .eq("id", task_summary["id"])
+                .eq("user_id", owned_user_id)
                 .execute()
             ).data
             if not task_rows:
@@ -75,7 +74,7 @@ def plan_health(
                     energy_level=t.get("energy_level", 3),
                     focus_level=t.get("focus_level", 3),
                     total_tasks_today=total_tasks,
-                    user_id=user_id,
+                    user_id=owned_user_id,
                 )
                 p = pred["success_probability"]
                 task_summary["predicted_success"] = round(p, 4)

@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import Sidebar from "@/components/layout/sidebar";
 import TopBar from "@/components/layout/topbar";
 import ScheduleChecker from "@/components/layout/schedule-checker";
+import MobileNav from "@/components/mobile/mobile-nav";
 import { useAuth } from "@/app/providers";
 
 export default function DashboardLayout({
@@ -14,15 +15,18 @@ export default function DashboardLayout({
 }) {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
+  const isMobileExperience = pathname.startsWith("/dashboard/today");
 
   useEffect(() => {
-    // 로딩 끝났는데 로그인이 안 돼있으면 로그인 페이지로
+    // Redirect to sign-in once session loading is complete.
     if (!loading && !user) {
-      router.push("/login");
+      const nextPath = pathname.startsWith("/dashboard") ? pathname : "/dashboard";
+      router.replace(`/login?next=${encodeURIComponent(nextPath)}`);
     }
-  }, [user, loading, router]);
+  }, [user, loading, pathname, router]);
 
-  // 로딩 중
+  // Session loading state.
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50">
@@ -31,8 +35,17 @@ export default function DashboardLayout({
     );
   }
 
-  // 미로그인 (리다이렉트 중)
+  // Signed out while the redirect is in progress.
   if (!user) return null;
+
+  if (isMobileExperience) {
+    return (
+      <div className="min-h-dvh bg-slate-100">
+        {children}
+        <MobileNav />
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen bg-slate-50">

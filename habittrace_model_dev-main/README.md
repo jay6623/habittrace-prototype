@@ -1,93 +1,147 @@
-# HabitTrace_model_dev
+# HabitTrace V1 ML pipeline
 
+This package contains the legacy planning-time machine-learning pipeline used by the FastAPI `/predict` endpoint.
 
+It trains two scikit-learn models:
 
-## Getting started
+1. A binary logistic-regression model for task success probability.
+2. A multinomial logistic-regression model for the likely failure reason among failed tasks.
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+It also supports optional per-user calibration parameters updated from observed outcomes.
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+## Scope
 
-## Add your files
+- Python CLI for train, evaluate, predict, and online personalization updates
+- Planning-time feature engineering only
+- Saved `joblib` pipelines consumed by the sibling FastAPI backend
+- No Supabase client, HTTP server, frontend, or AI V2 schema code
 
-* [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+New leakage-safe experiments and AI V2 artifacts live in `../habittrace_ai_v2`.
 
+## Requirements
+
+Python 3.10 or newer is recommended.
+
+```powershell
+cd habittrace_model_dev-main
+python -m pip install -r requirements.txt
 ```
-cd existing_repo
-git remote add origin https://capstone.cs.utah.edu/HabitTrace/habittrace_model_dev.git
-git branch -M main
-git push -uf origin main
+
+## CSV contract
+
+| Column | Required for prediction | Training use |
+|---|---:|---|
+| `user_id` | No | Optional calibration identity; added as empty when absent |
+| `Task Name (Optional)` | No | Never used as a model feature |
+| `Category` | Yes | Planning-time feature |
+| `Planned Start Date & Time` | Yes | Planning-time date and time features |
+| `Planned Duration (mins)` | Yes | Planning-time feature |
+| `Importance (1-5)` | Yes | Planning-time feature |
+| `Energy Level (1-5)` | Yes | Planning-time feature |
+| `Focus Level (1-5)` | Yes | Planning-time feature |
+| `Total Tasks Today` | Yes | Planning-time workload feature |
+| `Actual Start Time` | No | Parsed for data consistency, not a planning-time feature |
+| `Actual End Time` | No | Parsed for data consistency, not a planning-time feature |
+| `Interruptions (Count)` | No | Outcome metadata, not a planning-time feature |
+| `Stopped Early?` | No | Outcome metadata |
+| `Task Status` | Training only | Binary success label |
+| `Reason for Failure (If failed)` | Failure training only | Failure-reason label |
+
+Status values equivalent to completed/success are normalized to `completed`; failure equivalents are normalized to `failed`. Skipped and canceled rows are excluded from binary training and evaluation.
+
+Categories are normalized to lowercase and categories with fewer than three rows collapse to `other`. Failure reasons are canonicalized to:
+
+- `start_delay`
+- `low_energy`
+- `low_focus`
+- `interruptions`
+- `time_underestimate`
+- `schedule_conflict`
+- `unexpected_event`
+- `other`
+
+Reasons with fewer than five failed examples collapse to `other`.
+
+## CLI
+
+Run all commands from this directory.
+
+### Train
+
+```powershell
+python -m ml.cli train --csv path\to\training.csv --outdir artifacts
 ```
 
-## Integrate with your tools
+The success model requires at least two completed/failed rows. Failure-model training is skipped when there are not enough failed rows with usable reason labels.
 
-* [Set up project integrations](https://capstone.cs.utah.edu/HabitTrace/habittrace_model_dev/-/settings/integrations)
+### Evaluate
 
-## Collaborate with your team
+```powershell
+python -m ml.cli evaluate --csv path\to\evaluation.csv --modeldir artifacts
+```
 
-* [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+Evaluation prefers a chronological 80/20 split by planned start time and falls back to a stratified split when usable timestamps are unavailable. It writes `artifacts/metrics.json` with success AUC, accuracy, log loss, Brier score, calibration-curve points, and failure macro F1/confusion-matrix data when calculable.
 
-## Test and Deploy
+### Predict one plan
 
-Use the built-in continuous integration in GitLab.
+```powershell
+python -m ml.cli predict `
+  --modeldir artifacts `
+  --failure_probs `
+  --input_json '{
+    "user_id": "example-user",
+    "Category": "work",
+    "Planned Start Date & Time": "2026-08-27 14:00:00",
+    "Planned Duration (mins)": 30,
+    "Importance (1-5)": 4,
+    "Energy Level (1-5)": 3,
+    "Focus Level (1-5)": 4,
+    "Total Tasks Today": 5
+  }'
+```
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+Useful options:
 
-***
+- `--top_k N`: maximum number of contribution rows; default is 10
+- `--failure_probs`: include failure-class probabilities when a failure artifact exists
 
-# Editing this README
+The JSON output includes `p_global_success`, `p_personal_success`, `top_contributions`, and optionally `failure_type_probs`.
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+### Update one user's calibration
 
-## Suggestions for a good README
+```powershell
+python -m ml.cli update_personal `
+  --modeldir artifacts `
+  --user_id example-user `
+  --p_global 0.42 `
+  --y 1
+```
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+Use `--y 1` for success and `--y 0` for failure. Add `--use_scale` to update both the calibration scale `a` and offset `b`; otherwise only `b` is updated. Small user histories receive stronger regularization toward the global model. The design threshold for considering calibration mature is 30 observed tasks.
 
-## Name
-Choose a self-explaining name for your project.
+## Artifacts
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+| Path | Created by | Contents |
+|---|---|---|
+| `artifacts/success_model.joblib` | `train` | Feature builder and binary logistic-regression model |
+| `artifacts/failure_model.joblib` | `train`, when labels are sufficient | Feature builder, failure classifier, and label encoder |
+| `artifacts/calib_params.json` | `train`/`update_personal` | Per-user calibration parameters |
+| `artifacts/metrics.json` | `evaluate` | Evaluation metrics and calibration data |
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+Only load trusted `joblib` artifacts. A joblib file is executable Python serialization, not a safe interchange format for untrusted downloads.
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+## Backend integration
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+The backend defaults to:
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+```text
+../habittrace_model_dev-main/artifacts
+```
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+Override the location with `MODEL_ARTIFACTS_DIR` in `backend/.env` when the directory layout changes.
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+The API receives the authenticated user identity from Supabase. Do not use a display name as a calibration or ownership key in production.
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+## Validation status
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+This V1 package does not currently contain an automated test directory. Before replacing production artifacts, run a representative train/evaluate/predict cycle and validate the backend tests from `../backend`.

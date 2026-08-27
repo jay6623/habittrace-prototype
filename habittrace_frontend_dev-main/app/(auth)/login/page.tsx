@@ -1,10 +1,21 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { FormEvent, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getOAuthRedirectBaseUrl } from "@/lib/site";
+
+function getPostLoginDestination(): string {
+  if (typeof window === "undefined") return "/dashboard";
+  const requested = new URLSearchParams(window.location.search).get("next");
+  if (requested && /^\/dashboard(?:\/|$)/.test(requested) && !requested.includes("\\")) {
+    return requested;
+  }
+  const mobileOrInstalled =
+    window.innerWidth < 768 || window.matchMedia("(display-mode: standalone)").matches;
+  return mobileOrInstalled ? "/dashboard/today" : "/dashboard";
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -13,7 +24,8 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleLogin() {
+  async function handleLogin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     if (!email || !password) {
       setError("Please enter your email and password.");
       return;
@@ -27,16 +39,9 @@ export default function LoginPage() {
         password,
       });
       if (authError) throw authError;
-      router.push("/dashboard");
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Login failed.";
-      // If Supabase is not configured, allow demo login
-      if (msg.includes("fetch") || msg.includes("network") || msg.includes("URL")) {
-        console.warn("Supabase not configured — using demo mode");
-        router.push("/dashboard");
-      } else {
-        setError(msg);
-      }
+      router.replace(getPostLoginDestination());
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Login failed.");
     } finally {
       setLoading(false);
     }
@@ -49,48 +54,39 @@ export default function LoginPage() {
       const { error: authError } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${getOAuthRedirectBaseUrl()}/dashboard`,
+          redirectTo: `${getOAuthRedirectBaseUrl()}${getPostLoginDestination()}`,
         },
       });
       if (authError) throw authError;
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Google login failed.";
-      if (msg.includes("fetch") || msg.includes("network") || msg.includes("URL")) {
-        router.push("/dashboard");
-      } else {
-        setError(msg);
-      }
-    } finally {
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Google login failed.");
       setLoading(false);
     }
   }
 
   return (
-    <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-8 max-w-lg w-full">
-      {/* Header */}
-      <div className="flex items-center gap-3 mb-8">
-        <div className="h-12 w-12 rounded-2xl bg-slate-900 text-white grid place-items-center font-semibold">
+    <section className="w-full max-w-md rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:p-8">
+      <header className="mb-7 text-center">
+        <div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-slate-950 text-lg font-bold text-white shadow-lg shadow-slate-300">
           HT
         </div>
-        <div>
-          <div className="font-semibold text-lg">Welcome back</div>
-          <div className="text-sm text-slate-500">Log in to continue to HabitTrace</div>
-        </div>
-      </div>
+        <h1 className="mt-5 text-2xl font-bold tracking-tight text-slate-950">Welcome back</h1>
+        <p className="mt-2 text-sm text-slate-500">Sign in to plan, start, and finish your day.</p>
+      </header>
 
       {error && (
-        <div className="mb-4 px-4 py-3 rounded-xl bg-rose-50 border border-rose-100 text-sm text-rose-700">
+        <div className="mb-4 rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700" role="alert">
           {error}
         </div>
       )}
 
-      {/* Google Login */}
       <button
-        onClick={handleGoogleLogin}
+        className="flex min-h-14 w-full items-center justify-center gap-3 rounded-2xl bg-slate-950 px-4 font-bold text-white transition hover:bg-slate-800 disabled:opacity-60"
         disabled={loading}
-        className="w-full flex items-center justify-center gap-3 bg-slate-900 text-white rounded-2xl py-3 font-semibold hover:bg-slate-800 transition-colors disabled:opacity-60"
+        onClick={() => void handleGoogleLogin()}
+        type="button"
       >
-        <svg width="20" height="20" viewBox="0 0 24 24">
+        <svg aria-hidden="true" height="20" viewBox="0 0 24 24" width="20">
           <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4" />
           <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
           <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
@@ -99,58 +95,62 @@ export default function LoginPage() {
         Continue with Google
       </button>
 
-      {/* Divider */}
-      <div className="flex items-center gap-3 my-6">
-        <div className="flex-1 h-px bg-slate-200" />
-        <span className="text-xs text-slate-400">or use email</span>
-        <div className="flex-1 h-px bg-slate-200" />
+      <div className="my-6 flex items-center gap-3" aria-hidden="true">
+        <div className="h-px flex-1 bg-slate-200" />
+        <span className="text-xs font-medium text-slate-400">OR USE EMAIL</span>
+        <div className="h-px flex-1 bg-slate-200" />
       </div>
 
-      {/* Email/Password */}
-      <div className="space-y-4">
+      <form className="space-y-4" onSubmit={handleLogin}>
         <div>
-          <label className="block text-sm font-medium mb-2">Email</label>
+          <label className="mb-2 block text-sm font-semibold text-slate-700" htmlFor="login-email">Email</label>
           <input
-            className="w-full bg-slate-100 rounded-2xl px-4 py-3 outline-none text-sm border border-transparent focus:bg-white focus:border-slate-200"
+            autoCapitalize="none"
+            autoComplete="email"
+            className="min-h-13 w-full rounded-2xl border border-transparent bg-slate-100 px-4 text-base outline-none focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
+            id="login-email"
+            inputMode="email"
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder="you@example.com"
+            required
             type="email"
-            placeholder="paul@example.com"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleLogin()}
           />
         </div>
         <div>
-          <div className="flex items-center justify-between mb-2">
-            <label className="block text-sm font-medium">Password</label>
-            <Link href="/forgot-password" className="text-sm text-slate-500 hover:underline">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <label className="text-sm font-semibold text-slate-700" htmlFor="login-password">Password</label>
+            <Link className="min-h-11 py-3 text-sm font-semibold text-slate-500 hover:text-slate-900" href="/forgot-password">
               Forgot password?
             </Link>
           </div>
           <input
-            className="w-full bg-slate-100 rounded-2xl px-4 py-3 outline-none text-sm border border-transparent focus:bg-white focus:border-slate-200"
-            type="password"
+            autoComplete="current-password"
+            className="min-h-13 w-full rounded-2xl border border-transparent bg-slate-100 px-4 text-base outline-none focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
+            id="login-password"
+            onChange={(event) => setPassword(event.target.value)}
             placeholder="Enter your password"
+            required
+            type="password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleLogin()}
           />
         </div>
 
         <button
-          onClick={handleLogin}
+          className="min-h-14 w-full rounded-2xl bg-slate-100 px-4 font-bold text-slate-950 transition hover:bg-slate-200 disabled:opacity-60"
           disabled={loading}
-          className="w-full bg-slate-100 text-slate-900 rounded-2xl py-3 font-semibold hover:bg-slate-200 transition-colors disabled:opacity-60"
+          type="submit"
         >
-          {loading ? "Signing in…" : "Log In with Email"}
+          {loading ? "Signing in…" : "Sign in with email"}
         </button>
-      </div>
+      </form>
 
-      <div className="mt-6 text-sm text-slate-500 text-center">
+      <p className="mt-6 text-center text-sm text-slate-500">
         New to HabitTrace?{" "}
-        <Link href="/signup" className="font-medium text-slate-900 hover:underline">
+        <Link className="font-bold text-slate-950 hover:underline" href="/signup">
           Create an account
         </Link>
-      </div>
-    </div>
+      </p>
+    </section>
   );
 }

@@ -89,6 +89,12 @@ CREATE POLICY "executions: user owns own rows"
 CREATE INDEX IF NOT EXISTS idx_executions_user
   ON executions (user_id, created_at DESC);
 
+-- An execution can be completed later, but a task may only have one open run.
+-- This also makes repeated/concurrent mobile Start taps idempotent at the DB boundary.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_executions_one_active_per_task
+  ON executions (task_id)
+  WHERE actual_end_time IS NULL;
+
 -- ── Predictions (optional cache) ─────────────────────────────────────────────
 -- Stores the ML output so the frontend doesn't need to re-call the backend.
 CREATE TABLE IF NOT EXISTS predictions (
