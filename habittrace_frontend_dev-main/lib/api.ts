@@ -672,22 +672,49 @@ export interface ChatMessage {
   content: string;
 }
 
+export interface CoachTimeOption {
+  start: string;
+  end: string;
+  score: number;
+  reasons: string[];
+}
+
+export interface CoachProposal {
+  id: string;
+  task: TaskCreate;
+  options: CoachTimeOption[];
+}
+
+export interface CoachConversation {
+  id: string;
+  messages: Array<ChatMessage & { id: string; created_at: string }>;
+  pending_proposals: CoachProposal[];
+}
+
 export type ChatStreamEvent =
   | { type: "token"; token: string }
-  | { type: "task_candidate"; task: TaskCreate };
+  | { type: "conversation"; conversationId: string }
+  | { type: "proposal"; proposal: CoachProposal };
 
 /**
  * Streams AI coach response events (tokens + optional task_candidate) via SSE.
  */
 export async function* streamChatEvents(
   message: string,
-  history: ChatMessage[]
+  history: ChatMessage[],
+  conversationId?: string,
 ): AsyncGenerator<ChatStreamEvent> {
   const headers = await buildHeaders();
+  const timezoneName = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   const res = await fetch(`${API_URL}/chat`, {
     method: "POST",
     headers: { ...headers, "Content-Type": "application/json" },
-    body: JSON.stringify({ message, history }),
+    body: JSON.stringify({
+      message,
+      history,
+      conversation_id: conversationId ?? null,
+      timezone_name: timezoneName,
+    }),
   });
 
   if (!res.ok || !res.body) {
@@ -714,7 +741,12 @@ export async function* streamChatEvents(
         const parsed = JSON.parse(data);
         if (parsed.error) throw new Error(parsed.error);
         if (parsed.token) yield { type: "token", token: parsed.token as string };
-        if (parsed.task_candidate) yield { type: "task_candidate", task: parsed.task_candidate as TaskCreate };
+        if (parsed.conversation_id) {
+          yield { type: "conversation", conversationId: parsed.conversation_id as string };
+        }
+        if (parsed.proposal) {
+          yield { type: "proposal", proposal: parsed.proposal as CoachProposal };
+        }
       } catch (e) {
         if (e instanceof SyntaxError) continue;
         throw e;
@@ -731,6 +763,29 @@ export async function* streamChat(
   for await (const event of streamChatEvents(message, history)) {
     if (event.type === "token") yield event.token;
   }
+}
+
+export async function getLatestCoachConversation(): Promise<CoachConversation | null> {
+  return apiFetch<CoachConversation | null>("/chat/conversations/latest");
+}
+
+export async function archiveCoachConversation(conversationId: string): Promise<void> {
+  return apiFetch<void>(`/chat/conversations/${conversationId}`, { method: "DELETE" });
+}
+
+export async function confirmCoachProposal(
+  proposalId: string,
+  candidateStart: string,
+  task: TaskCreate,
+): Promise<Task> {
+  return apiFetch<Task>(`/chat/proposals/${proposalId}/confirm`, {
+    method: "POST",
+    body: JSON.stringify({ candidate_start: candidateStart, task }),
+  });
+}
+
+export async function dismissCoachProposal(proposalId: string): Promise<void> {
+  return apiFetch<void>(`/chat/proposals/${proposalId}/dismiss`, { method: "POST" });
 }
 
 // ── Health ───────────────────────────────────────────────────────────────────

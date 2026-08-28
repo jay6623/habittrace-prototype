@@ -82,6 +82,11 @@ npm run dev
 
 Open `http://localhost:3000`. The root route redirects to `/login`.
 
+The AI Coach requires the backend coach migration at
+`../supabase/coach_agent_schema.sql` plus a running Ollama instance. Chat responses,
+pending plan proposals, and user scheduling preferences are persisted by the backend;
+task creation always requires an explicit confirmation in the coach UI.
+
 Available scripts:
 
 | Command | Purpose |

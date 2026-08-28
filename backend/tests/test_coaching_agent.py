@@ -1,0 +1,132 @@
+from __future__ import annotations
+
+from app.services.chat_service import ChatService
+from app.services.coaching_recommendation_service import CoachingRecommendationService
+
+
+def test_fallback_intent_extracts_a_safe_plan_draft() -> None:
+    intent = ChatService._fallback_intent(
+        "Schedule a study session on 2026-09-03 at 7 PM for 2 hours"
+    )
+
+    assert intent.intent == "plan"
+    assert intent.plan is not None
+    assert intent.plan.category == "Study"
+    assert intent.plan.planned_date == "2026-09-03"
+    assert intent.plan.exact_time == "19:00"
+    assert intent.plan.duration_minutes == 120
+
+
+def test_fallback_extracts_recommended_window_and_title() -> None:
+    intent = ChatService._fallback_intent(
+        "I want to study for 90 minutes tomorrow. Find the best time between 9 AM and 8 PM.",
+        timezone_name="America/Denver",
+    )
+
+    assert intent.intent == "plan"
+    assert intent.plan is not None
+    assert intent.plan.title == "Study"
+    assert intent.plan.duration_minutes == 90
+    assert intent.plan.earliest_time == "09:00"
+    assert intent.plan.latest_time == "20:00"
+    assert intent.plan.exact_time is None
+
+
+def test_fallback_extracts_word_duration_deep_work_request() -> None:
+    intent = ChatService._fallback_intent(
+        "Plan a two-hour deep work session on 2026-08-30 and recommend the best conflict-free time."
+    )
+
+    assert intent.intent == "plan"
+    assert intent.plan is not None
+    assert intent.plan.title == "Deep work session"
+    assert intent.plan.category == "Work"
+    assert intent.plan.duration_minutes == 120
+    assert intent.plan.planned_date == "2026-08-30"
+
+
+def test_short_followup_completes_previous_plan() -> None:
+    intent = ChatService._fallback_intent(
+        "Tomorrow",
+        history=[
+            {"role": "user", "content": "Schedule a reading session for 45 minutes."},
+            {"role": "assistant", "content": "What date should I schedule it for?"},
+        ],
+        timezone_name="America/Denver",
+    )
+
+    assert intent.intent == "plan"
+    assert intent.plan is not None
+    assert intent.plan.title == "Reading session"
+    assert intent.plan.duration_minutes == 45
+    assert intent.plan.planned_date is not None
+
+
+def test_recommendations_filter_conflicts_and_use_user_history() -> None:
+    context = {
+        "preferences": {
+            "timezone_name": "America/Denver",
+            "preferred_day_start": "08:00",
+            "preferred_day_end": "12:00",
+            "minimum_buffer_minutes": 0,
+        },
+        "last_30_days": {"success_rate": 60.0, "sample_size": 10},
+        "hour_patterns": [
+            {"hour": 8, "success_rate": 90.0, "sample_size": 10},
+            {"hour": 10, "success_rate": 40.0, "sample_size": 10},
+        ],
+        "category_patterns": [
+            {"category": "Study", "success_rate": 80.0, "sample_size": 10},
+        ],
+        "upcoming_schedule": [
+            {
+                "title": "Existing meeting",
+                "date": "2026-09-03",
+                "time": "09:00",
+                "duration_minutes": 60,
+            }
+        ],
+    }
+    plan = {
+        "title": "Read a paper",
+        "category": "Study",
+        "planned_date": "2026-09-03",
+        "duration_minutes": 60,
+    }
+
+    options = CoachingRecommendationService().recommend(plan, context)
+
+    assert options
+    assert options[0]["start"].startswith("2026-09-03T08:00:00-06:00")
+    assert all(not option["start"].startswith("2026-09-03T09:00") for option in options)
+    assert "recorded success rate" in " ".join(options[0]["reasons"])
+
+
+def test_exact_time_with_conflict_returns_no_unsafe_proposal() -> None:
+    context = {
+        "preferences": {
+            "timezone_name": "UTC",
+            "preferred_day_start": "08:00",
+            "preferred_day_end": "22:00",
+            "minimum_buffer_minutes": 15,
+        },
+        "last_30_days": {"success_rate": None, "sample_size": 0},
+        "hour_patterns": [],
+        "category_patterns": [],
+        "upcoming_schedule": [
+            {
+                "date": "2026-09-03",
+                "time": "14:00",
+                "duration_minutes": 60,
+            }
+        ],
+    }
+    plan = {
+        "title": "Workout",
+        "category": "Exercise",
+        "planned_date": "2026-09-03",
+        "duration_minutes": 60,
+        "exact_time": "14:00",
+    }
+
+    assert CoachingRecommendationService().recommend(plan, context) == []

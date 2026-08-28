@@ -1,7 +1,16 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { streamChatEvents, createTask, type ChatMessage, type TaskCreate } from "@/lib/api";
+import {
+  archiveCoachConversation,
+  confirmCoachProposal,
+  dismissCoachProposal,
+  getLatestCoachConversation,
+  streamChatEvents,
+  type ChatMessage,
+  type CoachProposal,
+  type TaskCreate,
+} from "@/lib/api";
 
 // ── Suggestion chips shown at start ──────────────────────────────────────────
 const SUGGESTIONS = [
@@ -29,23 +38,18 @@ function renderContent(text: string) {
   });
 }
 
-// ── Task candidate parsed from Phi-3 response ────────────────────────────────
-interface TaskCandidate {
-  msgIdx: number;
-  task: TaskCreate;
-}
-
 // ── Editable confirm card ─────────────────────────────────────────────────────
 function TaskConfirmCard({
-  task,
+  proposal,
   onConfirm,
   onCancel,
 }: {
-  task: TaskCreate;
-  onConfirm: (t: TaskCreate) => void;
-  onCancel: () => void;
+  proposal: CoachProposal;
+  onConfirm: (candidateStart: string, task: TaskCreate) => Promise<void>;
+  onCancel: () => Promise<void>;
 }) {
-  const [form, setForm] = useState<TaskCreate>({ ...task });
+  const [selectedStart, setSelectedStart] = useState(proposal.options[0]?.start ?? "");
+  const [form, setForm] = useState<TaskCreate>({ ...proposal.task });
   const [loading, setLoading] = useState(false);
 
   function set<K extends keyof TaskCreate>(key: K, val: TaskCreate[K]) {
@@ -54,24 +58,54 @@ function TaskConfirmCard({
 
   async function handleConfirm() {
     setLoading(true);
-    await onConfirm(form);
-    setLoading(false);
+    try {
+      await onConfirm(selectedStart, form);
+    } finally {
+      setLoading(false);
+    }
   }
 
-  // Convert HH:MM (24h) → display string
-  function fmtTime(t: string) {
-    const [hStr, mStr] = t.split(":");
-    const h = parseInt(hStr, 10);
-    const m = mStr ?? "00";
-    const ampm = h < 12 ? "AM" : "PM";
-    const h12  = h === 0 ? 12 : h > 12 ? h - 12 : h;
-    return `${h12}:${m} ${ampm}`;
+  function selectOption(start: string) {
+    setSelectedStart(start);
+    const value = new Date(start);
+    setForm((prev) => ({
+      ...prev,
+      planned_date: start.slice(0, 10),
+      planned_start_time: `${String(value.getHours()).padStart(2, "0")}:${String(value.getMinutes()).padStart(2, "0")}`,
+    }));
   }
 
   return (
     <div className="mt-3 bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-3">
       <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-        Add this task?
+        Choose a recommended time
+      </div>
+
+      <div className="space-y-2">
+        {proposal.options.map((option, index) => {
+          const selected = selectedStart === option.start;
+          const start = new Date(option.start);
+          const end = new Date(option.end);
+          return (
+            <button
+              type="button"
+              key={option.start}
+              onClick={() => selectOption(option.start)}
+              className={`w-full text-left rounded-lg border p-3 transition-colors ${selected ? "border-slate-900 bg-white" : "border-slate-200 bg-slate-50 hover:bg-white"}`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-semibold text-slate-800">
+                  {index === 0 ? "Best fit · " : ""}
+                  {start.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–{end.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                </span>
+                <span className="text-xs font-medium text-emerald-700">
+                  {Math.round(option.score * 100)}% fit
+                </span>
+              </div>
+              <div className="mt-1 text-xs text-slate-500">{option.reasons[0]}</div>
+            </button>
+          );
+        })}
       </div>
 
       {/* Title */}
@@ -144,7 +178,7 @@ function TaskConfirmCard({
           {loading ? "Adding…" : "Confirm & Add"}
         </button>
         <button
-          onClick={onCancel}
+          onClick={() => void onCancel()}
           disabled={loading}
           className="px-4 py-2 rounded-lg bg-white border border-slate-200 text-slate-600 text-sm hover:bg-slate-50 transition-colors"
         >
@@ -157,19 +191,48 @@ function TaskConfirmCard({
 
 // ── Extended message type ─────────────────────────────────────────────────────
 interface Message extends ChatMessage {
-  taskCandidate?: TaskCreate;
+  proposal?: CoachProposal;
   taskStatus?: "confirmed" | "cancelled";
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function CoachChat() {
   const [messages, setMessages]     = useState<Message[]>([]);
+  const [conversationId, setConversationId] = useState<string | undefined>();
+  const [loadingHistory, setLoadingHistory] = useState(true);
   const [input, setInput]           = useState("");
   const [streaming, setStreaming]   = useState(false);
   const [streamText, setStreamText] = useState("");
   const [error, setError]           = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef  = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let active = true;
+    getLatestCoachConversation()
+      .then((conversation) => {
+        if (!active || !conversation) return;
+        setConversationId(conversation.id);
+        setMessages([
+          ...conversation.messages.map((message) => ({
+            role: message.role,
+            content: message.content,
+          })),
+          ...conversation.pending_proposals.map((proposal) => ({
+            role: "assistant" as const,
+            content: "This recommendation is still waiting for your confirmation.",
+            proposal,
+          })),
+        ]);
+      })
+      .catch(() => {
+        // The coach remains usable before persistence is configured.
+      })
+      .finally(() => {
+        if (active) setLoadingHistory(false);
+      });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -192,25 +255,27 @@ export default function CoachChat() {
     setStreamText("");
 
     try {
-      let full          = "";
-      let taskCandidate: TaskCreate | undefined;
+      let full = "";
+      let proposal: CoachProposal | undefined;
 
-      for await (const event of streamChatEvents(trimmed, historyForApi.slice(0, -1))) {
+      for await (const event of streamChatEvents(
+        trimmed,
+        historyForApi.slice(0, -1),
+        conversationId,
+      )) {
         if (event.type === "token") {
           full += event.token;
-          // Hide [TASK]...content from display during streaming
-          const displayIdx = full.indexOf("[TASK]");
-          setStreamText(displayIdx !== -1 ? full.slice(0, displayIdx).trimEnd() : full);
-        } else if (event.type === "task_candidate") {
-          taskCandidate = event.task;
+          setStreamText(full);
+        } else if (event.type === "conversation") {
+          setConversationId(event.conversationId);
+        } else if (event.type === "proposal") {
+          proposal = event.proposal;
         }
       }
 
-      // Strip [TASK]...[/TASK] from final stored message
-      const cleanFull = full.replace(/\[TASK\][\s\S]*?\[\/TASK\]/g, "").trimEnd();
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: cleanFull, taskCandidate },
+        { role: "assistant", content: full.trimEnd(), proposal },
       ]);
       setStreamText("");
     } catch (err: unknown) {
@@ -222,10 +287,10 @@ export default function CoachChat() {
     }
   }
 
-  function confirmTask(msgIdx: number, task: TaskCreate) {
-    return async (edited: TaskCreate) => {
+  function confirmTask(msgIdx: number, proposal: CoachProposal) {
+    return async (candidateStart: string, edited: TaskCreate) => {
       try {
-        await createTask({ ...edited, total_tasks_today: 1 });
+        await confirmCoachProposal(proposal.id, candidateStart, edited);
         setMessages((prev) =>
           prev.map((m, i) =>
             i === msgIdx ? { ...m, taskStatus: "confirmed" } : m
@@ -249,15 +314,34 @@ export default function CoachChat() {
     };
   }
 
-  function cancelTask(msgIdx: number) {
-    setMessages((prev) =>
-      prev.map((m, i) =>
-        i === msgIdx ? { ...m, taskStatus: "cancelled" } : m
-      )
-    );
+  function cancelTask(msgIdx: number, proposal: CoachProposal) {
+    return async () => {
+      try {
+        await dismissCoachProposal(proposal.id);
+      } finally {
+        setMessages((prev) =>
+          prev.map((m, i) =>
+            i === msgIdx ? { ...m, taskStatus: "cancelled" } : m
+          )
+        );
+      }
+    };
   }
 
-  const showWelcome = messages.length === 0 && !streaming;
+  async function clearConversation() {
+    if (conversationId) {
+      try {
+        await archiveCoachConversation(conversationId);
+      } catch {
+        // Clear the local view even if persistence is temporarily unavailable.
+      }
+    }
+    setConversationId(undefined);
+    setMessages([]);
+    setError(null);
+  }
+
+  const showWelcome = !loadingHistory && messages.length === 0 && !streaming;
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col h-full">
@@ -326,11 +410,11 @@ export default function CoachChat() {
               </div>
 
               {/* Task confirmation card */}
-              {msg.role === "assistant" && msg.taskCandidate && !msg.taskStatus && (
+              {msg.role === "assistant" && msg.proposal && !msg.taskStatus && (
                 <TaskConfirmCard
-                  task={msg.taskCandidate}
-                  onConfirm={confirmTask(i, msg.taskCandidate)}
-                  onCancel={() => cancelTask(i)}
+                  proposal={msg.proposal}
+                  onConfirm={confirmTask(i, msg.proposal)}
+                  onCancel={cancelTask(i, msg.proposal)}
                 />
               )}
               {msg.role === "assistant" && msg.taskStatus === "confirmed" && (
@@ -406,7 +490,7 @@ export default function CoachChat() {
         </form>
         {messages.length > 0 && (
           <button
-            onClick={() => { setMessages([]); setError(null); }}
+            onClick={() => void clearConversation()}
             className="mt-2 text-xs text-slate-400 hover:text-slate-600 transition-colors"
           >
             Clear conversation
@@ -416,4 +500,3 @@ export default function CoachChat() {
     </div>
   );
 }
-

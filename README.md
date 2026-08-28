@@ -73,8 +73,10 @@ User-owned API routes validate the Supabase access token. The backend derives `u
 
 1. Create a Supabase project.
 2. Run `supabase/schema.sql` in the SQL Editor.
-3. Copy the project URL, anon key, and service-role key from the project API settings.
-4. Configure the desired Auth providers and redirect URLs.
+3. Run `supabase/coach_agent_schema.sql` to add persisted coach conversations,
+   preferences, and confirmation-gated action proposals.
+4. Copy the project URL, anon key, and service-role key from the project API settings.
+5. Configure the desired Auth providers and redirect URLs.
 
 `schema.sql` includes the partial unique index that allows only one open execution per task. Existing databases must run the latest schema SQL so concurrent Start requests receive the database-level guarantee.
 
@@ -163,6 +165,17 @@ ollama serve
 ```
 
 Confirm Ollama is available at `http://localhost:11434/api/tags` before using chat.
+
+The coach is database-aware and English-only. It calculates 30/90-day completion
+patterns, category/hour/weekday performance, interruption and duration patterns,
+and upcoming schedule conflicts on the backend. Ollama interprets the user's intent
+and explains those server-calculated facts; it never writes directly to the database.
+
+Planning requests return up to three ranked, conflict-free time options. A task is
+created only after the authenticated user selects an option and confirms the proposal.
+Conversations and unexpired proposals are restored after a page refresh. Users can
+also save scheduling preferences in chat, for example: `Remember that I prefer to
+plan between 9 AM and 6 PM with a 20-minute buffer.`
 
 ## Running the stack
 
