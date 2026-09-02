@@ -266,3 +266,5 @@ The V1 model package does not currently include an automated test suite; validat
 - `habittrace_ai_v2/README.md`: AI V2 dataset, leakage controls, export, training, and artifacts
 - `habittrace_ai_v2/fixtures/README.md`: synthetic fixture policy
 - `supabase/README.md`: database schema responsibilities and deployment order
+
+동주 그는 고트예요
