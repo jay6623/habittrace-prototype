@@ -68,6 +68,13 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-3.8-flash"
     gemini_max_output_tokens: int = 1_200
 
+    # Google Calendar (backend-only). The OAuth client must match the Google
+    # provider configured in Supabase Auth. The encryption secret protects the
+    # provider tokens stored in the primary Supabase database.
+    google_oauth_client_id: str = ""
+    google_oauth_client_secret: str = ""
+    google_token_encryption_key: str = ""
+
     # Basic rate limiting for expensive endpoints (per key, per window)
     rate_limit_window_seconds: int = 60
     predict_requests_per_window: int = 30

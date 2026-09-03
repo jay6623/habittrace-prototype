@@ -7,12 +7,14 @@ This directory contains SQL for two separate data boundaries.
 | File | Target | Purpose |
 |---|---|---|
 | `schema.sql` | Primary application project | Profiles, tasks, executions, prediction cache, RLS, signup trigger, and indexes |
+| `google_calendar_schema.sql` | Primary application project | Encrypted Google connection records and task-to-event links |
 | `ai_schema.sql` | AI V2 project | AI plan inputs, outcomes, confirmed reasons, model versions, predictions, time recommendations, constraints, triggers, indexes, and RLS |
 | `verify_ai_schema.sql` | AI V2 project | Read-only post-deployment verification queries |
 
 ## Primary application schema
 
 Run `schema.sql` in the Supabase SQL Editor for the project used by frontend authentication and the V1 FastAPI services.
+Run `google_calendar_schema.sql` in the same project when enabling Google Calendar.
 
 The schema manages:
 
@@ -24,6 +26,7 @@ The schema manages:
 - A signup trigger that creates a profile from Auth metadata
 - Date and user query indexes
 - `idx_executions_one_active_per_task`, a partial unique index that prevents two open executions for one task
+- backend-only `calendar_connections` and `calendar_event_links` tables when the optional Calendar schema is applied
 
 The FastAPI backend uses a service-role client, so it must still apply the verified JWT user's UUID explicitly on every query. RLS is defense in depth and protects direct browser access; it does not replace backend ownership filters.
 

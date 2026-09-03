@@ -25,6 +25,7 @@ habittrace_prototype/
 - Scheduler and time recommendations
 - Analytics and failure patterns
 - AI Coach backed by Ollama when configured
+- Optional one-way Google Calendar task synchronization
 - Profile and account settings
 
 ### Mobile PWA
@@ -39,7 +40,7 @@ habittrace_prototype/
 - Account screen opened from the `HT` button, including display-name editing and sign-out
 - Web App Manifest, install icons, standalone mode, and a privacy-preserving offline fallback
 
-The current Service Worker does not cache private plan data. Push notifications, offline write synchronization, Apple/Google Calendar synchronization, and native iOS/Android projects are not implemented.
+The current Service Worker does not cache private plan data. Push notifications, offline write synchronization, Apple Calendar synchronization, Google-to-HabitTrace imports, and native iOS/Android projects are not implemented.
 
 ## Architecture
 
@@ -51,6 +52,7 @@ FastAPI API
   ├── Primary Supabase: Auth, profiles, tasks, executions, predictions
   ├── AI V2 Supabase: immutable plan inputs, outcomes, reasons, predictions
   ├── V1 scikit-learn artifacts
+  ├── Google Calendar API: optional one-way task event synchronization
   └── Ollama / Phi-3 Mini for the optional AI Coach
 ```
 
@@ -115,6 +117,9 @@ Fill in `backend/.env`:
 | `TRUST_FORWARDED_HEADERS` | Production-dependent | Trust reverse-proxy scheme and client IP headers |
 | `PROXY_TRUSTED_HOSTS` | Production-dependent | Hosts allowed to supply forwarded headers |
 | `API_ROOT_PATH` | Optional | Reverse-proxy path prefix such as `/api` |
+| `GOOGLE_OAUTH_CLIENT_ID` | For Calendar | Same Google OAuth web client used by Supabase Auth |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | For Calendar | Backend-only OAuth secret used to refresh access |
+| `GOOGLE_TOKEN_ENCRYPTION_KEY` | For Calendar | Stable random secret used to encrypt Google tokens |
 | `OLLAMA_CHAT_URL` | Optional | Ollama chat endpoint |
 | `OLLAMA_MODEL` | Optional | Ollama model name; default is `phi3` |
 
@@ -217,6 +222,10 @@ All routes below except `/health` require a valid Supabase bearer token.
 | `GET` | `/tasks/{task_id}` | Read an owned task |
 | `PATCH` | `/tasks/{task_id}` | Update an owned task |
 | `DELETE` | `/tasks/{task_id}` | Delete an owned task |
+| `GET` | `/integrations/google-calendar/status` | Read Google Calendar connection state |
+| `POST` | `/integrations/google-calendar/connect` | Save granted Google tokens and run initial sync |
+| `POST` | `/integrations/google-calendar/sync` | Sync owned tasks to Google Calendar |
+| `DELETE` | `/integrations/google-calendar` | Disconnect and erase stored Google tokens |
 | `GET` | `/executions?active=true` | List active executions |
 | `POST` | `/executions/start` | Start a task idempotently using server time |
 | `PATCH` | `/executions/{execution_id}/complete` | Complete an execution and synchronize task status |
@@ -227,6 +236,17 @@ All routes below except `/health` require a valid Supabase bearer token.
 | `POST` | `/chat` | Stream AI Coach events over SSE |
 
 AI V2 routes use the `/api/v2/ai` prefix and cover immutable plan snapshots, one outcome per snapshot, confirmed failure reasons, persisted predictions, and ranked time recommendations. See the OpenAPI page for complete request and response contracts.
+
+## Google Calendar integration
+
+1. In the Google Cloud project used by Supabase Auth, enable **Google Calendar API**.
+2. Add `https://www.googleapis.com/auth/calendar.events` under Google Auth Platform → Data Access. Add test users while the OAuth application is in testing mode.
+3. Keep the Supabase callback URI (`https://<project-ref>.supabase.co/auth/v1/callback`) in the Google OAuth web client.
+4. Run `supabase/google_calendar_schema.sql` in the primary Supabase project's SQL Editor.
+5. Set `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, and `GOOGLE_TOKEN_ENCRYPTION_KEY` on the backend (Render), then redeploy it. The client ID and secret must match the Google provider configured in Supabase Auth.
+6. Allow the production `/dashboard/integrations` return URL in Supabase Auth URL Configuration. No Google secret or provider token belongs in Vercel or a `NEXT_PUBLIC_` variable.
+
+The integration is one-way: HabitTrace tasks create and update events in the user's primary Google Calendar. Deleting a linked task deletes its Google event when Google is reachable. Disconnecting erases the encrypted credentials and link rows but intentionally leaves existing Google events in place.
 
 ## Validation
 

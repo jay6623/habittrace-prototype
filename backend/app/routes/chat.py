@@ -12,6 +12,7 @@ from ..schemas.chat import ChatRequest, ProposalConfirmRequest
 from ..schemas.task import TaskCreate, TaskResponse
 from ..services.chat_service import ChatService
 from ..services.coach_repository import CoachRepository
+from ..services.google_calendar_service import GoogleCalendarService
 from ..services.task_service import TaskService
 
 router = APIRouter()
@@ -125,6 +126,7 @@ def confirm_proposal(
     same_day = TaskService(db).list_for_user(str(user_id), validated.planned_date)
     validated.total_tasks_today = len(same_day) + 1
     created = TaskService(db).create(str(user_id), validated.model_dump())
+    GoogleCalendarService(db).sync_task_safely(str(user_id), created)
     repo.finish_proposal(proposal_id, str(user_id), "confirmed", created)
     return created
 

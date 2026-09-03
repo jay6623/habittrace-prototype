@@ -282,6 +282,51 @@ async function apiFetch<T>(
   return res.json() as Promise<T>;
 }
 
+// ── Google Calendar integration ──────────────────────────────────────────────
+
+export interface GoogleCalendarStatus {
+  configured: boolean;
+  connected: boolean;
+  timezone: string | null;
+  last_synced_at: string | null;
+  last_error: string | null;
+}
+
+export interface GoogleCalendarSyncResult {
+  synced: number;
+  failed: number;
+  errors: string[];
+}
+
+export async function getGoogleCalendarStatus(): Promise<GoogleCalendarStatus> {
+  return apiFetch<GoogleCalendarStatus>("/integrations/google-calendar/status");
+}
+
+export async function connectGoogleCalendar(input: {
+  providerToken: string;
+  providerRefreshToken?: string;
+  timezone: string;
+}): Promise<{ status: GoogleCalendarStatus; sync: GoogleCalendarSyncResult }> {
+  return apiFetch("/integrations/google-calendar/connect", {
+    method: "POST",
+    body: JSON.stringify({
+      provider_token: input.providerToken,
+      provider_refresh_token: input.providerRefreshToken,
+      timezone: input.timezone,
+    }),
+  });
+}
+
+export async function syncGoogleCalendar(): Promise<GoogleCalendarSyncResult> {
+  return apiFetch<GoogleCalendarSyncResult>("/integrations/google-calendar/sync", {
+    method: "POST",
+  });
+}
+
+export async function disconnectGoogleCalendar(): Promise<void> {
+  return apiFetch<void>("/integrations/google-calendar", { method: "DELETE" });
+}
+
 // ── Tasks ────────────────────────────────────────────────────────────────────
 
 export async function getTasks(date?: string): Promise<Task[]> {

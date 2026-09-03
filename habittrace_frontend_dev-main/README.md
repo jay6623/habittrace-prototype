@@ -27,6 +27,7 @@ Desktop routes retain the full planning and analysis tools:
 | `/dashboard/calendar` | Desktop month/week calendar |
 | `/dashboard/scheduler` | Timeline scheduling and recommendations |
 | `/dashboard/analytics` | Trends and failure-pattern analytics |
+| `/dashboard/integrations` | Google Calendar connection and manual synchronization |
 | `/dashboard/settings` | Full settings and account controls |
 
 ### Mobile PWA

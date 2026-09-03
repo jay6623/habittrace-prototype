@@ -17,7 +17,7 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from .config import get_cors_allow_origins, get_settings, parse_proxy_trusted_hosts
 from .core.errors import register_application_error_handlers
-from .routes import analytics, chat, executions, health, predict, tasks
+from .routes import analytics, chat, executions, google_calendar, health, predict, tasks
 from .routes.v2.router import router as ai_v2_router
 from .services.ai_v2_ml_service import get_ai_v2_ml_service
 from .services.ml_service import get_ml_service
@@ -83,4 +83,9 @@ app.include_router(executions.router, prefix="/executions", tags=["executions"])
 app.include_router(predict.router, prefix="/predict", tags=["predict"])
 app.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
 app.include_router(chat.router, prefix="/chat", tags=["chat"])
+app.include_router(
+    google_calendar.router,
+    prefix="/integrations/google-calendar",
+    tags=["integrations"],
+)
 app.include_router(ai_v2_router)

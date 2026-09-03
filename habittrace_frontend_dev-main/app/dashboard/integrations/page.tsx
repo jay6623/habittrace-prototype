@@ -1,6 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
+import {
+  connectGoogleCalendar,
+  disconnectGoogleCalendar,
+  getGoogleCalendarStatus,
+  syncGoogleCalendar,
+} from "@/lib/api";
+import { getOAuthRedirectBaseUrl } from "@/lib/site";
+import { supabase } from "@/lib/supabase";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface Integration {
@@ -95,6 +104,67 @@ export default function IntegrationsPage() {
   const [integrations, setIntegrations] = useState(INTEGRATIONS);
   const [activeCategory, setActiveCategory] = useState("All");
   const [connecting, setConnecting] = useState<string | null>(null);
+  const [calendarConfigured, setCalendarConfigured] = useState(true);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const initialized = useRef(false);
+
+  function setGoogleConnected(connected: boolean) {
+    setIntegrations((prev) =>
+      prev.map((integration) =>
+        integration.id === "google-calendar"
+          ? { ...integration, connected }
+          : integration
+      )
+    );
+  }
+
+  useEffect(() => {
+    if (initialized.current) return;
+    initialized.current = true;
+
+    async function initializeCalendar() {
+      setConnecting("google-calendar");
+      setError(null);
+      try {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get("google_calendar") === "callback") {
+          const {
+            data: { session },
+            error: sessionError,
+          } = await supabase.auth.getSession();
+          if (sessionError) throw sessionError;
+          if (!session?.provider_token) {
+            throw new Error(
+              "Google did not return Calendar access. Please connect again and approve Calendar permission."
+            );
+          }
+
+          const connected = await connectGoogleCalendar({
+            providerToken: session.provider_token,
+            providerRefreshToken: session.provider_refresh_token ?? undefined,
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+          });
+          setGoogleConnected(true);
+          setNotice(
+            `Google Calendar connected. ${connected.sync.synced} task${connected.sync.synced === 1 ? "" : "s"} synced.`
+          );
+          window.history.replaceState({}, "", window.location.pathname);
+        }
+
+        const status = await getGoogleCalendarStatus();
+        setCalendarConfigured(status.configured);
+        setGoogleConnected(status.connected);
+        if (status.last_error) setError(status.last_error);
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : "Google Calendar setup failed.");
+      } finally {
+        setConnecting(null);
+      }
+    }
+
+    void initializeCalendar();
+  }, []);
 
   const filtered =
     activeCategory === "All"
@@ -108,12 +178,58 @@ export default function IntegrationsPage() {
     if (!intg || intg.comingSoon) return;
 
     setConnecting(id);
-    // Simulate OAuth flow delay
-    await new Promise((r) => setTimeout(r, 1500));
-    setIntegrations((prev) =>
-      prev.map((i) => (i.id === id ? { ...i, connected: !i.connected } : i))
-    );
-    setConnecting(null);
+    setError(null);
+    setNotice(null);
+    try {
+      if (id !== "google-calendar") return;
+      if (intg.connected) {
+        await disconnectGoogleCalendar();
+        setGoogleConnected(false);
+        setNotice("Google Calendar disconnected. Existing Google events were left unchanged.");
+        return;
+      }
+      if (!calendarConfigured) {
+        throw new Error("Google Calendar environment variables are missing on the backend.");
+      }
+
+      const redirectTo = `${getOAuthRedirectBaseUrl()}/dashboard/integrations?google_calendar=callback`;
+      const { error: oauthError } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          scopes: "https://www.googleapis.com/auth/calendar.events",
+          redirectTo,
+          queryParams: {
+            access_type: "offline",
+            prompt: "consent",
+            include_granted_scopes: "true",
+          },
+        },
+      });
+      if (oauthError) throw oauthError;
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Google Calendar request failed.");
+    } finally {
+      setConnecting(null);
+    }
+  }
+
+  async function handleSync() {
+    setConnecting("google-calendar");
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await syncGoogleCalendar();
+      setNotice(
+        `${result.synced} task${result.synced === 1 ? "" : "s"} synced to Google Calendar.`
+      );
+      if (result.failed) {
+        setError(`${result.failed} task${result.failed === 1 ? "" : "s"} could not be synced.`);
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Calendar sync failed.");
+    } finally {
+      setConnecting(null);
+    }
   }
 
   return (
@@ -123,6 +239,17 @@ export default function IntegrationsPage() {
         <div className="text-sm text-slate-500">Integrations</div>
         <h1 className="text-2xl font-bold">Connected Apps</h1>
       </div>
+
+      {notice && (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">
+          {notice}
+        </div>
+      )}
+      {error && (
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800" role="alert">
+          {error}
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4">
@@ -195,8 +322,12 @@ export default function IntegrationsPage() {
             </p>
 
             <button
-              onClick={() => handleConnect(intg.id)}
-              disabled={!!intg.comingSoon || connecting === intg.id}
+              onClick={() => void handleConnect(intg.id)}
+              disabled={
+                !!intg.comingSoon ||
+                connecting === intg.id ||
+                (intg.id === "google-calendar" && !calendarConfigured && !intg.connected)
+              }
               className={`mt-4 w-full py-2.5 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                 intg.connected
                   ? "bg-emerald-50 text-emerald-700 hover:bg-rose-50 hover:text-rose-700 border border-emerald-200"
@@ -209,10 +340,22 @@ export default function IntegrationsPage() {
                 ? "Connecting…"
                 : intg.comingSoon
                 ? "Coming soon"
+                : intg.id === "google-calendar" && !calendarConfigured
+                ? "Backend setup required"
                 : intg.connected
                 ? "Disconnect"
                 : "Connect"}
             </button>
+            {intg.id === "google-calendar" && intg.connected && (
+              <button
+                className="mt-2 w-full rounded-xl border border-slate-200 bg-white py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                disabled={connecting === intg.id}
+                onClick={() => void handleSync()}
+                type="button"
+              >
+                Sync now
+              </button>
+            )}
           </div>
         ))}
       </div>

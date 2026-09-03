@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException, Query
 from ..db.supabase_client import get_supabase, is_supabase_configured
 from ..dependencies.auth import CurrentUserId
 from ..schemas.task import TaskCreate, TaskResponse, TaskUpdate
+from ..services.google_calendar_service import GoogleCalendarService
 from ..services.task_service import TaskService
 
 router = APIRouter()
@@ -40,6 +41,7 @@ def create_task(
     db = _require_db()
     svc = TaskService(db)
     created = svc.create(str(user_id), body.model_dump())
+    GoogleCalendarService(db).sync_task_safely(str(user_id), created)
     return created
 
 
@@ -69,6 +71,7 @@ def update_task(
     updated = svc.update(str(user_id), task_id, body.model_dump(exclude_none=True))
     if not updated:
         raise HTTPException(status_code=404, detail="Task not found")
+    GoogleCalendarService(db).sync_task_safely(str(user_id), updated)
     return updated
 
 
@@ -80,6 +83,7 @@ def delete_task(
 ):
     db = _require_db()
     svc = TaskService(db)
+    GoogleCalendarService(db).delete_task_safely(str(user_id), task_id)
     deleted = svc.delete(str(user_id), task_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Task not found")
