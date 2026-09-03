@@ -20,7 +20,13 @@ GEMINI_RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}
 GEMINI_TRANSIENT_ERROR_MESSAGE = (
     "The AI coach is temporarily busy. Please try again in a minute."
 )
+GEMINI_QUOTA_ERROR_MESSAGE = (
+    "The AI coach usage limit has been reached. Please try again later."
+)
 GEMINI_API_ERROR_MESSAGE = "Gemini API error. Please try again later."
+GEMINI_INCOMPLETE_RESPONSE_MESSAGE = (
+    "The AI coach response was incomplete. Please try again."
+)
 
 
 class LLMClient(Protocol):
@@ -168,6 +174,8 @@ class GeminiLLMClient:
     @staticmethod
     def _raise_api_error(exc: Exception) -> None:
         code = getattr(exc, "code", None)
+        if code == 429:
+            raise LLMProviderError(GEMINI_QUOTA_ERROR_MESSAGE) from exc
         if code in GEMINI_RETRYABLE_STATUS_CODES:
             raise LLMProviderError(GEMINI_TRANSIENT_ERROR_MESSAGE) from exc
         raise LLMProviderError(GEMINI_API_ERROR_MESSAGE) from exc
@@ -193,6 +201,27 @@ class GeminiLLMClient:
                 if isinstance(part_text, str) and part_text:
                     parts_text.append(part_text)
         return "".join(parts_text)
+
+    @staticmethod
+    def _finish_reason(chunk: object) -> str | None:
+        candidates = getattr(chunk, "candidates", None) or []
+        if not candidates:
+            return None
+        reason = getattr(candidates[0], "finish_reason", None)
+        if reason is None:
+            return None
+        name = getattr(reason, "name", None)
+        return str(name or reason).removeprefix("FinishReason.").upper()
+
+    @staticmethod
+    def _ensure_complete_finish(reason: str | None) -> None:
+        if reason in {None, "STOP", "FINISH_REASON_UNSPECIFIED"}:
+            return
+        if reason == "MAX_TOKENS":
+            raise LLMProviderError(
+                "The AI coach reached its response limit. Please try again."
+            )
+        raise LLMProviderError(GEMINI_INCOMPLETE_RESPONSE_MESSAGE)
 
     @staticmethod
     def _role(role: str) -> str:
@@ -251,6 +280,10 @@ class GeminiLLMClient:
             return AgentIntent.model_validate_json(content)
         except errors.APIError as exc:
             self._raise_api_error(exc)
+        except httpx.ConnectError as exc:
+            raise LLMConnectionError("Cannot connect to the Gemini API.") from exc
+        except httpx.TimeoutException as exc:
+            raise LLMTimeoutError("The Gemini API request timed out.") from exc
         except LLMClientError:
             raise
         except (ValueError, ValidationError, TypeError) as exc:
@@ -274,11 +307,15 @@ class GeminiLLMClient:
                 config=types.GenerateContentConfig(
                     system_instruction=self._system_instruction(messages),
                     temperature=0.5,
-                    max_output_tokens=500,
+                    max_output_tokens=max(500, settings.gemini_max_output_tokens),
                 ),
             )
             emitted_text = False
+            finish_reason: str | None = None
             async for chunk in stream:
+                chunk_finish_reason = self._finish_reason(chunk)
+                if chunk_finish_reason is not None:
+                    finish_reason = chunk_finish_reason
                 token = self._extract_text(chunk)
                 if token:
                     emitted_text = emitted_text or bool(token.strip())
@@ -287,8 +324,13 @@ class GeminiLLMClient:
                 raise LLMProviderError(
                     "The AI coach did not return a text response. Please try again."
                 )
+            self._ensure_complete_finish(finish_reason)
         except errors.APIError as exc:
             self._raise_api_error(exc)
+        except httpx.ConnectError as exc:
+            raise LLMConnectionError("Cannot connect to the Gemini API.") from exc
+        except httpx.TimeoutException as exc:
+            raise LLMTimeoutError("The Gemini API request timed out.") from exc
         except LLMClientError:
             raise
         except (ValueError, TypeError) as exc:

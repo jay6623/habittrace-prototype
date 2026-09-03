@@ -147,6 +147,56 @@ class CoachingContextService:
                 )
             return sorted(rows, key=lambda item: (-item["sample_size"], str(item[key_name])))
 
+        executions_by_task: dict[str, list[dict]] = defaultdict(list)
+        for execution in executions:
+            executions_by_task[str(execution.get("task_id"))].append(execution)
+
+        category_patterns = []
+        for category, group in category_groups.items():
+            successes = sum(item.get("task_status") == "success" for item in group)
+            category_executions = [
+                execution
+                for task in group
+                for execution in executions_by_task.get(str(task.get("id")), [])
+            ]
+            category_failure_reasons = Counter(
+                str(execution["failure_reason"])
+                for execution in category_executions
+                if execution.get("task_status") == "failed"
+                and execution.get("failure_reason")
+            )
+            category_interruptions = [
+                int(execution.get("interruption_count") or 0)
+                for execution in category_executions
+            ]
+            planned_durations = [
+                int(task.get("planned_duration_min") or 0) for task in group
+            ]
+            category_patterns.append(
+                {
+                    "category": category,
+                    "success_rate": _rate(successes, len(group)),
+                    "successful_tasks": successes,
+                    "failed_tasks": len(group) - successes,
+                    "sample_size": len(group),
+                    "average_planned_minutes": round(
+                        sum(planned_durations) / len(planned_durations), 1
+                    ),
+                    "average_interruptions": round(
+                        sum(category_interruptions) / len(category_interruptions), 1
+                    )
+                    if category_interruptions
+                    else None,
+                    "failure_reasons": [
+                        {"reason": reason, "count": count}
+                        for reason, count in category_failure_reasons.most_common(3)
+                    ],
+                }
+            )
+        category_patterns.sort(
+            key=lambda item: (-item["sample_size"], str(item["category"]))
+        )
+
         failure_reasons = Counter(
             str(row["failure_reason"])
             for row in executions
@@ -191,7 +241,7 @@ class CoachingContextService:
             },
             "hour_patterns": patterns(hour_groups, "hour"),
             "weekday_patterns": patterns(weekday_groups, "weekday"),
-            "category_patterns": patterns(category_groups, "category"),
+            "category_patterns": category_patterns,
             "failure_reasons": [
                 {"reason": reason, "count": count}
                 for reason, count in failure_reasons.most_common(5)

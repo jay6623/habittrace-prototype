@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     # Gemini (AI Coach) — backend-only. Never expose GEMINI_API_KEY to Next.js.
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.8-flash"
+    gemini_max_output_tokens: int = 1_200
 
     # Basic rate limiting for expensive endpoints (per key, per window)
     rate_limit_window_seconds: int = 60

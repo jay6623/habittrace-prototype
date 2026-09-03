@@ -356,7 +356,7 @@ export default function CoachChat() {
           </div>
           <div>
             <div className="font-semibold text-sm">AI Coach</div>
-            <div className="text-xs text-slate-500">Powered by Phi-3 Mini · runs locally</div>
+            <div className="text-xs text-slate-500">AI-powered · uses your tracked data</div>
           </div>
           <div className="ml-auto flex items-center gap-1.5">
             <div className={`h-2 w-2 rounded-full ${streaming ? "bg-emerald-400 animate-pulse" : "bg-slate-200"}`} />

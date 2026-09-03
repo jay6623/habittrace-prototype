@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import asyncio
+from datetime import date, datetime, timezone
+
+from app.schemas.chat import AgentIntent
 from app.services.chat_service import ChatService
+from app.services.coaching_context_service import CoachingContextService
 from app.services.coaching_recommendation_service import CoachingRecommendationService
+from app.services.llm_client import GeminiLLMClient, LLMClientError, LLMProviderError
 
 
 def test_fallback_intent_extracts_a_safe_plan_draft() -> None:
@@ -130,3 +136,156 @@ def test_exact_time_with_conflict_returns_no_unsafe_proposal() -> None:
     }
 
     assert CoachingRecommendationService().recommend(plan, context) == []
+
+
+def test_gemini_rejects_incomplete_finish_reasons() -> None:
+    GeminiLLMClient._ensure_complete_finish("STOP")
+
+    try:
+        GeminiLLMClient._ensure_complete_finish("MAX_TOKENS")
+    except LLMProviderError as exc:
+        assert "response limit" in str(exc)
+    else:
+        raise AssertionError("MAX_TOKENS must not be accepted as a complete response")
+
+
+class _IncompleteLLM:
+    async def classify_intent(self, system_prompt, messages):
+        return AgentIntent(intent="coach")
+
+    async def stream_coaching_response(self, messages):
+        yield "This answer is incomplete"
+        raise LLMClientError("The response stopped early.")
+
+
+class _ClassifyCounterLLM:
+    def __init__(self) -> None:
+        self.classify_calls = 0
+
+    async def classify_intent(self, system_prompt, messages):
+        self.classify_calls += 1
+        return AgentIntent(intent="coach")
+
+    async def stream_coaching_response(self, messages):
+        yield "Complete response."
+
+
+def test_regular_coaching_question_skips_extra_intent_api_call() -> None:
+    service = ChatService(None)
+    llm = _ClassifyCounterLLM()
+    service.llm = llm
+
+    intent = asyncio.run(
+        service._classify_intent("Why do my Study tasks keep failing?", "UTC", [])
+    )
+
+    assert intent.intent == "coach"
+    assert llm.classify_calls == 0
+
+
+def test_incomplete_coach_response_is_not_persisted() -> None:
+    service = ChatService(None)
+    service.llm = _IncompleteLLM()
+    persisted: list[str] = []
+    service._persist_assistant = lambda _conversation, _user, text: persisted.append(text)
+
+    async def collect() -> list[str]:
+        return [event async for event in service.stream("user-1", "Help me", [])]
+
+    events = asyncio.run(collect())
+
+    assert persisted == []
+    assert any("response stopped early" in event for event in events)
+
+
+class _Result:
+    def __init__(self, data):
+        self.data = data
+
+
+class _Query:
+    def __init__(self, data):
+        self.data = data
+
+    def __getattr__(self, _name):
+        return lambda *_args, **_kwargs: self
+
+    def execute(self):
+        return _Result(self.data)
+
+
+class _ContextDB:
+    def __init__(self, tables):
+        self.tables = tables
+
+    def table(self, name):
+        return _Query(self.tables.get(name, []))
+
+
+def test_coaching_context_scopes_failure_evidence_to_category() -> None:
+    today = date.today().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
+    db = _ContextDB(
+        {
+            "tasks": [
+                {
+                    "id": "study-failed",
+                    "task_category": "Study",
+                    "task_status": "failed",
+                    "planned_date": today,
+                    "planned_start_time": "10:00",
+                    "planned_duration_min": 120,
+                },
+                {
+                    "id": "study-success",
+                    "task_category": "Study",
+                    "task_status": "success",
+                    "planned_date": today,
+                    "planned_start_time": "14:00",
+                    "planned_duration_min": 60,
+                },
+                {
+                    "id": "work-failed",
+                    "task_category": "Work",
+                    "task_status": "failed",
+                    "planned_date": today,
+                    "planned_start_time": "16:00",
+                    "planned_duration_min": 30,
+                },
+            ],
+            "executions": [
+                {
+                    "task_id": "study-failed",
+                    "task_status": "failed",
+                    "failure_reason": "interruptions",
+                    "interruption_count": 3,
+                    "created_at": now,
+                },
+                {
+                    "task_id": "study-success",
+                    "task_status": "success",
+                    "failure_reason": None,
+                    "interruption_count": 0,
+                    "created_at": now,
+                },
+                {
+                    "task_id": "work-failed",
+                    "task_status": "failed",
+                    "failure_reason": "low_energy",
+                    "interruption_count": 0,
+                    "created_at": now,
+                },
+            ],
+            "user_coaching_preferences": [],
+        }
+    )
+
+    context = CoachingContextService(db).build("user-1")
+    study = next(
+        item for item in context["category_patterns"] if item["category"] == "Study"
+    )
+
+    assert study["success_rate"] == 50.0
+    assert study["average_planned_minutes"] == 90.0
+    assert study["average_interruptions"] == 1.5
+    assert study["failure_reasons"] == [{"reason": "interruptions", "count": 1}]
