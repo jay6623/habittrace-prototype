@@ -55,9 +55,18 @@ class Settings(BaseSettings):
     # If the API is mounted under a sub-path (e.g. https://domain.com/api), set this to /api
     api_root_path: str = ""
 
+    # AI Coach LLM provider. Use "ollama" for local development or "gemini"
+    # for the cloud-backed development path.
+    llm_provider: str = "ollama"
+
     # Ollama (AI Coach) — override when the LLM runs on another host in production
     ollama_chat_url: str = "http://localhost:11434/api/chat"
     ollama_model: str = "phi3"
+
+    # Gemini (AI Coach) — backend-only. Never expose GEMINI_API_KEY to Next.js.
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-3.8-flash"
+    gemini_max_output_tokens: int = 1_200
 
     # Basic rate limiting for expensive endpoints (per key, per window)
     rate_limit_window_seconds: int = 60
