@@ -10,15 +10,13 @@ from datetime import date, datetime, timedelta
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-import httpx
-from pydantic import ValidationError
 from supabase import Client
 
-from ..config import settings
 from ..schemas.chat import AgentIntent, PlanDraft
 from .coach_repository import CoachRepository
 from .coaching_context_service import CoachingContextService
 from .coaching_recommendation_service import CoachingRecommendationService
+from .llm_client import LLMClientError, get_llm_client
 
 logger = logging.getLogger(__name__)
 MAX_HISTORY = 12
@@ -35,6 +33,7 @@ class ChatService:
         self.context_service = CoachingContextService(db) if db else None
         self.repository = CoachRepository(db) if db else None
         self.recommender = CoachingRecommendationService()
+        self.llm = get_llm_client()
 
     def latest_conversation(self, user_id: str) -> dict | None:
         if not self.repository:
@@ -96,27 +95,14 @@ class ChatService:
             "or coaching preferences. Otherwise use intent=coach. "
             "Do not invent a missing title or date."
         )
-        payload = {
-            "model": settings.ollama_model,
-            "messages": [
-                {"role": "system", "content": system},
-                *[
-                    {"role": item["role"], "content": str(item["content"])}
-                    for item in history[-4:]
-                    if item.get("role") in {"user", "assistant"} and item.get("content")
-                ],
-                {"role": "user", "content": message},
-            ],
-            "stream": False,
-            "format": AgentIntent.model_json_schema(),
-            "options": {"temperature": 0, "num_predict": 300},
-        }
+        messages = [
+            {"role": item["role"], "content": str(item["content"])}
+            for item in history[-4:]
+            if item.get("role") in {"user", "assistant"} and item.get("content")
+        ]
+        messages.append({"role": "user", "content": message})
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(settings.ollama_chat_url, json=payload)
-                response.raise_for_status()
-            content = response.json().get("message", {}).get("content", "{}")
-            parsed = AgentIntent.model_validate_json(content)
+            parsed = await self.llm.classify_intent(system, messages)
             fallback = self._fallback_intent(message, history, timezone_name)
             if parsed.intent == "plan":
                 return AgentIntent(
@@ -126,7 +112,7 @@ class ChatService:
             if fallback.intent == "plan":
                 return fallback
             return parsed
-        except (httpx.HTTPError, ValueError, ValidationError, TypeError) as exc:
+        except LLMClientError as exc:
             logger.warning("Structured intent parsing failed; using safe fallback: %s", exc)
             return self._fallback_intent(message, history, timezone_name)
 
@@ -384,47 +370,11 @@ class ChatService:
 
         full_text = ""
         try:
-            async with (
-                httpx.AsyncClient(timeout=90.0) as client,
-                client.stream(
-                    "POST",
-                    settings.ollama_chat_url,
-                    json={
-                        "model": settings.ollama_model,
-                        "messages": messages,
-                        "stream": True,
-                        "options": {"temperature": 0.5, "num_predict": 500},
-                    },
-                ) as response,
-            ):
-                if response.status_code != 200:
-                    yield _sse(
-                        {
-                            "error": (
-                                "Ollama returned an error. Confirm that the configured "
-                                "model is installed."
-                            )
-                        }
-                    )
-                    yield _sse("[DONE]")
-                    return
-                async for line in response.aiter_lines():
-                    if not line:
-                        continue
-                    try:
-                        chunk = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    token = chunk.get("message", {}).get("content", "")
-                    if token:
-                        full_text += token
-                        yield _sse({"token": token})
-                    if chunk.get("done"):
-                        break
-        except httpx.ConnectError:
-            yield _sse({"error": "Cannot connect to Ollama. Start it with `ollama serve`."})
-        except httpx.TimeoutException:
-            yield _sse({"error": "Ollama timed out while loading or generating a response."})
+            async for token in self.llm.stream_coaching_response(messages):
+                full_text += token
+                yield _sse({"token": token})
+        except LLMClientError as exc:
+            yield _sse({"error": str(exc)})
         except Exception as exc:
             logger.exception("Unexpected coach error: %s", exc)
             yield _sse({"error": "The coach encountered an unexpected error."})
