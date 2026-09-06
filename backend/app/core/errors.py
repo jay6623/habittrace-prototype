@@ -21,6 +21,12 @@ class ResourceNotFoundError(ApplicationError):
     default_detail = "The requested resource was not found."
 
 
+class PermissionDeniedError(ApplicationError):
+    status_code = 403
+    code = "forbidden"
+    default_detail = "You do not have permission to perform this action."
+
+
 class ResourceConflictError(ApplicationError):
     status_code = 409
     code = "conflict"
