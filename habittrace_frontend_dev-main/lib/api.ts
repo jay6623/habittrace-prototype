@@ -260,6 +260,40 @@ async function buildHeaders(): Promise<HeadersInit> {
 
 // ── Generic fetch wrapper ───────────────────────────────────────────────────
 
+/**
+ * Thrown for non-2xx responses. Still an `Error` with the historical
+ * `API <method> <path> → <status>: <body>` message, so existing callers that
+ * string-match on the message keep working; new callers can branch on
+ * `status` and show the backend's `detail` text directly.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  /** The backend's `detail` string when the body was `{ detail, code }`. */
+  readonly detail: string | null;
+  /** The backend's machine-readable `code` (e.g. "not_found"), when present. */
+  readonly code: string | null;
+
+  constructor(message: string, status: number, detail: string | null, code: string | null) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.detail = detail;
+    this.code = code;
+  }
+}
+
+function parseErrorBody(text: string): { detail: string | null; code: string | null } {
+  try {
+    const parsed = JSON.parse(text) as { detail?: unknown; code?: unknown };
+    return {
+      detail: typeof parsed.detail === "string" ? parsed.detail : null,
+      code: typeof parsed.code === "string" ? parsed.code : null,
+    };
+  } catch {
+    return { detail: null, code: null };
+  }
+}
+
 async function apiFetch<T>(
   path: string,
   options: RequestInit = {}
@@ -273,7 +307,13 @@ async function apiFetch<T>(
 
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
-    throw new Error(`API ${options.method ?? "GET"} ${path} → ${res.status}: ${text}`);
+    const { detail, code } = parseErrorBody(text);
+    throw new ApiError(
+      `API ${options.method ?? "GET"} ${path} → ${res.status}: ${text}`,
+      res.status,
+      detail,
+      code
+    );
   }
 
   // 204 No Content
@@ -831,6 +871,128 @@ export async function confirmCoachProposal(
 
 export async function dismissCoachProposal(proposalId: string): Promise<void> {
   return apiFetch<void>(`/chat/proposals/${proposalId}/dismiss`, { method: "POST" });
+}
+
+// ── Group scheduling ─────────────────────────────────────────────────────────
+// Mirrors backend/app/schemas/group.py. Membership is enforced server-side:
+// a group the caller does not belong to answers 404 on every route.
+
+export type GroupRole = "owner" | "member";
+export type GroupTaskStatus = "pending" | "success" | "failed";
+export type GroupTaskPriority = "high" | "medium" | "low";
+
+export interface Group {
+  id: string;
+  owner_id: string;
+  name: string;
+  invite_code: string;
+  created_at: string;
+  /** The signed-in user's role in this group. */
+  role: GroupRole;
+}
+
+export interface GroupMember {
+  user_id: string;
+  role: GroupRole;
+  joined_at: string;
+  display_name: string | null;
+}
+
+export interface GroupTask {
+  id: string;
+  group_id: string;
+  created_by: string;
+  assigned_to: string | null;
+  assignee_name: string | null;
+  title: string;
+  category: string;
+  priority: GroupTaskPriority;
+  status: GroupTaskStatus;
+  /** ISO date, e.g. "2026-09-07". */
+  due_date: string | null;
+  /** ISO time, e.g. "14:00:00". */
+  due_time: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GroupDetail {
+  group: Group;
+  members: GroupMember[];
+  /** Newest first. */
+  tasks: GroupTask[];
+}
+
+export interface GroupTaskCreate {
+  title: string;
+  category?: string;
+  priority?: GroupTaskPriority;
+  due_date?: string | null;
+  /** "HH:MM" or "HH:MM:SS". */
+  due_time?: string | null;
+  assigned_to?: string | null;
+}
+
+/** Send only the fields to change; `assigned_to: null` unassigns. */
+export interface GroupTaskUpdate {
+  title?: string;
+  category?: string;
+  priority?: GroupTaskPriority;
+  status?: GroupTaskStatus;
+  due_date?: string | null;
+  due_time?: string | null;
+  assigned_to?: string | null;
+}
+
+export async function getGroups(): Promise<Group[]> {
+  return apiFetch<Group[]>("/groups");
+}
+
+export async function createGroup(name: string): Promise<Group> {
+  return apiFetch<Group>("/groups", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function joinGroup(inviteCode: string): Promise<Group> {
+  return apiFetch<Group>("/groups/join", {
+    method: "POST",
+    body: JSON.stringify({ invite_code: inviteCode }),
+  });
+}
+
+export async function getGroupDetail(groupId: string): Promise<GroupDetail> {
+  return apiFetch<GroupDetail>(`/groups/${groupId}`);
+}
+
+export async function deleteGroup(groupId: string): Promise<void> {
+  return apiFetch<void>(`/groups/${groupId}`, { method: "DELETE" });
+}
+
+export async function createGroupTask(
+  groupId: string,
+  input: GroupTaskCreate
+): Promise<GroupTask> {
+  return apiFetch<GroupTask>(`/groups/${groupId}/tasks`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateGroupTask(
+  groupId: string,
+  taskId: string,
+  update: GroupTaskUpdate
+): Promise<GroupTask> {
+  return apiFetch<GroupTask>(`/groups/${groupId}/tasks/${taskId}`, {
+    method: "PATCH",
+    body: JSON.stringify(update),
+  });
+}
+
+export async function deleteGroupTask(groupId: string, taskId: string): Promise<void> {
+  return apiFetch<void>(`/groups/${groupId}/tasks/${taskId}`, { method: "DELETE" });
 }
 
 // ── Health ───────────────────────────────────────────────────────────────────
