@@ -8,6 +8,7 @@ This directory contains SQL for two separate data boundaries.
 |---|---|---|
 | `schema.sql` | Primary application project | Profiles, tasks, executions, prediction cache, RLS, signup trigger, and indexes |
 | `google_calendar_schema.sql` | Primary application project | Encrypted Google connection records and task-to-event links |
+| `group_scheduling_schema.sql` | Primary application project | Groups, invite-code memberships, and shared group tasks |
 | `ai_schema.sql` | AI V2 project | AI plan inputs, outcomes, confirmed reasons, model versions, predictions, time recommendations, constraints, triggers, indexes, and RLS |
 | `verify_ai_schema.sql` | AI V2 project | Read-only post-deployment verification queries |
 
@@ -15,6 +16,7 @@ This directory contains SQL for two separate data boundaries.
 
 Run `schema.sql` in the Supabase SQL Editor for the project used by frontend authentication and the V1 FastAPI services.
 Run `google_calendar_schema.sql` in the same project when enabling Google Calendar.
+Run `group_scheduling_schema.sql` in the same project to enable group scheduling. Its tables are backend-only: RLS is enabled with no browser policies, and the FastAPI service enforces group membership on every query.
 
 The schema manages:
 

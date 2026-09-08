@@ -1,0 +1,51 @@
+-- HabitTrace group scheduling (GitHub issue #6)
+-- Run this once in the PRIMARY Supabase project's SQL Editor, after schema.sql.
+
+begin;
+
+create table if not exists public.groups (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid not null references auth.users(id) on delete cascade,
+  name text not null check (char_length(name) between 1 and 80),
+  invite_code text not null unique check (invite_code ~ '^[A-Z0-9]{8}$'),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_groups_owner on public.groups(owner_id);
+
+create table if not exists public.group_members (
+  group_id uuid not null references public.groups(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  role text not null default 'member' check (role in ('owner', 'member')),
+  joined_at timestamptz not null default now(),
+  primary key (group_id, user_id)
+);
+
+create index if not exists idx_group_members_user on public.group_members(user_id);
+
+create table if not exists public.group_tasks (
+  id uuid primary key default gen_random_uuid(),
+  group_id uuid not null references public.groups(id) on delete cascade,
+  created_by uuid not null references auth.users(id) on delete cascade,
+  assigned_to uuid references auth.users(id) on delete set null,
+  title text not null check (char_length(title) between 1 and 200),
+  category text not null default 'Other' check (char_length(category) between 1 and 40),
+  priority text not null default 'medium' check (priority in ('high', 'medium', 'low')),
+  status text not null default 'pending' check (status in ('pending', 'success', 'failed')),
+  due_date date,
+  due_time time,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_group_tasks_group_created
+  on public.group_tasks(group_id, created_at desc);
+
+-- Backend-only tables. The FastAPI service-role client enforces group
+-- membership on every read and write, so RLS is enabled with no policies:
+-- direct anon/authenticated access is denied entirely.
+alter table public.groups enable row level security;
+alter table public.group_members enable row level security;
+alter table public.group_tasks enable row level security;
+
+commit;
