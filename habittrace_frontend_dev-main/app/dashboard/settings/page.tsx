@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/app/providers";
 import { supabase } from "@/lib/supabase";
+import { useToast } from "@/components/ui/toast";
 
 // ── Toggle component ──────────────────────────────────────────────────────
 function Toggle({
@@ -33,6 +34,7 @@ function Toggle({
 export default function SettingsPage() {
   const { user, displayName } = useAuth();
   const router = useRouter();
+  const toast = useToast();
 
   // Profile
   const [name, setName]       = useState(displayName);
@@ -298,7 +300,7 @@ export default function SettingsPage() {
               <button
                 disabled={deleteInput !== "DELETE"}
                 className="px-4 py-2 rounded-xl bg-rose-500 text-white text-sm font-semibold hover:bg-rose-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                onClick={() => alert("Account deletion requires backend integration.")}
+                onClick={() => toast.info("Account deletion requires backend integration.")}
               >
                 Delete my account
               </button>

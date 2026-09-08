@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "./providers";
+import { ToastProvider } from "@/components/ui/toast";
 import ServiceWorkerRegistration from "@/components/pwa/service-worker-registration";
 
 const geistSans = Geist({
@@ -53,9 +54,11 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <AuthProvider>
-          {children}
-        </AuthProvider>
+        <ToastProvider>
+          <AuthProvider>
+            {children}
+          </AuthProvider>
+        </ToastProvider>
         <ServiceWorkerRegistration />
       </body>
     </html>
