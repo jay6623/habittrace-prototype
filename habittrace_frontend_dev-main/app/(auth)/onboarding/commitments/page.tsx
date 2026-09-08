@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useToast } from "@/components/ui/toast";
 
 interface Commitment {
   id: string;
@@ -13,6 +14,7 @@ interface Commitment {
 
 export default function CommitmentsPage() {
   const router = useRouter();
+  const toast = useToast();
 
   const [name, setName] = useState("");
   const [day, setDay] = useState("Monday");
@@ -26,7 +28,7 @@ export default function CommitmentsPage() {
 
   function handleAdd() {
     if (!name || !startTime || !endTime) {
-      alert("Please fill in all fields.");
+      toast.error("Please fill in all fields.");
       return;
     }
 

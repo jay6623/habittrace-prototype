@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { Suspense, useState, useEffect, useCallback, useRef } from "react";
+import { useSearchParams } from "next/navigation";
+import { useToast } from "@/components/ui/toast";
 import {
   getTasks, createTask, updateTask, deleteTask, logExecution, createAIOutcome,
   predict, predictAIPlan, getAIPlanPrediction, reviseAIPlan, clearAIPlan,
@@ -192,6 +194,16 @@ function PredictionBadge({ prediction, loading }: { prediction?: Prediction; loa
 
 // ── Main page ─────────────────────────────────────────────────────────────
 export default function HabitTrackingPage() {
+  return (
+    <Suspense fallback={<div className="px-5 py-12 text-center text-sm text-slate-400 animate-pulse">Loading…</div>}>
+      <HabitTrackingPageInner />
+    </Suspense>
+  );
+}
+
+function HabitTrackingPageInner() {
+  const toast = useToast();
+  const searchParams = useSearchParams();
   const [viewDate, setViewDate]   = useState(localDateStr);
   const [tasks, setTasks]         = useState<LocalTask[]>([]);
   const [loading, setLoading]     = useState(true);
@@ -289,7 +301,7 @@ export default function HabitTrackingPage() {
 
   async function requestTimeRecommendation(task: LocalTask) {
     if (!task.ai_plan_input_id) {
-      alert("Time recommendations require a signed-in AI plan.");
+      toast.error("Time recommendations require a signed-in AI plan.");
       return;
     }
     setTimeRecommendationLoading((prev) => new Set(prev).add(task.id));
@@ -301,7 +313,7 @@ export default function HabitTrackingPage() {
       setTimeRecommendations((prev) => ({ ...prev, [task.id]: recommendation }));
     } catch (error) {
       console.warn("Time recommendation failed:", error);
-      alert("Could not generate time recommendations for this task.");
+      toast.error("Could not generate time recommendations for this task.");
     } finally {
       setTimeRecommendationLoading((prev) => {
         const next = new Set(prev);
@@ -382,13 +394,13 @@ export default function HabitTrackingPage() {
       } catch (error) {
         console.warn("Task update after time selection failed:", error);
         const detail = error instanceof Error ? error.message : "Unknown API error";
-        alert(`The recommended time was saved, but the task list could not be updated.\n${detail}`);
+        toast.warn("The recommended time was saved, but the task list could not be updated.", detail);
       }
     } catch (error) {
       setTimeRecommendations((prev) => ({ ...prev, [taskId]: recommendation }));
       console.warn("Time candidate selection failed:", error);
       const detail = error instanceof Error ? error.message : "Unknown API error";
-      alert(`Could not save the selected time.\n${detail}`);
+      toast.error("Could not save the selected time.", detail);
     }
   }
 
@@ -434,6 +446,13 @@ export default function HabitTrackingPage() {
 
   useEffect(() => { loadTasks(viewDate); }, [viewDate, loadTasks]);
 
+  // Jump to the date requested by the top-bar search (?date=YYYY-MM-DD).
+  useEffect(() => {
+    const requestedDate = searchParams.get("date");
+    if (requestedDate && requestedDate !== viewDate) setViewDate(requestedDate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
   // Sync newDate with viewDate when form opens
   useEffect(() => {
     if (showAddForm) setNewDate(viewDate);
@@ -451,7 +470,7 @@ export default function HabitTrackingPage() {
 
   // ── Add task ──────────────────────────────────────────────────────────
   async function handleAddTask() {
-    if (!newTitle.trim()) { alert("Please fill in the task name."); return; }
+    if (!newTitle.trim()) { toast.error("Please fill in the task name."); return; }
     const timeStr = formatTimeStr(newHour, newMin, newMer);
     setSaving(true);
     const totalToday = tasks.length + 1;
@@ -605,7 +624,7 @@ export default function HabitTrackingPage() {
   // ── Submit results ────────────────────────────────────────────────────
   async function handleSubmitResults() {
     if (taskResult === "failed" && !failureReason) {
-      alert("Please select a reason for failure."); return;
+      toast.error("Please select a reason for failure."); return;
     }
     const startStr = formatTimeStr(actStartH, actStartM, actStartMer);
     const endStr   = formatTimeStr(actEndH, actEndM, actEndMer);
