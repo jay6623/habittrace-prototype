@@ -14,8 +14,7 @@ def _require_db():
         raise HTTPException(
             status_code=503,
             detail=(
-                "Database not configured. Set SUPABASE_URL and "
-                "SUPABASE_SERVICE_KEY in backend/.env"
+                "Database not configured. Set SUPABASE_URL and SUPABASE_SERVICE_KEY in backend/.env"
             ),
         )
     return get_supabase()

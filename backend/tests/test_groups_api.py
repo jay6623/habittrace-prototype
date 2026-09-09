@@ -2,6 +2,7 @@
 
 Every group-scoped route must behave as if non-member groups do not exist.
 """
+
 from __future__ import annotations
 
 import re
@@ -174,9 +175,7 @@ def test_create_group_makes_creator_owner_member(authenticated_client: TestClien
 
 
 @pytest.mark.parametrize("payload", [{"name": ""}, {"name": "   "}, {"name": "x" * 81}, {}])
-def test_create_group_rejects_invalid_name(
-    authenticated_client: TestClient, payload: dict
-) -> None:
+def test_create_group_rejects_invalid_name(authenticated_client: TestClient, payload: dict) -> None:
     _use_memory_database()
 
     response = authenticated_client.post("/groups", json=payload)
@@ -187,9 +186,7 @@ def test_create_group_rejects_invalid_name(
 def test_create_group_rejects_unknown_fields(authenticated_client: TestClient) -> None:
     _use_memory_database()
 
-    response = authenticated_client.post(
-        "/groups", json={"name": "Crew", "owner_id": OTHER_ID}
-    )
+    response = authenticated_client.post("/groups", json={"name": "Crew", "owner_id": OTHER_ID})
 
     assert response.status_code == 422
 
@@ -200,9 +197,7 @@ def test_list_groups_returns_only_memberships(authenticated_client: TestClient) 
     response = authenticated_client.get("/groups")
 
     assert response.status_code == 200
-    assert [(group["id"], group["role"]) for group in response.json()] == [
-        (OWN_GROUP_ID, "owner")
-    ]
+    assert [(group["id"], group["role"]) for group in response.json()] == [(OWN_GROUP_ID, "owner")]
 
 
 def test_get_group_detail_includes_members_and_tasks(
@@ -461,9 +456,7 @@ def test_update_task_with_empty_body_returns_current_task(
 ) -> None:
     _use_memory_database()
 
-    response = authenticated_client.patch(
-        f"/groups/{OWN_GROUP_ID}/tasks/{OWN_TASK_ID}", json={}
-    )
+    response = authenticated_client.patch(f"/groups/{OWN_GROUP_ID}/tasks/{OWN_TASK_ID}", json={})
 
     assert response.status_code == 200
     assert response.json()["updated_at"] == "2026-09-01T12:00:00+00:00"
@@ -506,9 +499,7 @@ def test_delete_task_by_member(authenticated_client: TestClient) -> None:
 def test_delete_task_in_foreign_group_returns_404(authenticated_client: TestClient) -> None:
     database = _use_memory_database()
 
-    response = authenticated_client.delete(
-        f"/groups/{FOREIGN_GROUP_ID}/tasks/{FOREIGN_TASK_ID}"
-    )
+    response = authenticated_client.delete(f"/groups/{FOREIGN_GROUP_ID}/tasks/{FOREIGN_TASK_ID}")
 
     assert response.status_code == 404
     assert len(database.rows["group_tasks"]) == 2

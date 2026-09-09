@@ -37,9 +37,7 @@ class FakeDatabase:
 
 def _override_non_auth_dependencies(*, valid_token: bool) -> None:
     app.dependency_overrides[get_auth_database] = lambda: FakeDatabase(valid=valid_token)
-    app.dependency_overrides[get_ai_failure_reason_service] = (
-        lambda: FailureReasonServiceStub()
-    )
+    app.dependency_overrides[get_ai_failure_reason_service] = lambda: FailureReasonServiceStub()
 
 
 def test_v2_rejects_missing_token(client: TestClient) -> None:
@@ -88,9 +86,7 @@ def test_v2_maps_auth_server_error_to_service_unavailable(client: TestClient) ->
         valid=True,
         error=AuthApiError("internal", 500, None),
     )
-    app.dependency_overrides[get_ai_failure_reason_service] = (
-        lambda: FailureReasonServiceStub()
-    )
+    app.dependency_overrides[get_ai_failure_reason_service] = lambda: FailureReasonServiceStub()
 
     response = client.get(
         "/api/v2/ai/failure-reasons",

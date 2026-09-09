@@ -1,4 +1,5 @@
 """Business rules for one immutable outcome per plan input."""
+
 from __future__ import annotations
 
 from uuid import UUID
@@ -18,13 +19,9 @@ class AIOutcomeService:
         self.plans = plans
         self.outcomes = outcomes
 
-    def create(
-        self, user_id: UUID, plan_input_id: UUID, body: OutcomeCreate
-    ) -> dict:
+    def create(self, user_id: UUID, plan_input_id: UUID, body: OutcomeCreate) -> dict:
         if self.plans.get_owned(plan_input_id, user_id) is None:
             raise ResourceNotFoundError("Plan not found.")
         if self.outcomes.get_by_plan(plan_input_id) is not None:
             raise ResourceConflictError("This plan already has an outcome.")
-        return self.outcomes.create(
-            outcome_to_insert(body, plan_input_id=plan_input_id)
-        )
+        return self.outcomes.create(outcome_to_insert(body, plan_input_id=plan_input_id))

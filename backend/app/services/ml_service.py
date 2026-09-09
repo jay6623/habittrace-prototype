@@ -5,13 +5,14 @@ and exposes a single predict() method used by the /predict route.
 The existing ML code lives in habittrace_model_dev-main/ml/. We add that directory
 to sys.path so we can import from ml.* without copying any source files.
 """
+
 from __future__ import annotations
 
 import logging
 import sys
+from contextlib import suppress
 from datetime import date, datetime
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -29,28 +30,29 @@ if str(_ml_code_dir) not in sys.path:
 
 # These imports resolve only after the path is injected above
 try:
-    from ml.model_success import (
-        predict_proba_and_contributions,
-        load_success_pipeline,
-    )
-    from ml.model_failure import (
-        predict_failure_proba_and_contributions,
-        load_failure_pipeline,
-    )
-    from ml.personalize import (
-        predict_personalized,
-        get_user_params,
-        load_calib_params,
-    )
     from ml.data import (
         CATEGORY_COL,
-        PLANNED_START_COL,
-        PLANNED_DURATION_COL,
-        IMPORTANCE_COL,
         ENERGY_COL,
         FOCUS_COL,
+        IMPORTANCE_COL,
+        PLANNED_DURATION_COL,
+        PLANNED_START_COL,
         TOTAL_TASKS_TODAY_COL,
     )
+    from ml.model_failure import (
+        load_failure_pipeline,
+        predict_failure_proba_and_contributions,
+    )
+    from ml.model_success import (
+        load_success_pipeline,
+        predict_proba_and_contributions,
+    )
+    from ml.personalize import (
+        get_user_params,
+        load_calib_params,
+        predict_personalized,
+    )
+
     _ML_AVAILABLE = True
 except ImportError as e:
     logger.warning(f"ML modules could not be imported: {e}. Predictions will be unavailable.")
@@ -61,14 +63,14 @@ except ImportError as e:
 # Time string parsing helpers
 # ---------------------------------------------------------------------------
 _TIME_FORMATS = [
-    "%I:%M %p",    # "2:00 PM"
-    "%I:%M%p",     # "2:00PM"
-    "%H:%M",       # "14:00"
-    "%H:%M:%S",    # "14:00:00"
+    "%I:%M %p",  # "2:00 PM"
+    "%I:%M%p",  # "2:00PM"
+    "%H:%M",  # "14:00"
+    "%H:%M:%S",  # "14:00:00"
 ]
 
 
-def _parse_time_string(time_str: str) -> Optional[datetime]:
+def _parse_time_string(time_str: str) -> datetime | None:
     """Parse a time string into a datetime (date part = today)."""
     time_str = time_str.strip()
     today = date.today()
@@ -84,24 +86,22 @@ def _parse_time_string(time_str: str) -> Optional[datetime]:
 def _build_dataframe(
     task_category: str,
     planned_start_time: str,
-    planned_date: Optional[str],
+    planned_date: str | None,
     planned_duration_min: int,
     importance: int,
     energy_level: int,
     focus_level: int,
     total_tasks_today: int,
-) -> "pd.DataFrame":
+) -> pd.DataFrame:
     """Build the 1-row DataFrame that the feature builder expects."""
     # Resolve the planned date
     target_date = date.today()
     if planned_date:
-        try:
+        with suppress(ValueError):
             target_date = date.fromisoformat(planned_date)
-        except ValueError:
-            pass
 
     # Parse time string and combine with date
-    dt: Optional[datetime] = None
+    dt: datetime | None = None
     time_str = planned_start_time.strip()
     for fmt in _TIME_FORMATS:
         try:
@@ -131,10 +131,11 @@ def _build_dataframe(
 # ML Service singleton
 # ---------------------------------------------------------------------------
 
+
 class MLService:
     def __init__(self) -> None:
-        self._success_pipeline: Optional[dict] = None
-        self._failure_pipeline: Optional[dict] = None
+        self._success_pipeline: dict | None = None
+        self._failure_pipeline: dict | None = None
         self._calib_params: dict = {}
         self._loaded = False
 
@@ -170,28 +171,33 @@ class MLService:
         self,
         task_category: str,
         planned_start_time: str,
-        planned_date: Optional[str],
+        planned_date: str | None,
         planned_duration_min: int,
         importance: int,
         energy_level: int,
         focus_level: int,
         total_tasks_today: int,
-        user_id: Optional[str] = None,
+        user_id: str | None = None,
     ) -> dict:
         if not self.is_ready:
             raise RuntimeError("ML models are not loaded. Call ml_service.load() first.")
 
         df = _build_dataframe(
-            task_category, planned_start_time, planned_date,
-            planned_duration_min, importance, energy_level, focus_level, total_tasks_today,
+            task_category,
+            planned_start_time,
+            planned_date,
+            planned_duration_min,
+            importance,
+            energy_level,
+            focus_level,
+            total_tasks_today,
         )
 
         # ── Success model ───────────────────────────────────────────────
         success_fb = self._success_pipeline["feature_builder"]
         X_success = success_fb.transform(df)
         feature_names = (
-            self._success_pipeline.get("feature_names")
-            or success_fb.get_feature_names()
+            self._success_pipeline.get("feature_names") or success_fb.get_feature_names()
         )
 
         p_success_arr, contributions_list = predict_proba_and_contributions(
@@ -211,8 +217,7 @@ class MLService:
         failure_fb = self._failure_pipeline["feature_builder"]
         X_failure = failure_fb.transform(df)
         failure_feature_names = (
-            self._failure_pipeline.get("feature_names")
-            or failure_fb.get_feature_names()
+            self._failure_pipeline.get("feature_names") or failure_fb.get_feature_names()
         )
 
         failure_proba, class_names, _ = predict_failure_proba_and_contributions(
@@ -228,18 +233,25 @@ class MLService:
         predicted_failure_reason = class_names[predicted_failure_idx]
 
         failure_probabilities = {
-            class_names[i]: round(float(failure_proba_row[i]), 4)
-            for i in range(len(class_names))
+            class_names[i]: round(float(failure_proba_row[i]), 4) for i in range(len(class_names))
         }
 
         # ── Feature contributions (from success model) ──────────────────
         contribs = contributions_list[0]
         top_positive = [
-            {"feature": c["feature"], "contribution": round(c["contribution"], 4), "value": round(c["value"], 4)}
+            {
+                "feature": c["feature"],
+                "contribution": round(c["contribution"], 4),
+                "value": round(c["value"], 4),
+            }
             for c in contribs["positive"][:5]
         ]
         top_negative = [
-            {"feature": c["feature"], "contribution": round(c["contribution"], 4), "value": round(c["value"], 4)}
+            {
+                "feature": c["feature"],
+                "contribution": round(c["contribution"], 4),
+                "value": round(c["value"], 4),
+            }
             for c in contribs["negative"][:5]
         ]
 
@@ -254,7 +266,7 @@ class MLService:
 
 
 # Module-level singleton
-_ml_service: Optional[MLService] = None
+_ml_service: MLService | None = None
 
 
 def get_ml_service() -> MLService:

@@ -48,4 +48,3 @@ def test_deadline_and_readiness_features(plans: pd.DataFrame) -> None:
     assert features["energy_gap"] == pytest.approx(
         float(sample.iloc[0]["required_energy"]) - float(sample.iloc[0]["current_energy"])
     )
-

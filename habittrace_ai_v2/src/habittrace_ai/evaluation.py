@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TypeAlias
+from typing import Any, TypeAlias
 
 import numpy as np
 import pandas as pd
@@ -63,4 +63,39 @@ def evaluate_failure_probabilities(
     return {
         reason: evaluate_binary_probabilities(truth[reason], probabilities[reason])
         for reason in truth.columns
+    }
+
+
+def calibration_bins(
+    truth: pd.Series | np.ndarray, probabilities: np.ndarray, bins: int = 5
+) -> list[dict[str, Any]]:
+    y = np.asarray(truth, dtype=float)
+    p = np.asarray(probabilities, dtype=float)
+    result = []
+    for i in range(bins):
+        mask = (p >= i / bins) & ((p < (i + 1) / bins) if i < bins - 1 else (p <= 1))
+        if mask.any():
+            result.append(
+                {
+                    "count": int(mask.sum()),
+                    "mean_prediction": float(p[mask].mean()),
+                    "observed_rate": float(y[mask].mean()),
+                }
+            )
+    return result
+
+
+def paired_brier_interval(
+    truth: pd.Series | np.ndarray, baseline: np.ndarray, candidate: np.ndarray
+) -> dict[str, Any]:
+    """Row-bootstrap interval; descriptive, not a user-clustered population claim."""
+    y = np.asarray(truth, dtype=float)
+    delta = (y - np.asarray(baseline)) ** 2 - (y - np.asarray(candidate)) ** 2
+    rng = np.random.default_rng(42)
+    means = [float(rng.choice(delta, len(delta), replace=True).mean()) for _ in range(1000)]
+    return {
+        "mean": float(delta.mean()),
+        "lower_95": float(np.quantile(means, 0.025)),
+        "upper_95": float(np.quantile(means, 0.975)),
+        "method": "paired_row_bootstrap_1000",
     }

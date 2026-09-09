@@ -1,4 +1,5 @@
 """Request and response contracts for V2 offline-trained predictions."""
+
 from __future__ import annotations
 
 from datetime import datetime

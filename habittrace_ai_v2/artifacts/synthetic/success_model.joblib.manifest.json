@@ -1,6 +1,6 @@
 {
   "artifact_format_version": 1,
-  "created_at": "2026-08-10T22:03:40.305113+00:00",
+  "created_at": "2026-09-09T00:02:17.228883+00:00",
   "feature_columns": [
     "input_source",
     "category",
@@ -35,21 +35,61 @@
   ],
   "label_policy": "outcome_status == \"completed\" and completion_ratio >= 0.8",
   "metrics": {
+    "brier_improvement_interval": {
+      "lower_95": -0.01026340819043537,
+      "mean": 0.007520120145659989,
+      "method": "paired_row_bootstrap_1000",
+      "upper_95": 0.026818799823347884
+    },
+    "calibration_bins": [
+      {
+        "count": 1,
+        "mean_prediction": 0.142982958667173,
+        "observed_rate": 0.0
+      },
+      {
+        "count": 13,
+        "mean_prediction": 0.334220767665865,
+        "observed_rate": 0.15384615384615385
+      },
+      {
+        "count": 47,
+        "mean_prediction": 0.5058616501444408,
+        "observed_rate": 0.40425531914893614
+      },
+      {
+        "count": 69,
+        "mean_prediction": 0.6947504408185062,
+        "observed_rate": 0.6521739130434783
+      },
+      {
+        "count": 30,
+        "mean_prediction": 0.8489443456563132,
+        "observed_rate": 0.8666666666666667
+      }
+    ],
+    "data_source": "synthetic",
+    "production_ready": false,
     "test": {
-      "brier_score": 0.21354750447465287,
-      "log_loss": 0.6357206873128058,
-      "pr_auc": 0.761377519150995,
-      "roc_auc": 0.7304987212276214
+      "brier_score": 0.20602738432899273,
+      "log_loss": 0.5996835099770659,
+      "pr_auc": 0.7713969031053791,
+      "roc_auc": 0.7408887468030692
     },
     "validation": {
-      "brier_score": 0.1781082655716677,
-      "log_loss": 0.5348313865102876,
-      "pr_auc": 0.868854572147244,
-      "roc_auc": 0.7654014876978829
+      "brier_score": 0.17115180704146687,
+      "log_loss": 0.5185263732528511,
+      "pr_auc": 0.8709624997449814,
+      "roc_auc": 0.7703604806408544
     }
   },
-  "model_sha256": "9bc9350d4a1e7607963a3ba0d2aef6cc27643400fa2de396f40dae079df200fc",
-  "model_type": "success_logistic_regression",
-  "model_version": "synthetic-baseline-1",
-  "training_data_sha256": "273d268acd508c6cdfb05eb3aaaed07d3d3c148b5c3f0f2df556e5cd30a5a542"
+  "model_sha256": "6fc5700aea5923b7b76c3dd97aba57e022a0771f64cfb320bf1dd1dbc3ea3689",
+  "model_type": "success_validated_candidate",
+  "model_version": "synthetic-validated-2",
+  "runtime_versions": {
+    "numpy": "2.4.6",
+    "pandas": "3.0.5",
+    "scikit_learn": "1.9.0"
+  },
+  "training_data_sha256": "9d9c01c194b839c207e6b96db53140297311ce2b1f16863d15b1d15e3feab684"
 }

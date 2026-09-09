@@ -11,8 +11,7 @@ def get_supabase() -> Client:
     """Return a cached Supabase admin client (service_role key)."""
     if not settings.supabase_url or not settings.supabase_service_key:
         raise RuntimeError(
-            "Supabase is not configured. "
-            "Set SUPABASE_URL and SUPABASE_SERVICE_KEY in backend/.env"
+            "Supabase is not configured. Set SUPABASE_URL and SUPABASE_SERVICE_KEY in backend/.env"
         )
     return create_client(_project_url(settings.supabase_url), settings.supabase_service_key)
 
@@ -36,9 +35,7 @@ def get_ai_supabase() -> Client:
 
 
 def is_ai_supabase_configured() -> bool:
-    return bool(
-        settings.ai_supabase_url and settings.ai_supabase_service_role_key
-    )
+    return bool(settings.ai_supabase_url and settings.ai_supabase_service_role_key)
 
 
 @lru_cache(maxsize=1)

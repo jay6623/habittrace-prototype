@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import numpy as np
@@ -67,7 +67,7 @@ def _aware_datetime(value: object, *, field: str) -> datetime:
     result = timestamp.to_pydatetime()
     if result.tzinfo is None or result.utcoffset() is None:
         raise ValueError(f"{field} must be timezone-aware")
-    return result
+    return cast(datetime, result)
 
 
 def _local_start(value: object, timezone_name: object) -> datetime:

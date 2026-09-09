@@ -37,7 +37,10 @@ function buildCalendarDays(month: Date): CalendarDay[] {
 }
 
 function taskSort(left: Task, right: Task): number {
-  return taskTimeInMinutes(left.planned_start_time) - taskTimeInMinutes(right.planned_start_time);
+  return (
+    taskTimeInMinutes(left.planned_start_time) -
+    taskTimeInMinutes(right.planned_start_time)
+  );
 }
 
 function statusLabel(status: Task["task_status"]): string {
@@ -49,7 +52,11 @@ function statusLabel(status: Task["task_status"]): string {
 function readableError(caught: unknown): string {
   if (caught instanceof Error) {
     const message = caught.message.toLowerCase();
-    if (caught.message.includes("401") || message.includes("sign in") || message.includes("session")) {
+    if (
+      caught.message.includes("401") ||
+      message.includes("sign in") ||
+      message.includes("session")
+    ) {
       return "Your session has expired. Please sign in again.";
     }
   }
@@ -109,14 +116,20 @@ export default function MobileCalendar() {
     month: "long",
     year: "numeric",
   });
-  const selectedLabel = new Date(`${selectedDate}T12:00:00`).toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-  });
+  const selectedLabel = new Date(`${selectedDate}T12:00:00`).toLocaleDateString(
+    "en-US",
+    {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+    },
+  );
 
   function moveMonth(offset: number) {
-    setMonth((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1, 12));
+    setMonth(
+      (current) =>
+        new Date(current.getFullYear(), current.getMonth() + offset, 1, 12),
+    );
   }
 
   function selectToday() {
@@ -133,14 +146,22 @@ export default function MobileCalendar() {
   }
 
   async function handleQuickAdd(draft: QuickAddDraft) {
-    const plansForDate = tasks.filter((task) => task.planned_date === draft.plannedDate);
-    const created = await createTask(toQuickTaskCreate(draft, plansForDate.length + 1));
+    const plansForDate = tasks.filter(
+      (task) => task.planned_date === draft.plannedDate,
+    );
+    const created = await createTask(
+      toQuickTaskCreate(draft, plansForDate.length + 1),
+    );
     setTasks((current) => [...current, created]);
     setSelectedDate(draft.plannedDate);
     const createdDate = new Date(`${draft.plannedDate}T12:00:00`);
-    setMonth(new Date(createdDate.getFullYear(), createdDate.getMonth(), 1, 12));
+    setMonth(
+      new Date(createdDate.getFullYear(), createdDate.getMonth(), 1, 12),
+    );
     setQuickAddOpen(false);
-    setToast(`Plan added for ${createdDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}.`);
+    setToast(
+      `Plan added for ${createdDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}.`,
+    );
   }
 
   return (
@@ -150,7 +171,9 @@ export default function MobileCalendar() {
     >
       <header className="flex items-center justify-between gap-3 py-3">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">HabitTrace</p>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">
+            HabitTrace
+          </p>
           <h1 className="mt-1 text-2xl font-bold tracking-tight">Calendar</h1>
         </div>
         <div className="flex items-center gap-2">
@@ -171,7 +194,10 @@ export default function MobileCalendar() {
         </div>
       </header>
 
-      <section aria-label="Monthly calendar" className="mt-3 rounded-3xl border border-slate-200 bg-white p-3 shadow-sm">
+      <section
+        aria-label="Monthly calendar"
+        className="mt-3 rounded-3xl border border-slate-200 bg-white p-3 shadow-sm"
+      >
         <div className="flex items-center justify-between gap-2 px-1 pb-3">
           <button
             aria-label="Previous month"
@@ -187,7 +213,9 @@ export default function MobileCalendar() {
             type="button"
           >
             {monthLabel}
-            <span className="ml-2 text-xs font-semibold text-emerald-700">Today</span>
+            <span className="ml-2 text-xs font-semibold text-emerald-700">
+              Today
+            </span>
           </button>
           <button
             aria-label="Next month"
@@ -201,7 +229,11 @@ export default function MobileCalendar() {
 
         <div className="grid grid-cols-7" role="row">
           {WEEKDAYS.map((weekday) => (
-            <div className="py-2 text-center text-[11px] font-bold uppercase text-slate-400" key={weekday} role="columnheader">
+            <div
+              className="py-2 text-center text-[11px] font-bold uppercase text-slate-400"
+              key={weekday}
+              role="columnheader"
+            >
               {weekday}
             </div>
           ))}
@@ -226,10 +258,17 @@ export default function MobileCalendar() {
                 onClick={() => selectDay(day)}
                 type="button"
               >
-                <span className={isToday && !selected ? "text-emerald-700" : undefined}>
+                <span
+                  className={
+                    isToday && !selected ? "text-emerald-700" : undefined
+                  }
+                >
                   {day.date.getDate()}
                 </span>
-                <span className="mt-1 flex h-1.5 items-center gap-0.5" aria-hidden="true">
+                <span
+                  className="mt-1 flex h-1.5 items-center gap-0.5"
+                  aria-hidden="true"
+                >
                   {dayTasks.slice(0, 3).map((task) => (
                     <span
                       className={`h-1.5 w-1.5 rounded-full ${selected ? "bg-emerald-300" : task.task_status === "pending" ? "bg-slate-700" : "bg-slate-300"}`}
@@ -246,9 +285,12 @@ export default function MobileCalendar() {
       <section aria-labelledby="selected-date-title" className="mt-6">
         <div className="mb-3 flex items-center justify-between gap-3">
           <div>
-            <h2 className="text-lg font-bold" id="selected-date-title">{selectedLabel}</h2>
+            <h2 className="text-lg font-bold" id="selected-date-title">
+              {selectedLabel}
+            </h2>
             <p className="mt-0.5 text-xs font-medium text-slate-500">
-              {selectedTasks.length} {selectedTasks.length === 1 ? "plan" : "plans"}
+              {selectedTasks.length}{" "}
+              {selectedTasks.length === 1 ? "plan" : "plans"}
             </p>
           </div>
           <button
@@ -262,12 +304,19 @@ export default function MobileCalendar() {
         </div>
 
         {loading ? (
-          <div aria-label="Loading calendar plans" className="space-y-3" role="status">
+          <div
+            aria-label="Loading calendar plans"
+            className="space-y-3"
+            role="status"
+          >
             <div className="h-20 animate-pulse rounded-2xl bg-slate-200" />
             <div className="h-20 animate-pulse rounded-2xl bg-slate-200" />
           </div>
         ) : loadError ? (
-          <div className="rounded-2xl border border-rose-200 bg-white p-5 text-center" role="alert">
+          <div
+            className="rounded-2xl border border-rose-200 bg-white p-5 text-center"
+            role="alert"
+          >
             <p className="text-sm font-medium text-rose-700">{loadError}</p>
             <button
               className="mt-4 min-h-11 rounded-xl bg-slate-950 px-5 text-sm font-bold text-white"
@@ -288,14 +337,22 @@ export default function MobileCalendar() {
         ) : (
           <ul className="space-y-3">
             {selectedTasks.map((task) => (
-              <li className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4" key={task.id}>
-                <div className={`h-11 w-1 shrink-0 rounded-full ${task.task_status === "pending" ? "bg-slate-950" : "bg-slate-300"}`} />
+              <li
+                className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4"
+                key={task.id}
+              >
+                <div
+                  className={`h-11 w-1 shrink-0 rounded-full ${task.task_status === "pending" ? "bg-slate-950" : "bg-slate-300"}`}
+                />
                 <div className="min-w-0 flex-1">
-                  <p className={`truncate font-bold ${task.task_status === "pending" ? "text-slate-900" : "text-slate-500 line-through"}`}>
+                  <p
+                    className={`truncate font-bold ${task.task_status === "pending" ? "text-slate-900" : "text-slate-500 line-through"}`}
+                  >
                     {task.title}
                   </p>
                   <p className="mt-1 text-xs font-medium text-slate-500">
-                    {formatTaskTime(task.planned_start_time)} · {task.planned_duration_min} min
+                    {formatTaskTime(task.planned_start_time)} ·{" "}
+                    {task.planned_duration_min} min
                   </p>
                 </div>
                 <span className="shrink-0 text-[11px] font-bold text-slate-400">
@@ -308,7 +365,11 @@ export default function MobileCalendar() {
       </section>
 
       {toast && (
-        <div aria-live="polite" className="fixed left-1/2 top-[max(1rem,env(safe-area-inset-top))] z-[60] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-2xl bg-emerald-600 px-4 py-3 text-center text-sm font-bold text-white shadow-xl" role="status">
+        <div
+          aria-live="polite"
+          className="fixed left-1/2 top-[max(1rem,env(safe-area-inset-top))] z-[60] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-2xl bg-emerald-600 px-4 py-3 text-center text-sm font-bold text-white shadow-xl"
+          role="status"
+        >
           {toast}
         </div>
       )}

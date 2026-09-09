@@ -1,4 +1,5 @@
 """AI-assisted time recommendation endpoints."""
+
 from typing import Annotated
 from uuid import UUID
 
@@ -25,9 +26,7 @@ def create_time_recommendation(
     plan_input_id: UUID,
     body: TimeRecommendationCreate,
     user_id: CurrentUserId,
-    service: Annotated[
-        AITimeRecommendationService, Depends(get_ai_time_recommendation_service)
-    ],
+    service: Annotated[AITimeRecommendationService, Depends(get_ai_time_recommendation_service)],
 ) -> dict:
     try:
         return service.create(user_id, plan_input_id, body)
@@ -45,9 +44,7 @@ def create_time_recommendation(
 def get_time_recommendation(
     recommendation_id: UUID,
     user_id: CurrentUserId,
-    service: Annotated[
-        AITimeRecommendationService, Depends(get_ai_time_recommendation_service)
-    ],
+    service: Annotated[AITimeRecommendationService, Depends(get_ai_time_recommendation_service)],
 ) -> dict:
     return service.get(user_id, recommendation_id)
 
@@ -60,8 +57,6 @@ def select_time_candidate(
     recommendation_id: UUID,
     body: TimeRecommendationSelect,
     user_id: CurrentUserId,
-    service: Annotated[
-        AITimeRecommendationService, Depends(get_ai_time_recommendation_service)
-    ],
+    service: Annotated[AITimeRecommendationService, Depends(get_ai_time_recommendation_service)],
 ) -> dict:
     return service.select(user_id, recommendation_id, body)

@@ -1,4 +1,5 @@
 """Shared Supabase/PostgREST error translation for repositories."""
+
 from __future__ import annotations
 
 import logging

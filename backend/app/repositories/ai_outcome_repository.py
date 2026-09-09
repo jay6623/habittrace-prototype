@@ -1,4 +1,5 @@
 """Supabase access for AI plan outcomes."""
+
 from __future__ import annotations
 
 from uuid import UUID
@@ -30,9 +31,6 @@ class AIOutcomeRepository(BaseRepository):
 
     def get_by_id(self, outcome_id: UUID) -> dict | None:
         response = self._execute(
-            self.db.table(self.table_name)
-            .select("*")
-            .eq("id", str(outcome_id))
-            .limit(1)
+            self.db.table(self.table_name).select("*").eq("id", str(outcome_id)).limit(1)
         )
         return response.data[0] if response.data else None

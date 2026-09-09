@@ -1,4 +1,5 @@
 """Dependency factories for V2 AI services."""
+
 from typing import Annotated
 
 from fastapi import Depends

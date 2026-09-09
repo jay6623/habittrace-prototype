@@ -91,9 +91,7 @@ def test_get_non_owned_or_missing_plan_returns_404(
 ) -> None:
     app.dependency_overrides[get_ai_plan_service] = lambda: PlanServiceStub()
 
-    response = authenticated_client.get(
-        "/api/v2/ai/plans/99999999-9999-4999-8999-999999999999"
-    )
+    response = authenticated_client.get("/api/v2/ai/plans/99999999-9999-4999-8999-999999999999")
 
     assert response.status_code == 404
     assert response.json()["code"] == "not_found"

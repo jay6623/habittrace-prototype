@@ -1,6 +1,7 @@
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, Field, model_validator
 
 
 class ExecutionCreate(BaseModel):
@@ -18,6 +19,8 @@ class ExecutionStart(BaseModel):
 
 
 class ExecutionComplete(BaseModel):
+    actual_start_time: AwareDatetime | None = None
+    actual_end_time: AwareDatetime | None = None
     interruption_count: int = Field(default=0, ge=0)
     stopped_early: bool = False
     task_status: Literal["success", "failed"]
@@ -25,6 +28,13 @@ class ExecutionComplete(BaseModel):
 
     @model_validator(mode="after")
     def validate_failure_reason(self) -> "ExecutionComplete":
+        if (self.actual_start_time is None) != (self.actual_end_time is None):
+            raise ValueError("Provide both actual start and end times, or neither")
+        if self.actual_start_time and self.actual_end_time:
+            if self.actual_end_time < self.actual_start_time:
+                raise ValueError("End time must follow start time")
+            if self.actual_end_time > datetime.now(timezone.utc) + timedelta(minutes=5):
+                raise ValueError("Actual times cannot be in the future")
         if self.task_status == "failed" and not (self.failure_reason or "").strip():
             raise ValueError("failure_reason is required for a failed execution")
         if self.task_status == "success":

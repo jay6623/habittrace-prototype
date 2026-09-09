@@ -1,4 +1,5 @@
 """V2 routes for post-execution failure feedback."""
+
 from typing import Annotated
 from uuid import UUID
 
@@ -21,8 +22,6 @@ def create_failure_reasons(
     outcome_id: UUID,
     body: FailureReasonCreate,
     user_id: CurrentUserId,
-    service: Annotated[
-        AIFailureReasonService, Depends(get_ai_failure_reason_service)
-    ],
+    service: Annotated[AIFailureReasonService, Depends(get_ai_failure_reason_service)],
 ):
     return service.create_for_outcome(user_id, outcome_id, body)

@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
+from typing import Any, cast
 
 import pandas as pd
 
-UTC = timezone.utc
+UTC = UTC
 
 
 @dataclass(frozen=True)
@@ -37,7 +37,7 @@ def _aware_utc(value: object, *, column: str) -> datetime:
     result = pd.Timestamp(raw).to_pydatetime()
     if result.tzinfo is None or result.utcoffset() is None:
         raise ValueError(f"{column} must contain timezone-aware timestamps")
-    return result.astimezone(UTC)
+    return cast(datetime, result.astimezone(UTC))
 
 
 def _lineage_roots(examples: pd.DataFrame) -> list[str]:
@@ -48,9 +48,7 @@ def _lineage_roots(examples: pd.DataFrame) -> list[str]:
     if identifiers.duplicated().any():
         raise ValueError("id must be unique when lineage-aware splitting is enabled")
     parent_by_id = {
-        str(identifier): (
-            None if parent is None or pd.isna(parent) else str(parent)
-        )
+        str(identifier): (None if parent is None or pd.isna(parent) else str(parent))
         for identifier, parent in zip(
             examples["id"],
             examples["parent_plan_input_id"],
@@ -162,9 +160,7 @@ def temporal_train_validation_test_split(
 
     working["_partition"] = "test"
     working.loc[working["_unit_time"].isin(train_units), "_partition"] = "train"
-    working.loc[working["_unit_time"].isin(validation_units), "_partition"] = (
-        "validation"
-    )
+    working.loc[working["_unit_time"].isin(validation_units), "_partition"] = "validation"
     lineage_partition_counts = working.groupby("_lineage_root")["_partition"].nunique()
     excluded_lineages = tuple(
         sorted(lineage_partition_counts[lineage_partition_counts > 1].index.astype(str))
@@ -195,9 +191,7 @@ def temporal_train_validation_test_split(
     ]
 
     def finalize(frame: pd.DataFrame) -> pd.DataFrame:
-        return frame.sort_values("_prediction_time", kind="stable").drop(
-            columns=helper_columns
-        )
+        return frame.sort_values("_prediction_time", kind="stable").drop(columns=helper_columns)
 
     return TemporalSplit(
         train=finalize(train),

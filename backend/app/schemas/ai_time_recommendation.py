@@ -1,4 +1,5 @@
 """Contracts for deterministic candidate generation and AI time scoring."""
+
 from __future__ import annotations
 
 from datetime import datetime

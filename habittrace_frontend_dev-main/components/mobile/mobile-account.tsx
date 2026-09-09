@@ -12,7 +12,10 @@ export default function MobileAccount() {
   const [name, setName] = useState(displayName);
   const [saving, setSaving] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
-  const [message, setMessage] = useState<{ text: string; tone: "success" | "error" } | null>(null);
+  const [message, setMessage] = useState<{
+    text: string;
+    tone: "success" | "error";
+  } | null>(null);
 
   useEffect(() => {
     setName(displayName);
@@ -37,7 +40,10 @@ export default function MobileAccount() {
       setMessage({ text: "Profile updated.", tone: "success" });
     } catch (caught) {
       setMessage({
-        text: caught instanceof Error ? caught.message : "We couldn't update your profile.",
+        text:
+          caught instanceof Error
+            ? caught.message
+            : "We couldn't update your profile.",
         tone: "error",
       });
     } finally {
@@ -55,7 +61,10 @@ export default function MobileAccount() {
       router.replace("/login?next=/dashboard/today");
     } catch (caught) {
       setMessage({
-        text: caught instanceof Error ? caught.message : "We couldn't sign you out. Try again.",
+        text:
+          caught instanceof Error
+            ? caught.message
+            : "We couldn't sign you out. Try again.",
         tone: "error",
       });
       setSigningOut(false);
@@ -78,7 +87,9 @@ export default function MobileAccount() {
           ←
         </Link>
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">HabitTrace</p>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">
+            HabitTrace
+          </p>
           <h1 className="text-2xl font-bold tracking-tight">Account</h1>
         </div>
       </header>
@@ -90,14 +101,22 @@ export default function MobileAccount() {
           </div>
           <div className="min-w-0">
             <h2 className="truncate text-xl font-bold">{displayName}</h2>
-            <p className="mt-1 truncate text-sm text-slate-300">{user?.email}</p>
+            <p className="mt-1 truncate text-sm text-slate-300">
+              {user?.email}
+            </p>
           </div>
         </div>
       </section>
 
-      <form className="mt-5 rounded-3xl border border-slate-200 bg-white p-5" onSubmit={handleSave}>
+      <form
+        className="mt-5 rounded-3xl border border-slate-200 bg-white p-5"
+        onSubmit={handleSave}
+      >
         <h2 className="text-base font-bold">Profile</h2>
-        <label className="mt-5 block text-sm font-semibold text-slate-700" htmlFor="mobile-display-name">
+        <label
+          className="mt-5 block text-sm font-semibold text-slate-700"
+          htmlFor="mobile-display-name"
+        >
           Display name
         </label>
         <input
@@ -109,7 +128,10 @@ export default function MobileAccount() {
           value={name}
         />
 
-        <label className="mt-4 block text-sm font-semibold text-slate-700" htmlFor="mobile-account-email">
+        <label
+          className="mt-4 block text-sm font-semibold text-slate-700"
+          htmlFor="mobile-account-email"
+        >
           Email
         </label>
         <input
@@ -147,7 +169,9 @@ export default function MobileAccount() {
           href="/forgot-password"
         >
           Password & security
-          <span aria-hidden="true" className="text-xl text-slate-400">›</span>
+          <span aria-hidden="true" className="text-xl text-slate-400">
+            ›
+          </span>
         </Link>
         <button
           className="min-h-14 w-full px-5 text-left text-sm font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
@@ -160,7 +184,8 @@ export default function MobileAccount() {
       </section>
 
       <p className="mt-4 px-3 text-center text-xs leading-relaxed text-slate-400">
-        Your plans are linked to this signed-in account, not to the display name.
+        Your plans are linked to this signed-in account, not to the display
+        name.
       </p>
     </main>
   );

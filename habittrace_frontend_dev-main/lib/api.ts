@@ -12,6 +12,8 @@
  */
 
 import { supabase } from "./supabase";
+import { notifyDataChanged } from "./refresh";
+import { localDateString } from "./mobile-task";
 
 function normalizeApiBaseUrl(url: string): string {
   return url.trim().replace(/\/+$/, "");
@@ -122,6 +124,8 @@ export interface Execution {
 }
 
 export interface ExecutionCompleteInput {
+  actual_start_time?: string;
+  actual_end_time?: string;
   interruption_count?: number;
   stopped_early?: boolean;
   task_status: "success" | "failed";
@@ -316,6 +320,8 @@ async function apiFetch<T>(
     );
   }
 
+  if (["POST", "PATCH", "PUT", "DELETE"].includes(options.method ?? "GET") && /^\/(tasks|executions|groups)(\/|$)/.test(path)) notifyDataChanged();
+
   // 204 No Content
   if (res.status === 204) return undefined as T;
 
@@ -407,6 +413,7 @@ export async function createTask(task: TaskCreate): Promise<Task> {
       body: JSON.stringify(toAIPlanInput(task)),
     });
     rememberAIPlan(created.id, aiPlan.id);
+    notifyDataChanged();
     return { ...created, ai_plan_input_id: aiPlan.id };
   } catch (error) {
     console.warn("AI V2 plan snapshot was not created:", error);
@@ -440,7 +447,7 @@ export async function createAIOutcome(input: AIOutcomeInput): Promise<AIOutcomeR
   const planId = input.task.ai_plan_input_id;
   if (!planId) return null;
 
-  const date = input.task.planned_date ?? new Date().toISOString().slice(0, 10);
+  const date = input.task.planned_date ?? localDateString();
   const actualStart = normalizeActualTime(input.actualStartTime, date);
   const actualEnd = normalizeActualTime(input.actualEndTime, date);
   const isSuccess = input.taskResult === "success";
@@ -566,7 +573,7 @@ function normalizeActualTime(value: string, date: string): string {
 
 function toAIPlanInput(task: TaskCreate): Record<string, unknown> {
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  const plannedDate = task.planned_date ?? new Date().toISOString().slice(0, 10);
+  const plannedDate = task.planned_date ?? localDateString();
   const plannedStart = parsePlannedStart(task.planned_start_time, plannedDate);
 
   return {
@@ -692,16 +699,22 @@ export async function predictAIPlan(planInputId: string): Promise<Prediction> {
 export async function createTimeRecommendation(
   planInputId: string,
   date: string,
+  options: {
+    earliestTime?: string;
+    latestTime?: string;
+    slotIntervalMinutes?: number;
+    minimumBufferMinutes?: number;
+  } = {},
 ): Promise<TimeRecommendation> {
   return apiFetch<TimeRecommendation>(
     `/api/v2/ai/plans/${planInputId}/time-recommendations`,
     {
       method: "POST",
       body: JSON.stringify({
-        earliest_start: parsePlannedStart("8:00 AM", date),
-        latest_end: parsePlannedStart("10:00 PM", date),
-        slot_interval_minutes: 30,
-        minimum_buffer_minutes: 15,
+        earliest_start: parsePlannedStart(options.earliestTime ?? "8:00 AM", date),
+        latest_end: parsePlannedStart(options.latestTime ?? "10:00 PM", date),
+        slot_interval_minutes: options.slotIntervalMinutes ?? 15,
+        minimum_buffer_minutes: options.minimumBufferMinutes ?? 15,
       }),
     },
   );
@@ -1003,4 +1016,9 @@ export async function getHealth(): Promise<{
   supabase_configured: boolean;
 }> {
   return fetch(`${API_URL}/health`).then((r) => r.json());
+}
+
+
+export async function exportAccount(): Promise<{ exported_at: string; scope: string; tasks: Task[]; executions: Execution[] }> {
+  return apiFetch("/account/export");
 }

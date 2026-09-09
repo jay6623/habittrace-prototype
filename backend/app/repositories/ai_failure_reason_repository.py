@@ -1,4 +1,5 @@
 """Supabase access for failure reason definitions and assignments."""
+
 from __future__ import annotations
 
 from uuid import UUID
@@ -32,9 +33,7 @@ class AIFailureReasonRepository(BaseRepository):
 
     def list_for_outcome(self, outcome_id: UUID) -> list[dict]:
         response = self._execute(
-            self.db.table(self.assignments_table)
-            .select("*")
-            .eq("outcome_id", str(outcome_id))
+            self.db.table(self.assignments_table).select("*").eq("outcome_id", str(outcome_id))
         )
         return list(response.data or [])
 

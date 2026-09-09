@@ -1,4 +1,5 @@
 """Supabase access for AI model versions and prediction records."""
+
 from __future__ import annotations
 
 from .base import BaseRepository
@@ -58,9 +59,6 @@ class AIPredictionRepository(BaseRepository):
 
     def get_model_version_by_id(self, model_version_id: str) -> dict | None:
         response = self._execute(
-            self.db.table("ai_model_versions")
-            .select("*")
-            .eq("id", model_version_id)
-            .limit(1)
+            self.db.table("ai_model_versions").select("*").eq("id", model_version_id).limit(1)
         )
         return response.data[0] if response.data else None

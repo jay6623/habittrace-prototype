@@ -1,6 +1,14 @@
 "use client";
 
-import { createContext, useCallback, useContext, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useRef,
+  useState,
+  useEffect,
+  useMemo,
+} from "react";
 
 type ToastType = "success" | "error" | "info" | "warn";
 
@@ -23,7 +31,13 @@ const ToastContext = createContext<ToastContextType | null>(null);
 
 const STYLES: Record<
   ToastType,
-  { border: string; icon: string; iconBg: string; iconText: string; bar: string }
+  {
+    border: string;
+    icon: string;
+    iconBg: string;
+    iconText: string;
+    bar: string;
+  }
 > = {
   success: {
     border: "border-l-emerald-500",
@@ -60,35 +74,59 @@ const DEFAULT_DURATION = 4000;
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const idRef = useRef(0);
+  const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    const active = timers.current;
+    return () => {
+      active.forEach(clearTimeout);
+      active.clear();
+    };
+  }, []);
 
   const dismiss = useCallback((id: number) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
   const push = useCallback(
-    (type: ToastType, title: string, message?: string, duration: number = DEFAULT_DURATION) => {
+    (
+      type: ToastType,
+      title: string,
+      message?: string,
+      duration: number = DEFAULT_DURATION,
+    ) => {
       const id = ++idRef.current;
       setToasts((prev) => [...prev, { id, type, title, message, duration }]);
       if (duration > 0) {
-        setTimeout(() => dismiss(id), duration);
+        const timer = setTimeout(() => {
+          dismiss(id);
+          timers.current.delete(timer);
+        }, duration);
+        timers.current.add(timer);
       }
     },
     [dismiss],
   );
 
-  const api: ToastContextType = {
-    success: (title, message, duration) => push("success", title, message, duration),
-    error: (title, message, duration) => push("error", title, message, duration),
-    info: (title, message, duration) => push("info", title, message, duration),
-    warn: (title, message, duration) => push("warn", title, message, duration),
-  };
+  const api = useMemo<ToastContextType>(
+    () => ({
+      success: (title, message, duration) =>
+        push("success", title, message, duration),
+      error: (title, message, duration) =>
+        push("error", title, message, duration),
+      info: (title, message, duration) =>
+        push("info", title, message, duration),
+      warn: (title, message, duration) =>
+        push("warn", title, message, duration),
+    }),
+    [push],
+  );
 
   return (
     <ToastContext.Provider value={api}>
       {children}
 
       <div
-        className="pointer-events-none fixed top-4 right-4 z-[999] flex w-full max-w-sm flex-col gap-2.5"
+        className="pointer-events-none fixed top-4 right-4 z-[999] flex w-[calc(100%-2rem)] max-w-sm flex-col gap-2.5"
         aria-live="polite"
       >
         {toasts.map((t) => {
@@ -105,8 +143,14 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
                 {s.icon}
               </span>
               <div className="min-w-0 flex-1">
-                <div className="text-sm font-semibold text-slate-900">{t.title}</div>
-                {t.message && <div className="mt-0.5 text-xs text-slate-500">{t.message}</div>}
+                <div className="text-sm font-semibold text-slate-900">
+                  {t.title}
+                </div>
+                {t.message && (
+                  <div className="mt-0.5 text-xs text-slate-500">
+                    {t.message}
+                  </div>
+                )}
               </div>
               <button
                 type="button"
@@ -119,7 +163,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               {t.duration > 0 && (
                 <span
                   className={`absolute bottom-0 left-0 h-0.5 opacity-40 ${s.bar}`}
-                  style={{ animation: `toast-progress ${t.duration}ms linear forwards` }}
+                  style={{
+                    animation: `toast-progress ${t.duration}ms linear forwards`,
+                  }}
                 />
               )}
             </div>

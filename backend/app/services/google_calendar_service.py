@@ -1,4 +1,5 @@
 """Google Calendar OAuth token storage and one-way task synchronization."""
+
 from __future__ import annotations
 
 import base64
@@ -190,9 +191,7 @@ class GoogleCalendarService:
                 google_event_id = str(link["google_event_id"])
 
         if not link:
-            task_marker = quote(
-                f"habittraceTaskId={task['id']}", safe=""
-            )
+            task_marker = quote(f"habittraceTaskId={task['id']}", safe="")
             lookup, connection = self._calendar_request(
                 connection,
                 "GET",
@@ -226,9 +225,7 @@ class GoogleCalendarService:
             "google_event_id": google_event_id,
             "last_synced_at": datetime.now(timezone.utc).isoformat(),
         }
-        self.db.table("calendar_event_links").upsert(
-            row, on_conflict="user_id,task_id"
-        ).execute()
+        self.db.table("calendar_event_links").upsert(row, on_conflict="user_id,task_id").execute()
         return connection
 
     def _event_from_task(self, task: dict, timezone_name: str) -> dict:
@@ -254,9 +251,7 @@ class GoogleCalendarService:
             "description": "Synced from HabitTrace",
             "start": {"dateTime": start.isoformat(), "timeZone": timezone_name},
             "end": {"dateTime": end.isoformat(), "timeZone": timezone_name},
-            "extendedProperties": {
-                "private": {"habittraceTaskId": str(task["id"])}
-            },
+            "extendedProperties": {"private": {"habittraceTaskId": str(task["id"])}},
         }
 
     def _calendar_request(
@@ -282,9 +277,7 @@ class GoogleCalendarService:
                     json=json,
                 )
             except httpx.HTTPError as exc:
-                raise GoogleCalendarError(
-                    "Google Calendar is temporarily unavailable."
-                ) from exc
+                raise GoogleCalendarError("Google Calendar is temporarily unavailable.") from exc
         return response, connection
 
     def _valid_access_token(self, connection: dict) -> tuple[str, dict]:
@@ -323,9 +316,7 @@ class GoogleCalendarService:
         }
         if payload.get("refresh_token"):
             updates["refresh_token_encrypted"] = self._encrypt(payload["refresh_token"])
-        self.db.table("calendar_connections").update(updates).eq(
-            "id", connection["id"]
-        ).execute()
+        self.db.table("calendar_connections").update(updates).eq("id", connection["id"]).execute()
         return access_token, {**connection, **updates}
 
     def _validate_access_token(self, token: str) -> None:
@@ -386,9 +377,7 @@ class GoogleCalendarService:
 
     def _require_configured(self) -> None:
         if not self.configured:
-            raise GoogleCalendarError(
-                "Google Calendar is not configured on the backend."
-            )
+            raise GoogleCalendarError("Google Calendar is not configured on the backend.")
 
     @staticmethod
     def _validate_timezone(value: str) -> None:

@@ -1,4 +1,5 @@
 """Sanitized domain errors shared by the V2 API layers."""
+
 from __future__ import annotations
 
 from fastapi import FastAPI, Request
@@ -53,9 +54,7 @@ class RepositoryError(ApplicationError):
 
 def register_application_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(ApplicationError)
-    async def handle_application_error(
-        _request: Request, exc: ApplicationError
-    ) -> JSONResponse:
+    async def handle_application_error(_request: Request, exc: ApplicationError) -> JSONResponse:
         return JSONResponse(
             status_code=exc.status_code,
             content={"detail": exc.detail, "code": exc.code},

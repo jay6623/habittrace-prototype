@@ -1,4 +1,5 @@
 """Request and response contracts for group scheduling."""
+
 from __future__ import annotations
 
 import re

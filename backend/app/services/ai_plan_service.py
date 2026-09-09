@@ -1,4 +1,5 @@
 """Business rules for immutable AI plan inputs."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -46,13 +47,9 @@ class AIPlanService:
             if self.plans.has_child(parent_id):
                 raise ResourceConflictError("The parent plan has already been revised.")
             if body.input_source is PlanInputSource.USER:
-                raise DomainValidationError(
-                    "A revised plan must use input_source 'reschedule'."
-                )
+                raise DomainValidationError("A revised plan must use input_source 'reschedule'.")
         elif body.input_source is not PlanInputSource.USER:
-            raise DomainValidationError(
-                "A rescheduled plan must reference a parent plan."
-            )
+            raise DomainValidationError("A rescheduled plan must reference a parent plan.")
 
         context = self._calculate_schedule_context(user_id, body)
         payload = plan_input_to_insert(
@@ -71,14 +68,10 @@ class AIPlanService:
             raise ResourceNotFoundError("Plan not found.")
         return plan
 
-    def _calculate_schedule_context(
-        self, user_id: UUID, body: PlanInputCreate
-    ) -> ScheduleContext:
+    def _calculate_schedule_context(self, user_id: UUID, body: PlanInputCreate) -> ScheduleContext:
         rows = self.plans.list_schedule_rows(user_id)
         superseded_ids = {
-            str(row["parent_plan_input_id"])
-            for row in rows
-            if row.get("parent_plan_input_id")
+            str(row["parent_plan_input_id"]) for row in rows if row.get("parent_plan_input_id")
         }
         if body.parent_plan_input_id is not None:
             superseded_ids.add(str(body.parent_plan_input_id))
@@ -94,17 +87,14 @@ class AIPlanService:
             try:
                 duration = int(row.get("planned_duration_minutes", 0))
             except (TypeError, ValueError) as exc:
-                raise RepositoryError(
-                    "The database returned an invalid plan duration."
-                ) from exc
+                raise RepositoryError("The database returned an invalid plan duration.") from exc
             same_day.append((start, duration))
 
         before = [item for item in same_day if item[0] < body.planned_start]
         tasks_before_count = len(before)
         planned_minutes_before = sum(duration for _start, duration in before)
         daily_planned_minutes = (
-            sum(duration for _start, duration in same_day)
-            + body.planned_duration_minutes
+            sum(duration for _start, duration in same_day) + body.planned_duration_minutes
         )
 
         minutes_since_previous: int | None = None

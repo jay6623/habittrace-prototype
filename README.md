@@ -4,6 +4,10 @@ HabitTrace is a planning and execution-tracking application with a Next.js front
 
 The desktop experience focuses on scheduling, analytics, patterns, and predictions. The installable mobile PWA focuses on the shortest path through four actions: add a plan, see what is next, start it, and record the outcome.
 
+The current improvement branch unifies navigation around Today, Plans, Groups, Insights, and Settings. It adds shared plan/outcome forms, minute-precision scheduling with saved planning hours, and a personal task/execution export. See [UPGRADE_NOTES.md](UPGRADE_NOTES.md) for verification results and a manual acceptance checklist. These local changes are not automatically published.
+
+AI V2's `synthetic-validated-2` artifacts are evaluated on synthetic data only. The held-out Brier score is 0.2060 versus 0.2135 for the baseline; the paired improvement interval includes zero. This is not evidence of real-user accuracy, and the available real-outcome sample is too small to promote a real-data model.
+
 ## Repository layout
 
 ```text
@@ -57,6 +61,13 @@ FastAPI API
 ```
 
 User-owned API routes validate the Supabase access token. The backend derives `user_id` from the verified token and filters every task and execution operation by that UUID; client-supplied demo user headers are not accepted.
+
+### AI responsibilities
+
+- **Scheduling rules** remove time conflicts and enforce saved planning hours and buffers.
+- **HabitTrace AI V2** is the local custom scoring model. It evaluates plan inputs, produces experimental completion/failure guidance, and ranks conflict-free time candidates. The desktop Daily Brief and Scheduler identify it explicitly; its current artifacts are synthetic and are not presented as validated personal probabilities.
+- **Gemini** is the conversational layer. It parses planning requests and explains database-backed user patterns, but it does not replace or train the AI V2 scoring model.
+- **Outcome records** supply a future retraining dataset. Saving an outcome does not update a model online; promotion still requires an offline export, validation, retraining, and artifact release.
 
 ## Requirements
 

@@ -4,20 +4,19 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TypeAlias
 
 import joblib
 import numpy as np
 import pandas as pd
+import sklearn
 
-UTC = timezone.utc
+UTC = UTC
 
 ARTIFACT_FORMAT_VERSION = 1
-JSONValue: TypeAlias = (
-    str | int | float | bool | None | list["JSONValue"] | dict[str, "JSONValue"]
-)
+JSONValue: TypeAlias = str | int | float | bool | None | list["JSONValue"] | dict[str, "JSONValue"]
 REQUIRED_MANIFEST_FIELDS: frozenset[str] = frozenset(
     {
         "artifact_format_version",
@@ -108,6 +107,11 @@ def save_model_artifact(
         "label_policy": label_policy,
         "training_data_sha256": training_data_sha256,
         "metrics": metrics,
+        "runtime_versions": {
+            "scikit_learn": sklearn.__version__,
+            "numpy": np.__version__,
+            "pandas": pd.__version__,
+        },
         "model_sha256": _sha256(path),
     }
     manifest_path(path).write_text(

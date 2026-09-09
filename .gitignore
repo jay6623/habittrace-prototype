@@ -38,3 +38,7 @@ artifacts/
 !habittrace_ai_v2/artifacts/synthetic/*.json
 !habittrace_model_dev-main/artifacts/
 !habittrace_model_dev-main/artifacts/*
+
+# Private training snapshots and local TypeScript cache
+habittrace_ai_v2/data/
+*.tsbuildinfo

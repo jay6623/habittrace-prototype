@@ -1,4 +1,5 @@
 """Execution log CRUD against the Supabase `executions` table."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -101,6 +102,10 @@ class ExecutionService:
 
         existing = existing_rows[0]
         if existing.get("actual_end_time") is not None:
+            # Retry repairs a previous partial write before confirming success.
+            self.db.table("tasks").update({"task_status": existing["task_status"]}).eq(
+                "id", existing["task_id"]
+            ).eq("user_id", user_id).execute()
             return existing
 
         data = {
@@ -110,6 +115,10 @@ class ExecutionService:
             "task_status": payload["task_status"],
             "failure_reason": payload.get("failure_reason"),
         }
+        manual_start, manual_end = payload.get("actual_start_time"), payload.get("actual_end_time")
+        if isinstance(manual_start, datetime) and isinstance(manual_end, datetime):
+            data["actual_start_time"] = manual_start.isoformat()
+            data["actual_end_time"] = manual_end.isoformat()
         result = (
             self.db.table("executions")
             .update(data)
@@ -121,9 +130,9 @@ class ExecutionService:
         if not result_rows:
             return None
 
-        self.db.table("tasks").update(
-            {"task_status": payload["task_status"]}
-        ).eq("id", existing["task_id"]).eq("user_id", user_id).execute()
+        self.db.table("tasks").update({"task_status": payload["task_status"]}).eq(
+            "id", existing["task_id"]
+        ).eq("user_id", user_id).execute()
         return result_rows[0]
 
     def log(self, user_id: str, payload: Mapping[str, object]) -> JsonRow | None:
@@ -149,9 +158,9 @@ class ExecutionService:
         result = self.db.table("executions").insert(data).execute()
 
         # Keep the tasks table status in sync
-        self.db.table("tasks").update(
-            {"task_status": payload["task_status"]}
-        ).eq("id", task_id).eq("user_id", user_id).execute()
+        self.db.table("tasks").update({"task_status": payload["task_status"]}).eq("id", task_id).eq(
+            "user_id", user_id
+        ).execute()
 
         rows = _rows(result.data)
         return rows[0] if rows else None

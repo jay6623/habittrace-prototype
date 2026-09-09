@@ -162,16 +162,12 @@ class CoachingContextService:
             category_failure_reasons = Counter(
                 str(execution["failure_reason"])
                 for execution in category_executions
-                if execution.get("task_status") == "failed"
-                and execution.get("failure_reason")
+                if execution.get("task_status") == "failed" and execution.get("failure_reason")
             )
             category_interruptions = [
-                int(execution.get("interruption_count") or 0)
-                for execution in category_executions
+                int(execution.get("interruption_count") or 0) for execution in category_executions
             ]
-            planned_durations = [
-                int(task.get("planned_duration_min") or 0) for task in group
-            ]
+            planned_durations = [int(task.get("planned_duration_min") or 0) for task in group]
             category_patterns.append(
                 {
                     "category": category,
@@ -193,9 +189,7 @@ class CoachingContextService:
                     ],
                 }
             )
-        category_patterns.sort(
-            key=lambda item: (-item["sample_size"], str(item["category"]))
-        )
+        category_patterns.sort(key=lambda item: (-item["sample_size"], str(item["category"])))
 
         failure_reasons = Counter(
             str(row["failure_reason"])

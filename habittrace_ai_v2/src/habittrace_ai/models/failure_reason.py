@@ -43,9 +43,9 @@ class FailureReasonProbabilityModel:
             numeric_targets = targets.to_numpy(dtype=float)
         except (TypeError, ValueError) as exc:
             raise ValueError("failure targets must contain only binary values") from exc
-        if not np.all(np.isfinite(numeric_targets)) or not set(
-            np.unique(numeric_targets)
-        ).issubset({0.0, 1.0}):
+        if not np.all(np.isfinite(numeric_targets)) or not set(np.unique(numeric_targets)).issubset(
+            {0.0, 1.0}
+        ):
             raise ValueError("failure targets must contain only binary values")
         features = build_plan_features(plans)
         self.pipelines = {}
@@ -66,6 +66,57 @@ class FailureReasonProbabilityModel:
                 pipeline = logistic_pipeline()
             pipeline.fit(features, y)
             self.pipelines[reason] = pipeline
+        return self
+
+    def select_on_validation(
+        self,
+        train: pd.DataFrame,
+        targets: pd.DataFrame,
+        validation: pd.DataFrame,
+        validation_targets: pd.DataFrame,
+    ) -> FailureReasonProbabilityModel:
+        from habittrace_ai.evaluation import evaluate_binary_probabilities
+
+        features = build_plan_features(train)
+        validation_features = build_plan_features(validation)
+        self.support = {}
+        self.selection = {}
+        for reason in self.reason_codes:
+            y = targets[reason]
+            positives = int(y.sum())
+            self.support[reason] = {"positive": positives, "negative": len(y) - positives}
+            candidates = {"baseline": self.pipelines[reason]}
+            # A Laplace-smoothed prior avoids unjustified 0/100% for rare labels.
+            prior = (positives + 1) / (len(y) + 2)
+            best_score = evaluate_binary_probabilities(
+                validation_targets[reason], np.full(len(validation), prior)
+            )["brier_score"]
+            assert best_score is not None
+            best = None
+            name = "smoothed_prior"
+            if min(positives, len(y) - positives) >= 10:
+                regularized = logistic_pipeline()
+                regularized.set_params(classifier__C=0.1)
+                regularized.fit(features, y)
+                candidates["regularized_logistic"] = regularized
+                for candidate_name, pipeline in candidates.items():
+                    score = evaluate_binary_probabilities(
+                        validation_targets[reason],
+                        self._positive_probability(pipeline, validation_features),
+                    )["brier_score"]
+                    assert score is not None
+                    if score < best_score:
+                        best_score, best, name = score, pipeline, candidate_name
+            if best is None:
+                # DummyClassifier with two weighted observations encodes a smoothed prior.
+                best = Pipeline([("classifier", DummyClassifier(strategy="prior"))])
+                best.fit(
+                    features.iloc[:2],
+                    np.array([0, 1]),
+                    classifier__sample_weight=np.array([1 - prior, prior]),
+                )
+            self.pipelines[reason] = best
+            self.selection[reason] = name
         return self
 
     def is_fitted(self) -> bool:

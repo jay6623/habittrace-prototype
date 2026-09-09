@@ -1,4 +1,5 @@
 """V2 route for active failure reason definitions."""
+
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
@@ -14,8 +15,6 @@ router = APIRouter()
 @router.get("/failure-reasons", response_model=list[FailureReasonDefinitionResponse])
 def list_failure_reasons(
     _user_id: CurrentUserId,
-    service: Annotated[
-        AIFailureReasonService, Depends(get_ai_failure_reason_service)
-    ],
+    service: Annotated[AIFailureReasonService, Depends(get_ai_failure_reason_service)],
 ):
     return service.list_active()

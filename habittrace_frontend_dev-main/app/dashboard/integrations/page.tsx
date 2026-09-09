@@ -27,7 +27,8 @@ const INTEGRATIONS: Integration[] = [
   {
     id: "google-calendar",
     name: "Google Calendar",
-    description: "Sync tasks with your Google Calendar. Tasks appear as calendar events automatically.",
+    description:
+      "Sync tasks with your Google Calendar. Tasks appear as calendar events automatically.",
     category: "Calendar",
     connected: false,
     icon: "📅",
@@ -35,7 +36,8 @@ const INTEGRATIONS: Integration[] = [
   {
     id: "apple-calendar",
     name: "Apple Calendar",
-    description: "Import events from Apple Calendar and track them as tasks in HabitTrace.",
+    description:
+      "Import events from Apple Calendar and track them as tasks in HabitTrace.",
     category: "Calendar",
     connected: false,
     icon: "🗓",
@@ -44,7 +46,8 @@ const INTEGRATIONS: Integration[] = [
   {
     id: "notion",
     name: "Notion",
-    description: "Pull tasks from your Notion databases and sync completion status back.",
+    description:
+      "Pull tasks from your Notion databases and sync completion status back.",
     category: "Productivity",
     connected: false,
     icon: "📝",
@@ -53,7 +56,8 @@ const INTEGRATIONS: Integration[] = [
   {
     id: "slack",
     name: "Slack",
-    description: "Get reminders in Slack before tasks start and celebrate completions with your team.",
+    description:
+      "Get reminders in Slack before tasks start and celebrate completions with your team.",
     category: "Communication",
     connected: false,
     icon: "💬",
@@ -62,7 +66,8 @@ const INTEGRATIONS: Integration[] = [
   {
     id: "todoist",
     name: "Todoist",
-    description: "Two-way sync with Todoist — create tasks in either app and they stay in sync.",
+    description:
+      "Two-way sync with Todoist — create tasks in either app and they stay in sync.",
     category: "Productivity",
     connected: false,
     icon: "✅",
@@ -71,7 +76,8 @@ const INTEGRATIONS: Integration[] = [
   {
     id: "github",
     name: "GitHub",
-    description: "Create tasks from GitHub issues and link PRs to completed work sessions.",
+    description:
+      "Create tasks from GitHub issues and link PRs to completed work sessions.",
     category: "Development",
     connected: false,
     icon: "🐙",
@@ -80,7 +86,8 @@ const INTEGRATIONS: Integration[] = [
   {
     id: "apple-health",
     name: "Apple Health",
-    description: "Import sleep and activity data to improve HabitTrace's AI energy predictions.",
+    description:
+      "Import sleep and activity data to improve HabitTrace's AI energy predictions.",
     category: "Health",
     connected: false,
     icon: "❤️",
@@ -97,7 +104,15 @@ const INTEGRATIONS: Integration[] = [
   },
 ];
 
-const CATEGORIES = ["All", "Calendar", "Productivity", "Communication", "Development", "Health", "Automation"];
+const CATEGORIES = [
+  "All",
+  "Calendar",
+  "Productivity",
+  "Communication",
+  "Development",
+  "Health",
+  "Automation",
+];
 
 // ── Component ──────────────────────────────────────────────────────────────
 export default function IntegrationsPage() {
@@ -114,8 +129,8 @@ export default function IntegrationsPage() {
       prev.map((integration) =>
         integration.id === "google-calendar"
           ? { ...integration, connected }
-          : integration
-      )
+          : integration,
+      ),
     );
   }
 
@@ -136,7 +151,7 @@ export default function IntegrationsPage() {
           if (sessionError) throw sessionError;
           if (!session?.provider_token) {
             throw new Error(
-              "Google did not return Calendar access. Please connect again and approve Calendar permission."
+              "Google did not return Calendar access. Please connect again and approve Calendar permission.",
             );
           }
 
@@ -147,7 +162,7 @@ export default function IntegrationsPage() {
           });
           setGoogleConnected(true);
           setNotice(
-            `Google Calendar connected. ${connected.sync.synced} task${connected.sync.synced === 1 ? "" : "s"} synced.`
+            `Google Calendar connected. ${connected.sync.synced} task${connected.sync.synced === 1 ? "" : "s"} synced.`,
           );
           window.history.replaceState({}, "", window.location.pathname);
         }
@@ -157,7 +172,11 @@ export default function IntegrationsPage() {
         setGoogleConnected(status.connected);
         if (status.last_error) setError(status.last_error);
       } catch (caught) {
-        setError(caught instanceof Error ? caught.message : "Google Calendar setup failed.");
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "Google Calendar setup failed.",
+        );
       } finally {
         setConnecting(null);
       }
@@ -185,11 +204,15 @@ export default function IntegrationsPage() {
       if (intg.connected) {
         await disconnectGoogleCalendar();
         setGoogleConnected(false);
-        setNotice("Google Calendar disconnected. Existing Google events were left unchanged.");
+        setNotice(
+          "Google Calendar disconnected. Existing Google events were left unchanged.",
+        );
         return;
       }
       if (!calendarConfigured) {
-        throw new Error("Google Calendar environment variables are missing on the backend.");
+        throw new Error(
+          "Google Calendar environment variables are missing on the backend.",
+        );
       }
 
       const redirectTo = `${getOAuthRedirectBaseUrl()}/dashboard/integrations?google_calendar=callback`;
@@ -207,7 +230,11 @@ export default function IntegrationsPage() {
       });
       if (oauthError) throw oauthError;
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Google Calendar request failed.");
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Google Calendar request failed.",
+      );
     } finally {
       setConnecting(null);
     }
@@ -220,13 +247,17 @@ export default function IntegrationsPage() {
     try {
       const result = await syncGoogleCalendar();
       setNotice(
-        `${result.synced} task${result.synced === 1 ? "" : "s"} synced to Google Calendar.`
+        `${result.synced} task${result.synced === 1 ? "" : "s"} synced to Google Calendar.`,
       );
       if (result.failed) {
-        setError(`${result.failed} task${result.failed === 1 ? "" : "s"} could not be synced.`);
+        setError(
+          `${result.failed} task${result.failed === 1 ? "" : "s"} could not be synced.`,
+        );
       }
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Calendar sync failed.");
+      setError(
+        caught instanceof Error ? caught.message : "Calendar sync failed.",
+      );
     } finally {
       setConnecting(null);
     }
@@ -241,12 +272,18 @@ export default function IntegrationsPage() {
       </div>
 
       {notice && (
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">
+        <div
+          className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+          role="status"
+        >
           {notice}
         </div>
       )}
       {error && (
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800" role="alert">
+        <div
+          className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800"
+          role="alert"
+        >
           {error}
         </div>
       )}
@@ -255,15 +292,21 @@ export default function IntegrationsPage() {
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-white rounded-2xl border border-slate-200 p-4">
           <div className="text-xs text-slate-500">Connected</div>
-          <div className="text-2xl font-bold mt-1 text-emerald-600">{connectedCount}</div>
+          <div className="text-2xl font-bold mt-1 text-emerald-600">
+            {connectedCount}
+          </div>
         </div>
         <div className="bg-white rounded-2xl border border-slate-200 p-4">
           <div className="text-xs text-slate-500">Available</div>
-          <div className="text-2xl font-bold mt-1">{INTEGRATIONS.filter((i) => !i.comingSoon).length}</div>
+          <div className="text-2xl font-bold mt-1">
+            {INTEGRATIONS.filter((i) => !i.comingSoon).length}
+          </div>
         </div>
         <div className="bg-white rounded-2xl border border-slate-200 p-4">
           <div className="text-xs text-slate-500">Coming soon</div>
-          <div className="text-2xl font-bold mt-1">{INTEGRATIONS.filter((i) => i.comingSoon).length}</div>
+          <div className="text-2xl font-bold mt-1">
+            {INTEGRATIONS.filter((i) => i.comingSoon).length}
+          </div>
         </div>
       </div>
 
@@ -312,7 +355,9 @@ export default function IntegrationsPage() {
                       </span>
                     )}
                   </div>
-                  <div className="text-xs text-slate-400 mt-0.5">{intg.category}</div>
+                  <div className="text-xs text-slate-400 mt-0.5">
+                    {intg.category}
+                  </div>
                 </div>
               </div>
             </div>
@@ -326,25 +371,27 @@ export default function IntegrationsPage() {
               disabled={
                 !!intg.comingSoon ||
                 connecting === intg.id ||
-                (intg.id === "google-calendar" && !calendarConfigured && !intg.connected)
+                (intg.id === "google-calendar" &&
+                  !calendarConfigured &&
+                  !intg.connected)
               }
               className={`mt-4 w-full py-2.5 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                 intg.connected
                   ? "bg-emerald-50 text-emerald-700 hover:bg-rose-50 hover:text-rose-700 border border-emerald-200"
                   : intg.comingSoon
-                  ? "bg-slate-50 text-slate-400 border border-slate-200"
-                  : "bg-slate-900 text-white hover:bg-slate-800"
+                    ? "bg-slate-50 text-slate-400 border border-slate-200"
+                    : "bg-slate-900 text-white hover:bg-slate-800"
               }`}
             >
               {connecting === intg.id
                 ? "Connecting…"
                 : intg.comingSoon
-                ? "Coming soon"
-                : intg.id === "google-calendar" && !calendarConfigured
-                ? "Backend setup required"
-                : intg.connected
-                ? "Disconnect"
-                : "Connect"}
+                  ? "Coming soon"
+                  : intg.id === "google-calendar" && !calendarConfigured
+                    ? "Backend setup required"
+                    : intg.connected
+                      ? "Disconnect"
+                      : "Connect"}
             </button>
             {intg.id === "google-calendar" && intg.connected && (
               <button
@@ -362,7 +409,12 @@ export default function IntegrationsPage() {
 
       <div className="text-xs text-slate-400 text-center py-2">
         Suggest an integration →{" "}
-        <a href="#" className="underline hover:text-slate-600">
+        <a
+          href="https://support.google.com/calendar/answer/37100"
+          target="_blank"
+          rel="noreferrer"
+          className="underline hover:text-slate-600"
+        >
           feedback@habittrace.app
         </a>
       </div>

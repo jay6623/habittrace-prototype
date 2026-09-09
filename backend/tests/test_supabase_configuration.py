@@ -5,9 +5,7 @@ from app.db.supabase_client import _project_url, is_auth_supabase_configured
 
 
 def test_project_url_strips_rest_path() -> None:
-    assert _project_url("https://example.supabase.co/rest/v1/") == (
-        "https://example.supabase.co"
-    )
+    assert _project_url("https://example.supabase.co/rest/v1/") == ("https://example.supabase.co")
 
 
 def test_partial_custom_auth_configuration_is_rejected(monkeypatch) -> None:

@@ -1,4 +1,5 @@
 """V2 routes for plan inputs and their single outcomes."""
+
 from typing import Annotated
 from uuid import UUID
 

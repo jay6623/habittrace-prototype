@@ -36,18 +36,14 @@ def test_create_outcome(authenticated_client: TestClient) -> None:
         "stopped_early": True,
     }
 
-    response = authenticated_client.post(
-        f"/api/v2/ai/plans/{PLAN_ID}/outcome", json=payload
-    )
+    response = authenticated_client.post(f"/api/v2/ai/plans/{PLAN_ID}/outcome", json=payload)
 
     assert response.status_code == 201
     assert response.json()["outcome_status"] == "partial"
 
 
 def test_duplicate_outcome_returns_409(authenticated_client: TestClient) -> None:
-    app.dependency_overrides[get_ai_outcome_service] = lambda: OutcomeServiceStub(
-        conflict=True
-    )
+    app.dependency_overrides[get_ai_outcome_service] = lambda: OutcomeServiceStub(conflict=True)
 
     response = authenticated_client.post(
         f"/api/v2/ai/plans/{PLAN_ID}/outcome",

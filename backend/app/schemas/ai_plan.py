@@ -1,4 +1,5 @@
 """Request and response contracts for immutable AI plan inputs."""
+
 from __future__ import annotations
 
 from decimal import Decimal

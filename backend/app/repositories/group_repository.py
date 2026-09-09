@@ -1,4 +1,5 @@
 """Supabase access for groups, memberships, and shared group tasks."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -36,27 +37,19 @@ class GroupRepository(BaseRepository):
 
     def get_group_by_invite_code(self, invite_code: str) -> JsonRow | None:
         response = self._execute(
-            self.db.table(self.groups_table)
-            .select("*")
-            .eq("invite_code", invite_code)
-            .limit(1)
+            self.db.table(self.groups_table).select("*").eq("invite_code", invite_code).limit(1)
         )
         return response.data[0] if response.data else None
 
     def list_groups_by_ids(self, group_ids: list[str]) -> list[JsonRow]:
         if not group_ids:
             return []
-        response = self._execute(
-            self.db.table(self.groups_table).select("*").in_("id", group_ids)
-        )
+        response = self._execute(self.db.table(self.groups_table).select("*").in_("id", group_ids))
         return list(response.data or [])
 
     def delete_group(self, group_id: str, owner_id: str) -> bool:
         response = self._execute(
-            self.db.table(self.groups_table)
-            .delete()
-            .eq("id", group_id)
-            .eq("owner_id", owner_id)
+            self.db.table(self.groups_table).delete().eq("id", group_id).eq("owner_id", owner_id)
         )
         return bool(response.data)
 
@@ -104,9 +97,7 @@ class GroupRepository(BaseRepository):
         if not unique_ids:
             return {}
         response = self._execute(
-            self.db.table(self.profiles_table)
-            .select("id, display_name")
-            .in_("id", unique_ids)
+            self.db.table(self.profiles_table).select("id, display_name").in_("id", unique_ids)
         )
         return {
             str(row["id"]): row.get("display_name")
@@ -145,19 +136,13 @@ class GroupRepository(BaseRepository):
 
     def update_task(self, group_id: str, task_id: str, data: JsonRow) -> JsonRow | None:
         response = self._execute(
-            self.db.table(self.tasks_table)
-            .update(data)
-            .eq("group_id", group_id)
-            .eq("id", task_id),
+            self.db.table(self.tasks_table).update(data).eq("group_id", group_id).eq("id", task_id),
             validation_detail="The task data violates a database constraint.",
         )
         return response.data[0] if response.data else None
 
     def delete_task(self, group_id: str, task_id: str) -> bool:
         response = self._execute(
-            self.db.table(self.tasks_table)
-            .delete()
-            .eq("group_id", group_id)
-            .eq("id", task_id)
+            self.db.table(self.tasks_table).delete().eq("group_id", group_id).eq("id", task_id)
         )
         return bool(response.data)

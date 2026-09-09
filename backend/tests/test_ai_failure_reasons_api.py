@@ -29,9 +29,7 @@ class FailureReasonServiceStub:
 
 
 def test_list_active_failure_reasons(authenticated_client: TestClient) -> None:
-    app.dependency_overrides[get_ai_failure_reason_service] = (
-        lambda: FailureReasonServiceStub()
-    )
+    app.dependency_overrides[get_ai_failure_reason_service] = lambda: FailureReasonServiceStub()
 
     response = authenticated_client.get("/api/v2/ai/failure-reasons")
 
@@ -40,9 +38,7 @@ def test_list_active_failure_reasons(authenticated_client: TestClient) -> None:
 
 
 def test_create_primary_and_secondary_reasons(authenticated_client: TestClient) -> None:
-    app.dependency_overrides[get_ai_failure_reason_service] = (
-        lambda: FailureReasonServiceStub()
-    )
+    app.dependency_overrides[get_ai_failure_reason_service] = lambda: FailureReasonServiceStub()
 
     response = authenticated_client.post(
         f"/api/v2/ai/outcomes/{OUTCOME_ID}/failure-reasons",
@@ -60,9 +56,7 @@ def test_create_primary_and_secondary_reasons(authenticated_client: TestClient) 
 def test_rejects_primary_duplicated_as_secondary(
     authenticated_client: TestClient,
 ) -> None:
-    app.dependency_overrides[get_ai_failure_reason_service] = (
-        lambda: FailureReasonServiceStub()
-    )
+    app.dependency_overrides[get_ai_failure_reason_service] = lambda: FailureReasonServiceStub()
 
     response = authenticated_client.post(
         f"/api/v2/ai/outcomes/{OUTCOME_ID}/failure-reasons",
@@ -76,9 +70,7 @@ def test_rejects_primary_duplicated_as_secondary(
 
 
 def test_rejects_client_supplied_confirmation(authenticated_client: TestClient) -> None:
-    app.dependency_overrides[get_ai_failure_reason_service] = (
-        lambda: FailureReasonServiceStub()
-    )
+    app.dependency_overrides[get_ai_failure_reason_service] = lambda: FailureReasonServiceStub()
 
     response = authenticated_client.post(
         f"/api/v2/ai/outcomes/{OUTCOME_ID}/failure-reasons",

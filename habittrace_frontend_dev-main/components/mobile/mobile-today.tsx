@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useDataRefresh } from "@/lib/refresh";
+import { useToast } from "@/components/ui/toast";
 import { useAuth } from "@/app/providers";
 import {
   completeExecution,
@@ -22,7 +24,10 @@ import {
   type FailureReasonCode,
   type QuickAddDraft,
 } from "@/lib/mobile-task";
-import OutcomeSheet, { type MobileResult } from "./outcome-sheet";
+import OutcomeSheet, {
+  type MobileResult,
+  type OutcomeTimes,
+} from "./outcome-sheet";
 import QuickAddForm from "./quick-add-form";
 
 interface ToastState {
@@ -31,16 +36,26 @@ interface ToastState {
 }
 
 function taskSort(left: Task, right: Task): number {
-  return taskTimeInMinutes(left.planned_start_time) - taskTimeInMinutes(right.planned_start_time);
+  return (
+    taskTimeInMinutes(left.planned_start_time) -
+    taskTimeInMinutes(right.planned_start_time)
+  );
 }
 
 function readableError(caught: unknown, fallback: string): string {
   if (!(caught instanceof Error)) return fallback;
-  if (caught.message.includes("Failed to fetch") || caught.message.includes("fetch")) {
+  if (
+    caught.message.includes("Failed to fetch") ||
+    caught.message.includes("fetch")
+  ) {
     return "We couldn't connect. Check your network and try again.";
   }
   const message = caught.message.toLowerCase();
-  if (caught.message.includes("401") || message.includes("sign in") || message.includes("session")) {
+  if (
+    caught.message.includes("401") ||
+    message.includes("sign in") ||
+    message.includes("session")
+  ) {
     return "Your session has expired. Please sign in again.";
   }
   return fallback;
@@ -49,13 +64,19 @@ function readableError(caught: unknown, fallback: string): string {
 function formatStartedAt(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return date.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 export default function MobileToday() {
   const { displayName } = useAuth();
+  const notifications = useToast();
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [activeExecutions, setActiveExecutions] = useState<Record<string, Execution>>({});
+  const [activeExecutions, setActiveExecutions] = useState<
+    Record<string, Execution>
+  >({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [online, setOnline] = useState(true);
@@ -84,7 +105,9 @@ export default function MobileToday() {
       const missingTaskIds = Array.from(
         new Set(active.map((execution) => execution.task_id)),
       ).filter((taskId) => !knownTaskIds.has(taskId));
-      const missingResults = await Promise.allSettled(missingTaskIds.map(getTask));
+      const missingResults = await Promise.allSettled(
+        missingTaskIds.map(getTask),
+      );
       const activeTasks = missingResults.flatMap((result) =>
         result.status === "fulfilled" ? [result.value] : [],
       );
@@ -102,6 +125,8 @@ export default function MobileToday() {
       setLoading(false);
     }
   }, [today]);
+
+  useDataRefresh(loadToday);
 
   useEffect(() => {
     void loadToday();
@@ -146,13 +171,18 @@ export default function MobileToday() {
   }, [toast]);
 
   const todayPending = useMemo(
-    () => tasks.filter((task) => task.planned_date === today && task.task_status === "pending"),
+    () =>
+      tasks.filter(
+        (task) => task.planned_date === today && task.task_status === "pending",
+      ),
     [tasks, today],
   );
 
   const currentTask = useMemo(() => {
     const activeTask = tasks
-      .filter((task) => task.task_status === "pending" && activeExecutions[task.id])
+      .filter(
+        (task) => task.task_status === "pending" && activeExecutions[task.id],
+      )
       .sort((left, right) => {
         const leftStarted = Date.parse(activeExecutions[left.id].created_at);
         const rightStarted = Date.parse(activeExecutions[right.id].created_at);
@@ -160,26 +190,42 @@ export default function MobileToday() {
       })[0];
     if (activeTask) return activeTask;
 
-    return [...todayPending].sort((left, right) => {
-      const leftDistance = Math.abs(taskTimeInMinutes(left.planned_start_time) - nowMinutes);
-      const rightDistance = Math.abs(taskTimeInMinutes(right.planned_start_time) - nowMinutes);
-      return leftDistance - rightDistance;
-    })[0] ?? null;
+    return (
+      [...todayPending].sort((left, right) => {
+        const leftDistance = Math.abs(
+          taskTimeInMinutes(left.planned_start_time) - nowMinutes,
+        );
+        const rightDistance = Math.abs(
+          taskTimeInMinutes(right.planned_start_time) - nowMinutes,
+        );
+        return leftDistance - rightDistance;
+      })[0] ?? null
+    );
   }, [activeExecutions, nowMinutes, tasks, todayPending]);
 
-  const remainingTasks = todayPending.filter((task) => task.id !== currentTask?.id).sort(taskSort);
+  const remainingTasks = todayPending
+    .filter((task) => task.id !== currentTask?.id)
+    .sort(taskSort);
 
   function closeQuickAdd() {
     setQuickAddOpen(false);
     if (window.location.hash === "#quick-add") {
-      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+      window.history.replaceState(
+        null,
+        "",
+        `${window.location.pathname}${window.location.search}`,
+      );
     }
   }
 
   async function handleQuickAdd(draft: QuickAddDraft) {
     const plansForDate =
-      draft.plannedDate === today ? tasks.filter((task) => task.planned_date === today) : await getTasks(draft.plannedDate);
-    const created = await createTask(toQuickTaskCreate(draft, plansForDate.length + 1));
+      draft.plannedDate === today
+        ? tasks.filter((task) => task.planned_date === today)
+        : await getTasks(draft.plannedDate);
+    const created = await createTask(
+      toQuickTaskCreate(draft, plansForDate.length + 1),
+    );
     setTasks((current) => {
       if (current.some((task) => task.id === created.id)) return current;
       return [...current, created].sort(taskSort);
@@ -226,7 +272,11 @@ export default function MobileToday() {
     setSelectedTask(task);
   }
 
-  async function handleOutcome(result: MobileResult, reason?: FailureReasonCode) {
+  async function handleOutcome(
+    result: MobileResult,
+    reason?: FailureReasonCode,
+    times?: OutcomeTimes,
+  ) {
     if (!selectedTask || outcomeSaving) return;
     setOutcomeSaving(true);
     setOutcomeError(null);
@@ -240,6 +290,7 @@ export default function MobileToday() {
 
       const legacyStatus = result === "completed" ? "success" : "failed";
       const completed = await completeExecution(started.id, {
+        ...times,
         task_status: legacyStatus,
         stopped_early: result !== "completed",
         interruption_count: 0,
@@ -249,7 +300,9 @@ export default function MobileToday() {
       const completedTask = selectedTask;
       setTasks((current) =>
         current.map((task) =>
-          task.id === completedTask.id ? { ...task, task_status: legacyStatus } : task,
+          task.id === completedTask.id
+            ? { ...task, task_status: legacyStatus }
+            : task,
         ),
       );
       setActiveExecutions((current) => {
@@ -267,25 +320,31 @@ export default function MobileToday() {
         failureReason: reason,
       }).catch((caught) => {
         console.warn("AI V2 outcome was not created:", caught);
+        notifications.warn(
+          "Outcome saved",
+          "AI learning could not update this time. Your plan record is safe.",
+        );
       });
     } catch (caught) {
-      setOutcomeError(readableError(caught, "We couldn't save the outcome. Try again."));
+      setOutcomeError(
+        readableError(caught, "We couldn't save the outcome. Try again."),
+      );
     } finally {
       setOutcomeSaving(false);
     }
   }
 
-  const formattedDate = new Date(`${today}T12:00:00`).toLocaleDateString("en-US", {
-    month: "long",
-    day: "numeric",
-    weekday: "long",
-  });
+  const formattedDate = new Date(`${today}T12:00:00`).toLocaleDateString(
+    "en-US",
+    {
+      month: "long",
+      day: "numeric",
+      weekday: "long",
+    },
+  );
 
   return (
-    <main
-      className="mx-auto min-h-dvh w-full max-w-lg overflow-x-hidden bg-slate-50 px-4 pb-[calc(6rem+env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] text-slate-950"
-      lang="en"
-    >
+    <section className="mx-auto w-full max-w-4xl text-slate-950" lang="en">
       <header className="flex items-start justify-between gap-4 py-3">
         <div>
           <p className="text-sm font-medium text-slate-500">{formattedDate}</p>
@@ -296,27 +355,36 @@ export default function MobileToday() {
         <Link
           aria-label="Open account settings"
           className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-slate-950 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950"
-          href="/dashboard/today/account"
+          href="/dashboard/settings"
         >
           HT
         </Link>
       </header>
 
       {!online && (
-        <div className="mt-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900" role="status">
+        <div
+          className="mt-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900"
+          role="status"
+        >
           You&apos;re offline. Reconnect before saving or changing a plan.
         </div>
       )}
 
       {loading && tasks.length === 0 ? (
-        <div aria-label="Loading today's plans" className="mt-5 space-y-3" role="status">
+        <div
+          aria-label="Loading today's plans"
+          className="mt-5 space-y-3"
+          role="status"
+        >
           <div className="h-56 animate-pulse rounded-3xl bg-slate-200" />
           <div className="h-20 animate-pulse rounded-2xl bg-slate-200" />
         </div>
       ) : loadError && tasks.length === 0 ? (
         <section className="mt-5 rounded-3xl border border-rose-200 bg-white p-6 text-center">
           <h2 className="text-lg font-bold">Couldn&apos;t load your plans</h2>
-          <p className="mt-2 text-sm leading-relaxed text-slate-600">{loadError}</p>
+          <p className="mt-2 text-sm leading-relaxed text-slate-600">
+            {loadError}
+          </p>
           <button
             className="mt-5 min-h-12 w-full rounded-2xl bg-slate-950 px-4 font-bold text-white disabled:opacity-50"
             disabled={!online || loading}
@@ -328,10 +396,45 @@ export default function MobileToday() {
         </section>
       ) : (
         <>
+          <div
+            className="mt-5 grid grid-cols-3 gap-3"
+            aria-label="Today’s progress"
+          >
+            {[
+              {
+                label: "Completed",
+                value: tasks.filter(
+                  (t) =>
+                    t.planned_date === today && t.task_status === "success",
+                ).length,
+              },
+              { label: "Remaining", value: todayPending.length },
+              {
+                label: "Planned minutes",
+                value: todayPending.reduce(
+                  (n, t) => n + t.planned_duration_min,
+                  0,
+                ),
+              },
+            ].map((item) => (
+              <div
+                key={item.label}
+                className="rounded-2xl border border-slate-200 bg-white p-4"
+              >
+                <p className="text-2xl font-bold">{item.value}</p>
+                <p className="mt-1 text-xs text-slate-500">{item.label}</p>
+              </div>
+            ))}
+          </div>
           <section className="mt-5" aria-labelledby="current-plan-title">
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-bold text-slate-700" id="current-plan-title">
-                {currentTask && activeExecutions[currentTask.id] ? "IN PROGRESS" : "UP NEXT"}
+              <h2
+                className="text-sm font-bold text-slate-700"
+                id="current-plan-title"
+              >
+                {currentTask && activeExecutions[currentTask.id]
+                  ? "IN PROGRESS"
+                  : "UP NEXT"}
               </h2>
               <span className="text-xs font-medium text-slate-400">
                 {todayPending.length} left
@@ -343,17 +446,26 @@ export default function MobileToday() {
                 {activeExecutions[currentTask.id] && (
                   <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-emerald-400/15 px-3 py-1.5 text-xs font-bold text-emerald-300">
                     <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-300" />
-                    Active since {formatStartedAt(activeExecutions[currentTask.id].actual_start_time)}
+                    Active since{" "}
+                    {formatStartedAt(
+                      activeExecutions[currentTask.id].actual_start_time,
+                    )}
                   </div>
                 )}
-                <h3 className="break-words text-2xl font-bold leading-tight">{currentTask.title}</h3>
+                <h3 className="break-words text-2xl font-bold leading-tight">
+                  {currentTask.title}
+                </h3>
                 <p className="mt-3 text-sm text-slate-300">
-                  {formatTaskTime(currentTask.planned_start_time)} · {currentTask.planned_duration_min} min
+                  {formatTaskTime(currentTask.planned_start_time)} ·{" "}
+                  {currentTask.planned_duration_min} min
                 </p>
                 <div className="mt-6 grid grid-cols-2 gap-3">
                   <button
                     className="min-h-14 rounded-2xl bg-white px-3 text-base font-bold text-slate-950 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300"
-                    disabled={Boolean(activeExecutions[currentTask.id]) || startingTaskId === currentTask.id}
+                    disabled={
+                      Boolean(activeExecutions[currentTask.id]) ||
+                      startingTaskId === currentTask.id
+                    }
                     onClick={() => void handleStart(currentTask)}
                     type="button"
                   >
@@ -375,7 +487,9 @@ export default function MobileToday() {
             ) : (
               <div className="rounded-3xl border border-dashed border-slate-300 bg-white px-5 py-8 text-center">
                 <p className="text-lg font-bold">No plans left today</p>
-                <p className="mt-2 text-sm text-slate-500">Add a plan and it will appear here.</p>
+                <p className="mt-2 text-sm text-slate-500">
+                  Add a plan and it will appear here.
+                </p>
               </div>
             )}
           </section>
@@ -385,13 +499,23 @@ export default function MobileToday() {
             onClick={() => setQuickAddOpen(true)}
             type="button"
           >
-            <span aria-hidden="true" className="text-2xl font-light leading-none">+</span>
+            <span
+              aria-hidden="true"
+              className="text-2xl font-light leading-none"
+            >
+              +
+            </span>
             Quick Add
           </button>
 
+          <Link href="/dashboard/habits" className="btn-secondary mt-3 w-full">
+            View or reschedule plans
+          </Link>
           <section className="mt-7" aria-labelledby="remaining-plan-title">
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-lg font-bold" id="remaining-plan-title">Remaining today</h2>
+              <h2 className="text-lg font-bold" id="remaining-plan-title">
+                Remaining today
+              </h2>
               {loadError && (
                 <button
                   className="min-h-11 rounded-xl px-3 text-xs font-bold text-rose-700 hover:bg-rose-50"
@@ -412,12 +536,18 @@ export default function MobileToday() {
                 {remainingTasks.map((task) => {
                   const active = activeExecutions[task.id];
                   return (
-                    <li className="rounded-2xl border border-slate-200 bg-white p-4" key={task.id}>
+                    <li
+                      className="rounded-2xl border border-slate-200 bg-white p-4"
+                      key={task.id}
+                    >
                       <div className="flex min-w-0 items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <p className="truncate font-bold text-slate-900">{task.title}</p>
+                          <p className="truncate font-bold text-slate-900">
+                            {task.title}
+                          </p>
                           <p className="mt-1 text-xs font-medium text-slate-500">
-                            {formatTaskTime(task.planned_start_time)} · {task.planned_duration_min} min
+                            {formatTaskTime(task.planned_start_time)} ·{" "}
+                            {task.planned_duration_min} min
                           </p>
                         </div>
                         {active && (
@@ -429,11 +559,17 @@ export default function MobileToday() {
                       <div className="mt-3 grid grid-cols-2 gap-2">
                         <button
                           className="min-h-11 rounded-xl bg-slate-100 px-3 text-sm font-bold text-slate-800 disabled:text-slate-400"
-                          disabled={Boolean(active) || startingTaskId === task.id}
+                          disabled={
+                            Boolean(active) || startingTaskId === task.id
+                          }
                           onClick={() => void handleStart(task)}
                           type="button"
                         >
-                          {active ? "In progress" : startingTaskId === task.id ? "Starting…" : "Start"}
+                          {active
+                            ? "In progress"
+                            : startingTaskId === task.id
+                              ? "Starting…"
+                              : "Start"}
                         </button>
                         <button
                           className="min-h-11 rounded-xl bg-slate-950 px-3 text-sm font-bold text-white"
@@ -466,7 +602,9 @@ export default function MobileToday() {
         </div>
       )}
 
-      {quickAddOpen && <QuickAddForm onDismiss={closeQuickAdd} onSubmit={handleQuickAdd} />}
+      {quickAddOpen && (
+        <QuickAddForm onDismiss={closeQuickAdd} onSubmit={handleQuickAdd} />
+      )}
       {selectedTask && (
         <OutcomeSheet
           error={outcomeError}
@@ -479,6 +617,6 @@ export default function MobileToday() {
           task={selectedTask}
         />
       )}
-    </main>
+    </section>
   );
 }

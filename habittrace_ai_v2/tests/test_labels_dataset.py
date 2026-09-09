@@ -18,9 +18,7 @@ def test_success_definition_is_derived_exactly() -> None:
 
 
 def test_invalid_completion_ratio_is_rejected() -> None:
-    outcomes = pd.DataFrame(
-        {"outcome_status": ["completed"], "completion_ratio": [float("nan")]}
-    )
+    outcomes = pd.DataFrame({"outcome_status": ["completed"], "completion_ratio": [float("nan")]})
     with pytest.raises(ValueError, match="completion_ratio"):
         derive_success_labels(outcomes)
 

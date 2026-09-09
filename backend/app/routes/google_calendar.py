@@ -27,9 +27,7 @@ def get_google_calendar_service() -> GoogleCalendarService:
     return GoogleCalendarService(get_supabase())
 
 
-GoogleCalendarServiceDep = Annotated[
-    GoogleCalendarService, Depends(get_google_calendar_service)
-]
+GoogleCalendarServiceDep = Annotated[GoogleCalendarService, Depends(get_google_calendar_service)]
 
 
 @router.get("/status", response_model=GoogleCalendarStatus)

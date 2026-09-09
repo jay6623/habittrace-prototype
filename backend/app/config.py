@@ -36,9 +36,7 @@ class Settings(BaseSettings):
     ml_code_dir: str = str(_PROJECT_ROOT / "habittrace_model_dev-main")
     # AI V2 package and artifact directory. Override for a real trained model.
     ai_v2_code_dir: str = str(_PROJECT_ROOT / "habittrace_ai_v2")
-    ai_v2_artifacts_dir: str = str(
-        _PROJECT_ROOT / "habittrace_ai_v2" / "artifacts" / "synthetic"
-    )
+    ai_v2_artifacts_dir: str = str(_PROJECT_ROOT / "habittrace_ai_v2" / "artifacts" / "synthetic")
 
     # Browser origin for your Next.js app (used for CORS when CORS_ORIGINS is unset)
     frontend_url: str = "http://localhost:3000"

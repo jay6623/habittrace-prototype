@@ -1,4 +1,5 @@
 """Database dependency for API routes."""
+
 from fastapi import HTTPException, status
 from supabase import Client
 

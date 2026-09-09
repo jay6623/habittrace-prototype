@@ -1,4 +1,5 @@
 """Runtime loader for AI V2 model artifacts."""
+
 from __future__ import annotations
 
 import logging
@@ -42,8 +43,16 @@ class AIV2MLService:
         failure_path = Path(settings.ai_v2_artifacts_dir) / "failure_reason_model.joblib"
         success_model, success_manifest = load_model_artifact(
             success_path,
-            expected_model_type="success_logistic_regression",
         )
+        if success_manifest["model_type"] not in {
+            "success_logistic_regression",
+            "success_validated_candidate",
+        }:
+            raise ValueError("Unsupported success model type")
+        self.model_evidence = {
+            "data_source": success_manifest.get("metrics", {}).get("data_source", "synthetic"),
+            "production_ready": success_manifest.get("metrics", {}).get("production_ready", False),
+        }
         failure_model, failure_manifest = load_model_artifact(
             failure_path,
             expected_model_type="failure_reason_independent_logistic_regression",
@@ -71,11 +80,13 @@ class AIV2MLService:
             str(reason): float(probability)
             for reason, probability in failure_frame.to_dict().items()
         }
-        predicted_failure_reason = (
-            max(failure_probabilities, key=lambda reason: failure_probabilities[reason])
-            if failure_probabilities
-            else None
-        )
+        support = getattr(self.failure_model, "support", {})
+        supported = {
+            reason: probability
+            for reason, probability in failure_probabilities.items()
+            if not support or support.get(reason, {}).get("positive", 0) >= 10
+        }
+        predicted_failure_reason = max(supported, key=supported.get) if supported else None
         result = {
             "model_version": self.model_version,
             "success_probability": success_probability,
@@ -84,6 +95,10 @@ class AIV2MLService:
             "predicted_at": datetime.now(UTC),
         }
         explanation = build_plan_explanation(plan, result)
+        explanation["model_evidence"] = getattr(self, "model_evidence", {"production_ready": False})
+        explanation["notice"] = (
+            "Experimental planning guidance, not a validated personal success probability."
+        )
         result["explanation"] = explanation
         result["recommended_actions"] = explanation["recommended_actions"]
         return result

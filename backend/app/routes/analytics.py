@@ -17,8 +17,7 @@ def _require_db():
         raise HTTPException(
             status_code=503,
             detail=(
-                "Database not configured. Set SUPABASE_URL and "
-                "SUPABASE_SERVICE_KEY in backend/.env"
+                "Database not configured. Set SUPABASE_URL and SUPABASE_SERVICE_KEY in backend/.env"
             ),
         )
     return get_supabase()
@@ -83,14 +82,16 @@ def plan_health(
                 # Add risk for tasks with very low ML-predicted probability
                 if t.get("task_status") == "pending" and p < 0.45:
                     reason = pred.get("predicted_failure_reason") or ""
-                    health["risks"].append({
-                        "level": "high" if p < 0.3 else "medium",
-                        "title": f"Low success: {t.get('title', 'Task')[:30]}",
-                        "detail": (
-                            f"AI predicts {round(p * 100)}% success"
-                            + (f" — likely cause: {reason.replace('_', ' ')}" if reason else "")
-                        ),
-                    })
+                    health["risks"].append(
+                        {
+                            "level": "high" if p < 0.3 else "medium",
+                            "title": f"Low success: {t.get('title', 'Task')[:30]}",
+                            "detail": (
+                                f"AI predicts {round(p * 100)}% success"
+                                + (f" — likely cause: {reason.replace('_', ' ')}" if reason else "")
+                            ),
+                        }
+                    )
             except Exception as exc:
                 logger.warning("ML prediction failed for task %s: %s", task_summary["id"], exc)
 

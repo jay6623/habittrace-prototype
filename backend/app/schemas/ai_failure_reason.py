@@ -1,4 +1,5 @@
 """Contracts for failure reason definitions and user-confirmed assignments."""
+
 from __future__ import annotations
 
 import re

@@ -8,12 +8,14 @@ import json
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from habittrace_ai.artifacts import save_model_artifact
 from habittrace_ai.dataset import build_training_datasets
 from habittrace_ai.evaluation import evaluate_binary_probabilities, evaluate_failure_probabilities
 from habittrace_ai.models.failure_reason import FailureReasonProbabilityModel
+from habittrace_ai.models.selection import select_success_model
 from habittrace_ai.models.success import SuccessProbabilityModel
 from habittrace_ai.split import temporal_split_aligned, temporal_train_validation_test_split
 
@@ -38,6 +40,7 @@ def train(
     failure_reasons_path: Path,
     outdir: Path,
     model_version: str,
+    data_source: str = "unknown",
 ) -> dict[str, Any]:
     source_paths = [plans_path, outcomes_path, failure_reasons_path]
     plans = _load_csv(plans_path, "plans")
@@ -60,15 +63,23 @@ def train(
     assert isinstance(failure_split.validation_targets, pd.DataFrame)
     assert isinstance(failure_split.test_targets, pd.DataFrame)
 
-    success_model = SuccessProbabilityModel().fit(
+    baseline_model = SuccessProbabilityModel().fit(
         success_split.train,
         success_split.train["success_label"],
     )
+    success_model, selection = select_success_model(success_split.train, success_split.validation)
     failure_model = FailureReasonProbabilityModel().fit(
         failure_split.train_examples,
         failure_split.train_targets,
     )
 
+    # Per-label regularization/shrinkage selected independently, only on validation.
+    failure_model.select_on_validation(
+        failure_split.train_examples,
+        failure_split.train_targets,
+        failure_split.validation_examples,
+        failure_split.validation_targets,
+    )
     success_validation_probability = success_model.predict_success_probability(
         success_split.validation
     )
@@ -79,7 +90,35 @@ def train(
     failure_test_probability = failure_model.predict_reason_probabilities(
         failure_split.test_examples
     )
+    fixture_manifest = plans_path.parent / "synthetic_manifest.json"
+    marked_synthetic = (
+        fixture_manifest.is_file()
+        and json.loads(fixture_manifest.read_text()).get("synthetic") is True
+    )
+    synthetic = (
+        marked_synthetic
+        or data_source == "synthetic"
+        or plans["input_source"].astype(str).eq("synthetic").any()
+    )
     metrics: dict[str, Any] = {
+        "selection": selection,
+        "data_source": "synthetic" if synthetic else data_source,
+        "production_ready": False,
+        "limitation": "Synthetic development benchmark; not real-user accuracy."
+        if synthetic
+        else "Requires consent/provenance review and prospective validation before promotion.",
+        "baseline": {
+            "test": evaluate_binary_probabilities(
+                success_split.test.success_label,
+                baseline_model.predict_success_probability(success_split.test),
+            ),
+            "prevalence_test": evaluate_binary_probabilities(
+                success_split.test.success_label,
+                np.full(len(success_split.test), success_split.train.success_label.mean()),
+            ),
+        },
+        "failure_support": failure_model.support,
+        "failure_selection": failure_model.selection,
         "success": {
             "validation": evaluate_binary_probabilities(
                 success_split.validation["success_label"], success_validation_probability
@@ -105,6 +144,20 @@ def train(
             "failure_test": len(failure_split.test_examples),
         },
     }
+    from habittrace_ai.evaluation import calibration_bins, paired_brier_interval
+
+    metrics["success"]["calibration_bins"] = calibration_bins(
+        success_split.test.success_label, success_test_probability
+    )
+    metrics["success"]["brier_improvement_interval"] = paired_brier_interval(
+        success_split.test.success_label,
+        baseline_model.predict_success_probability(success_split.test),
+        success_test_probability,
+    )
+    metrics["success"]["data_source"] = metrics["data_source"]
+    metrics["success"]["production_ready"] = False
+    metrics["failure_reason"]["support"] = failure_model.support
+    metrics["failure_reason"]["data_source"] = metrics["data_source"]
     training_hash = _file_sha256(source_paths)
     outdir.mkdir(parents=True, exist_ok=True)
     success_manifest = save_model_artifact(
@@ -140,6 +193,11 @@ def main() -> None:
     parser.add_argument("--outcomes", type=Path, required=True)
     parser.add_argument("--failure-reasons", type=Path, required=True)
     parser.add_argument("--outdir", type=Path, default=Path("artifacts"))
+    parser.add_argument(
+        "--data-source",
+        choices=["synthetic", "observational_unverified", "unknown"],
+        default="unknown",
+    )
     parser.add_argument("--model-version", default="synthetic-baseline-1")
     args = parser.parse_args()
     result = train(
@@ -148,6 +206,7 @@ def main() -> None:
         args.failure_reasons,
         args.outdir,
         args.model_version,
+        args.data_source,
     )
     print(json.dumps(result["rows"], indent=2, sort_keys=True))
     print(f"artifacts written to {args.outdir}")

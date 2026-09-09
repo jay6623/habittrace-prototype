@@ -242,9 +242,7 @@ def test_failure_reason_service_rejects_unknown_code() -> None:
 def test_failure_reason_service_rejects_successful_outcome() -> None:
     reasons = FailureReasonRepositoryFake({"other"})
     successful = outcome_row(outcome_status="completed", completion_ratio=0.8)
-    service = AIFailureReasonService(
-        PlanRepositoryFake(), OutcomeLookupFake(successful), reasons
-    )
+    service = AIFailureReasonService(PlanRepositoryFake(), OutcomeLookupFake(successful), reasons)
 
     with pytest.raises(DomainValidationError):
         service.create_for_outcome(

@@ -1,4 +1,5 @@
 """Request and response contracts for post-execution outcomes."""
+
 from __future__ import annotations
 
 from decimal import Decimal
@@ -88,7 +89,6 @@ def outcome_to_insert(body: OutcomeCreate, *, plan_input_id: UUID) -> dict:
 
 
 def is_successful_outcome(outcome: dict) -> bool:
-    return (
-        outcome.get("outcome_status") == OutcomeStatus.COMPLETED.value
-        and Decimal(str(outcome.get("completion_ratio", 0))) >= Decimal("0.8")
-    )
+    return outcome.get("outcome_status") == OutcomeStatus.COMPLETED.value and Decimal(
+        str(outcome.get("completion_ratio", 0))
+    ) >= Decimal("0.8")

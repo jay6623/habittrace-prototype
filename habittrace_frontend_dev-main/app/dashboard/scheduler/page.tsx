@@ -1,465 +1,457 @@
 "use client";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { useAuth } from "@/app/providers";
+import {
+  getTasks,
+  updateTask,
+  reviseAIPlan,
+  clearAIPlan,
+  predictAIPlan,
+  getAIPlanPrediction,
+  createTimeRecommendation,
+  selectTimeCandidate,
+  type Task,
+  type Prediction,
+  type TimeCandidate,
+  type TimeRecommendation,
+} from "@/lib/api";
+import {
+  localDateString,
+  taskTimeInMinutes,
+  toStoredTime,
+} from "@/lib/mobile-task";
+import { readPreferences } from "@/lib/preferences";
+import { useDataRefresh } from "@/lib/refresh";
+import { useToast } from "@/components/ui/toast";
+import { findFreeSlots, overlappingTasks } from "@/lib/scheduling";
 
-import { useState, useEffect } from "react";
-import { getTasks, predict, type Task, type Prediction } from "@/lib/api";
-import { Tomorrow } from "next/font/google";
-
-// ── Types ─────────────────────────────────────────────────────────────────
-interface TaskWithPred extends Task {
-  prediction?: Prediction;
-  predLoading?: boolean;
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────
-const HOURS = Array.from({ length: 17 }, (_, i) => i + 6); // 6 AM – 10 PM
-
-function parseHour(timeStr: string): number {
-  if (!timeStr) return -1;
-  const s = timeStr.trim().toLowerCase();
-  const match = s.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/);
-  if (!match) return -1;
-  let h = parseInt(match[1]);
-  const meridiem = match[3];
-  if (meridiem === "pm" && h !== 12) h += 12;
-  if (meridiem === "am" && h === 12) h = 0;
-  return h;
-}
-
-function formatHour(h: number) {
-  if (h === 0) return "12 AM";
-  if (h < 12) return `${h} AM`;
-  if (h === 12) return "12 PM";
-  return `${h - 12} PM`;
-}
-
-function pctColor(pct: number) {
-  if (pct >= 70) return "text-emerald-600";
-  if (pct >= 50) return "text-amber-500";
-  return "text-rose-500";
-}
-
-function pctBg(pct: number) {
-  if (pct >= 70) return "bg-emerald-100 border-emerald-200";
-  if (pct >= 50) return "bg-amber-50 border-amber-200";
-  return "bg-rose-50 border-rose-200";
-}
-
-const categoryColors: Record<string, string> = {
-  Study:             "bg-sky-500",
-  Work:              "bg-violet-500",
-  Chores:            "bg-amber-500",
-  "Fitness/Health":  "bg-emerald-500",
-  "Errands/Admin":   "bg-slate-500",
-  "Hobbies/Leisure": "bg-rose-500",
-  Social:            "bg-indigo-500",
-  Other:             "bg-gray-400",
-};
-
-// ── Component ─────────────────────────────────────────────────────────────
 export default function SchedulerPage() {
-  const [tasks, setTasks] = useState<TaskWithPred[]>([]);
+  return (
+    <Suspense fallback={<p>Loading schedule…</p>}>
+      <Scheduler />
+    </Suspense>
+  );
+}
+function Scheduler() {
+  const params = useSearchParams();
+  const { user } = useAuth();
+  const preferences = readPreferences(user?.user_metadata);
+  const toast = useToast();
+  const [date, setDate] = useState(localDateString);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedTask, setSelectedTask] = useState<TaskWithPred | null>(null);
-  const [energyLevel, setEnergyLevel] = useState(3);
-  const [focusLevel, setFocusLevel] = useState(3);
-
-  const today = new Date();
-  const currentHour = today.getHours();
-
-  // ── Load today's tasks + fire predictions ─────────────────────────────
-  useEffect(() => {
-    const dateStr = today.toISOString().split("T")[0];
+  const [error, setError] = useState(false);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [prediction, setPrediction] = useState<Prediction | null>(null);
+  const [predicting, setPredicting] = useState(false);
+  const [recommendation, setRecommendation] =
+    useState<TimeRecommendation | null>(null);
+  const [recommending, setRecommending] = useState(false);
+  const [recommendationError, setRecommendationError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const request = useRef(0);
+  const load = useCallback(async () => {
+    const id = ++request.current;
     setLoading(true);
-    getTasks(dateStr)
-      .then((serverTasks) => {
-        const withPred = serverTasks.map((t) => ({ ...t, predLoading: true }));
-        setTasks(withPred);
-
-        // Fire prediction for each pending task
-        withPred.forEach((t) => {
-          if (t.task_status !== "pending") {
-            setTasks((prev) =>
-              prev.map((x) => x.id === t.id ? { ...x, predLoading: false } : x)
-            );
-            return;
-          }
-          predict({
-            task_category: t.task_category,
-            planned_start_time: t.planned_start_time,
-            planned_date: t.planned_date,
-            planned_duration_min: t.planned_duration_min,
-            importance: t.importance,
-            energy_level: energyLevel,
-            focus_level: focusLevel,
-            total_tasks_today: serverTasks.length,
-          })
-            .then((pred) => {
-              setTasks((prev) =>
-                prev.map((x) =>
-                  x.id === t.id ? { ...x, prediction: pred, predLoading: false } : x
-                )
-              );
-            })
-            .catch(() => {
-              setTasks((prev) =>
-                prev.map((x) => x.id === t.id ? { ...x, predLoading: false } : x)
-              );
-            });
-        });
+    setError(false);
+    try {
+      const data = await getTasks(date);
+      if (id === request.current)
+        setTasks(
+          data.sort(
+            (a, b) =>
+              taskTimeInMinutes(a.planned_start_time) -
+              taskTimeInMinutes(b.planned_start_time),
+          ),
+        );
+    } catch {
+      if (id === request.current) {
+        setTasks([]);
+        setError(true);
+      }
+    } finally {
+      if (id === request.current) setLoading(false);
+    }
+  }, [date]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  useDataRefresh(load);
+  useEffect(() => {
+    const day = params.get("date");
+    if (
+      day &&
+      /^\d{4}-\d{2}-\d{2}$/.test(day) &&
+      !Number.isNaN(Date.parse(day))
+    )
+      setDate(day);
+    setSelected(params.get("task"));
+  }, [params]);
+  const task = tasks.find((t) => t.id === selected);
+  useEffect(() => {
+    setRecommendation(null);
+    setRecommendationError(null);
+  }, [date, task?.id, task?.ai_plan_input_id]);
+  useEffect(() => {
+    let cancelled = false;
+    setPrediction(null);
+    if (!task?.ai_plan_input_id) {
+      setPredicting(false);
+      return;
+    }
+    setPredicting(true);
+    getAIPlanPrediction(task.ai_plan_input_id)
+      .then((p) => p ?? predictAIPlan(task.ai_plan_input_id!))
+      .then((p) => {
+        if (!cancelled) setPrediction(p);
       })
       .catch(() => {})
-      .finally(() => setLoading(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Re-run predictions when energy/focus changes
-  function repredict() {
-    tasks.forEach((t) => {
-      if (t.task_status !== "pending") return;
-      setTasks((prev) =>
-        prev.map((x) => x.id === t.id ? { ...x, predLoading: true } : x)
+      .finally(() => {
+        if (!cancelled) setPredicting(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [task?.id, task?.ai_plan_input_id]);
+  const conflicts = overlappingTasks(tasks);
+  const now = new Date();
+  const slots = task
+    ? findFreeSlots(
+        tasks,
+        task,
+        preferences.workStart,
+        preferences.workEnd,
+        date === localDateString() ? now.getHours() * 60 + now.getMinutes() : 0,
+      )
+    : [];
+  async function move(
+    minutes: number,
+    accepted?: { recommendationId: string; candidateId: string },
+  ) {
+    if (!task || saving) return;
+    setSaving(true);
+    const time = toStoredTime(
+      `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`,
+    );
+    try {
+      await updateTask(task.id, { planned_start_time: time });
+      if (task.ai_plan_input_id) {
+        try {
+          await reviseAIPlan(task.id, task.ai_plan_input_id, {
+            ...task,
+            planned_start_time: time,
+          });
+        } catch {
+          clearAIPlan(task.id);
+          toast.warn("Time saved", "AI advice could not be refreshed.");
+        }
+      }
+      if (accepted) {
+        try {
+          await selectTimeCandidate(accepted.recommendationId, accepted.candidateId);
+        } catch {
+          toast.warn(
+            "Time saved",
+            "The AI ranking choice could not be recorded, but your plan was moved.",
+          );
+        }
+      }
+      toast.success("Plan rescheduled", time);
+      setRecommendation(null);
+      void load();
+    } catch {
+      toast.error(
+        "Couldn’t change the time",
+        "Your original plan is unchanged. Please try again.",
       );
-      predict({
-        task_category: t.task_category,
-        planned_start_time: t.planned_start_time,
-        planned_date: t.planned_date,
-        planned_duration_min: t.planned_duration_min,
-        importance: t.importance,
-        energy_level: energyLevel,
-        focus_level: focusLevel,
-        total_tasks_today: tasks.length,
-      })
-        .then((pred) => {
-          setTasks((prev) =>
-            prev.map((x) =>
-              x.id === t.id ? { ...x, prediction: pred, predLoading: false } : x
-            )
-          );
-        })
-        .catch(() => {
-          setTasks((prev) =>
-            prev.map((x) => x.id === t.id ? { ...x, predLoading: false } : x)
-          );
-        });
-    });
+    } finally {
+      setSaving(false);
+    }
   }
-
-  // Sort tasks by planned hour
-  const sortedTasks = [...tasks].sort((a, b) => {
-    return parseHour(a.planned_start_time) - parseHour(b.planned_start_time);
-  });
-
-  const pendingTasks = sortedTasks.filter((t) => t.task_status === "pending");
-  const doneTasks = sortedTasks.filter((t) => t.task_status !== "pending");
-
-  const avgSuccess =
-    pendingTasks.length > 0
-      ? Math.round(
-          pendingTasks.reduce(
-            (s, t) => s + (t.prediction ? t.prediction.success_probability * 100 : 0),
-            0
-          ) / pendingTasks.length
-        )
-      : null;
-
+  async function rankTimes() {
+    if (!task?.ai_plan_input_id || recommending) return;
+    const startMinutes = taskTimeInMinutes(preferences.workStart);
+    const endMinutes = taskTimeInMinutes(preferences.workEnd);
+    const current = new Date();
+    const earliest =
+      date === localDateString()
+        ? Math.max(startMinutes, Math.ceil((current.getHours() * 60 + current.getMinutes()) / 15) * 15)
+        : startMinutes;
+    if (earliest + task.planned_duration_min > endMinutes) {
+      setRecommendation(null);
+      setRecommendationError("No remaining time inside your saved planning hours fits this plan.");
+      return;
+    }
+    const clock = (minutes: number) =>
+      `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+    setRecommending(true);
+    setRecommendationError(null);
+    try {
+      const result = await createTimeRecommendation(task.ai_plan_input_id, date, {
+        earliestTime: clock(earliest),
+        latestTime: clock(endMinutes),
+        slotIntervalMinutes: 15,
+        minimumBufferMinutes: 15,
+      });
+      setRecommendation(result);
+    } catch {
+      setRecommendation(null);
+      setRecommendationError(
+        "AI V2 couldn’t rank a conflict-free time in this window. The rule-based times above are still available.",
+      );
+    } finally {
+      setRecommending(false);
+    }
+  }
+  function candidateMinutes(candidate: TimeCandidate) {
+    const value = new Date(candidate.candidate_start);
+    return value.getHours() * 60 + value.getMinutes();
+  }
   return (
-    <div className="h-[calc(100vh-theme(spacing.28))] flex flex-col gap-3">
-      {/* Header */}
-      <div className="flex items-center justify-between shrink-0">
+    <div className="space-y-6">
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="text-xs text-slate-500">Scheduler</div>
-          <h1 className="text-xl font-bold">Tomorrow&apos;s Schedule</h1>
+          <h1 className="text-3xl font-bold">Make room in your day</h1>
+          <p className="mt-2 text-sm text-slate-500">
+            Choose a plan to find a time with a 15-minute buffer.
+          </p>
         </div>
-        <div className="text-sm text-slate-500">
-          {today.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+        <input
+          aria-label="Schedule date"
+          className="field !w-auto"
+          type="date"
+          value={date}
+          onChange={(e) => {
+            if (e.target.value) setDate(e.target.value);
+          }}
+        />
+      </header>
+      {loading ? (
+        <p role="status">Loading schedule…</p>
+      ) : error ? (
+        <div role="alert" className="panel">
+          Couldn’t load your schedule.{" "}
+          <button className="btn-secondary" onClick={() => void load()}>
+            Retry
+          </button>
         </div>
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-3 flex-1 min-h-0">
-        {/* ── Timeline ─────────────────────────────────────────────────── */}
-        <div className="xl:col-span-2 flex flex-col gap-3 min-h-0">
-          {/* Current energy/focus override */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-3 shrink-0">
-            <div className="flex items-center gap-6">
-              <div className="text-sm font-semibold shrink-0">Current state</div>
-              <div className="flex items-center gap-2">
-                <div className="text-xs text-slate-500">Energy</div>
-                <div className="flex gap-1">
-                  {[1,2,3,4,5].map((n) => (
-                    <button
-                      key={n}
-                      onClick={() => setEnergyLevel(n)}
-                      className={`h-6 w-6 rounded-md text-xs font-semibold transition-colors ${
-                        n <= energyLevel
-                          ? "bg-amber-400 text-white"
-                          : "bg-slate-100 text-slate-400 hover:bg-slate-200"
-                      }`}
-                    >{n}</button>
-                  ))}
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="text-xs text-slate-500">Focus</div>
-                <div className="flex gap-1">
-                  {[1,2,3,4,5].map((n) => (
-                    <button
-                      key={n}
-                      onClick={() => setFocusLevel(n)}
-                      className={`h-6 w-6 rounded-md text-xs font-semibold transition-colors ${
-                        n <= focusLevel
-                          ? "bg-sky-400 text-white"
-                          : "bg-slate-100 text-slate-400 hover:bg-slate-200"
-                      }`}
-                    >{n}</button>
-                  ))}
-                </div>
-              </div>
-              <button
-                onClick={repredict}
-                className="ml-auto px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800 transition-colors"
-              >
-                Re-calculate
-              </button>
-            </div>
-          </div>
-
-          {/* Timeline */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-3 flex-1 min-h-0 flex flex-col">
-            <div className="text-sm font-semibold mb-2 shrink-0">Day timeline</div>
-
-            {loading ? (
-              <div className="flex-1 flex items-center justify-center text-sm text-slate-400 animate-pulse">
-                Loading schedule…
-              </div>
-            ) : (
-              <div className="flex-1 overflow-y-auto min-h-0">
-                {HOURS.map((hour) => {
-                  const tasksThisHour = sortedTasks.filter(
-                    (t) => parseHour(t.planned_start_time) === hour
-                  );
-                  const isCurrentHour = hour === currentHour;
-
-                  return (
-                    <div key={hour} className="flex gap-2 min-h-[34px]">
-                      {/* Hour label */}
-                      <div className="w-12 shrink-0 pt-0.5 text-xs text-slate-400 text-right">
-                        {formatHour(hour)}
-                      </div>
-
-                      {/* Line + tasks */}
-                      <div className="flex-1 border-t border-slate-100 pt-0.5 pb-1 relative">
-                        {isCurrentHour && (
-                          <div className="absolute -top-px left-0 right-0 h-0.5 bg-rose-400 z-10" />
-                        )}
-                        {tasksThisHour.map((task) => {
-                          const pct = task.prediction
-                            ? Math.round(task.prediction.success_probability * 100)
-                            : null;
-                          return (
-                            <button
-                              key={task.id}
-                              onClick={() => setSelectedTask(task)}
-                              className={`mb-1 w-full text-left rounded-lg border px-2 py-1 transition-all hover:shadow-sm ${
-                                selectedTask?.id === task.id
-                                  ? "ring-2 ring-slate-900"
-                                  : ""
-                              } ${
-                                task.task_status === "success"
-                                  ? "bg-emerald-50 border-emerald-200"
-                                  : task.task_status === "failed"
-                                  ? "bg-rose-50 border-rose-200"
-                                  : pct !== null
-                                  ? pctBg(pct)
-                                  : "bg-white border-slate-200"
-                              }`}
-                            >
-                              <div className="flex items-center gap-1.5">
-                                <div
-                                  className={`h-1.5 w-1.5 rounded-full shrink-0 ${
-                                    categoryColors[task.task_category] ?? "bg-slate-400"
-                                  }`}
-                                />
-                                <span className="text-xs font-medium truncate flex-1">
-                                  {task.title}
-                                </span>
-                                <span className="text-xs text-slate-400 shrink-0">
-                                  {task.planned_duration_min}m
-                                </span>
-                                {task.task_status === "success" && (
-                                  <span className="text-xs text-emerald-600 font-medium shrink-0">Done</span>
-                                )}
-                                {task.task_status === "failed" && (
-                                  <span className="text-xs text-rose-600 font-medium shrink-0">Failed</span>
-                                )}
-                                {task.task_status === "pending" && (
-                                  task.predLoading ? (
-                                    <span className="text-xs text-slate-300 shrink-0">…</span>
-                                  ) : pct !== null ? (
-                                    <span className={`text-xs font-semibold shrink-0 ${pctColor(pct)}`}>
-                                      {pct}%
-                                    </span>
-                                  ) : null
-                                )}
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {sortedTasks.length === 0 && (
-                  <div className="py-8 text-center text-sm text-slate-400">
-                    No tasks scheduled today. Add tasks in the Habits tab.
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* ── Right panel ──────────────────────────────────────────────── */}
-        <div className="flex flex-col gap-3 min-h-0">
-          {/* Summary card */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-3 shrink-0">
-            <div className="text-sm font-semibold mb-2">Overview</div>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-              <div className="flex justify-between text-xs">
-                <span className="text-slate-500">Total tasks</span>
-                <span className="font-semibold">{tasks.length}</span>
-              </div>
-              <div className="flex justify-between text-xs">
-                <span className="text-slate-500">Completed</span>
-                <span className="font-semibold text-emerald-600">{doneTasks.filter(t => t.task_status === "success").length}</span>
-              </div>
-              <div className="flex justify-between text-xs">
-                <span className="text-slate-500">Remaining</span>
-                <span className="font-semibold">{pendingTasks.length}</span>
-              </div>
-              {avgSuccess !== null && (
-                <div className="flex justify-between text-xs">
-                  <span className="text-slate-500">Avg success</span>
-                  <span className={`font-semibold ${pctColor(avgSuccess)}`}>{avgSuccess}%</span>
-                </div>
-              )}
-              <div className="flex justify-between text-xs">
-                <span className="text-slate-500">Planned time</span>
-                <span className="font-semibold">{tasks.reduce((s, t) => s + t.planned_duration_min, 0)} min</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Selected task detail */}
-          {selectedTask ? (
-            <div className="bg-white rounded-2xl border border-slate-200 p-3 flex-1 min-h-0 overflow-y-auto">
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-sm font-semibold">Task detail</div>
-                <button
-                  onClick={() => setSelectedTask(null)}
-                  className="text-slate-400 hover:text-slate-600"
+      ) : (
+        <div className="grid gap-6 xl:grid-cols-2">
+          <section className="panel">
+            <h2 className="mb-4 text-lg font-semibold">
+              {new Date(`${date}T12:00:00`).toLocaleDateString("en-US", {
+                month: "long",
+                day: "numeric",
+                weekday: "long",
+              })}
+            </h2>
+            {!tasks.length ? (
+              <p className="text-slate-500">
+                No plans for this date.{" "}
+                <Link
+                  className="underline"
+                  href={`/dashboard/habits?date=${date}`}
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                    <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                  </svg>
-                </button>
-              </div>
-
-              <div className="space-y-2">
-                <div className="text-sm font-medium">{selectedTask.title}</div>
-                <div className="flex flex-wrap gap-1">
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                    {selectedTask.task_category}
-                  </span>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                    {selectedTask.planned_start_time}
-                  </span>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                    {selectedTask.planned_duration_min} min
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-3 gap-1.5">
-                  {[
-                    { label: "Importance", value: selectedTask.importance },
-                    { label: "Energy", value: selectedTask.energy_level },
-                    { label: "Focus", value: selectedTask.focus_level },
-                  ].map(({ label, value }) => (
-                    <div key={label} className="bg-slate-50 rounded-lg p-1.5 text-center">
-                      <div className="text-xs text-slate-500">{label}</div>
-                      <div className="text-sm font-semibold">{value}/5</div>
-                    </div>
-                  ))}
-                </div>
-
-                {selectedTask.prediction && (
-                  <div className="space-y-2">
-                    <div className={`rounded-lg p-2.5 border ${pctBg(Math.round(selectedTask.prediction.success_probability * 100))}`}>
-                      <div className="text-xs text-slate-500">Success probability</div>
-                      <div className={`text-2xl font-bold ${pctColor(Math.round(selectedTask.prediction.success_probability * 100))}`}>
-                        {Math.round(selectedTask.prediction.success_probability * 100)}%
-                      </div>
-                    </div>
-
-                    {selectedTask.prediction.predicted_failure_reason && (
-                      <div className="rounded-lg bg-amber-50 border border-amber-100 p-2.5">
-                        <div className="text-xs text-amber-700 font-medium">Watch out for</div>
-                        <div className="text-sm font-semibold text-amber-900">
-                          {selectedTask.prediction.predicted_failure_reason.replace(/_/g, " ")}
-                        </div>
-                      </div>
-                    )}
-
-                    {selectedTask.prediction.top_negative_factors.length > 0 && (
+                  Add a plan
+                </Link>
+              </p>
+            ) : (
+              <ul className="space-y-3">
+                {tasks.map((t) => (
+                  <li key={t.id}>
+                    <button
+                      onClick={() => setSelected(t.id)}
+                      className={`w-full rounded-2xl border p-4 text-left ${t.id === selected ? "border-slate-900 bg-slate-50" : "border-slate-200"}`}
+                    >
+                      <p className="font-semibold">{t.title}</p>
+                      <p className="mt-1 text-sm text-slate-500">
+                        {t.planned_start_time} · {t.planned_duration_min} min ·{" "}
+                        {t.task_status === "pending"
+                          ? "Planned"
+                          : t.task_status === "success"
+                            ? "Completed"
+                            : "Not completed"}
+                      </p>
+                      {conflicts.has(t.id) && (
+                        <p className="mt-2 text-sm text-amber-800">
+                          Overlaps another plan
+                        </p>
+                      )}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+          <section className="panel">
+            {!task ? (
+              <p className="text-slate-500">
+                Select a plan to see available times.
+              </p>
+            ) : (
+              <>
+                <h2 className="text-xl font-semibold">{task.title}</h2>
+                <p className="mt-2 text-sm text-slate-500">
+                  {preferences.workStart}–{preferences.workEnd} ·{" "}
+                  {task.planned_duration_min} minutes.{" "}
+                  <Link className="underline" href="/dashboard/settings">
+                    Change planning hours
+                  </Link>
+                </p>
+                {task.task_status !== "pending" ? (
+                  <p className="mt-5 text-sm">
+                    This plan already has an outcome. Create a new plan to try
+                    it again.
+                  </p>
+                ) : (
+                  <>
+                    <div className="mt-6 flex items-center justify-between gap-3">
                       <div>
-                        <div className="text-xs text-slate-500 mb-1">Risk factors</div>
-                        {selectedTask.prediction.top_negative_factors.slice(0, 3).map((f, i) => (
-                          <div key={i} className="flex justify-between text-xs py-0.5 border-b border-slate-50 last:border-0">
-                            <span className="text-slate-600">{f.feature.replace(/_/g, " ")}</span>
-                            <span className="text-rose-500 font-medium">{f.contribution.toFixed(2)}</span>
-                          </div>
+                        <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
+                          Scheduling rules
+                        </p>
+                        <h3 className="mt-1 font-semibold">Conflict-free times</h3>
+                      </div>
+                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                        15 min buffer
+                      </span>
+                    </div>
+                    {slots.length ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {slots.slice(0, 8).map((m) => (
+                          <button
+                            key={m}
+                            className="btn-secondary"
+                            disabled={saving}
+                            onClick={() => void move(m)}
+                          >
+                            {toStoredTime(
+                              `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}`,
+                            )}
+                          </button>
                         ))}
                       </div>
+                    ) : (
+                      <p className="mt-3 text-sm text-amber-800">
+                        No buffered slot fits. Try a shorter plan, another date,
+                        or wider planning hours.
+                      </p>
                     )}
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="bg-white rounded-2xl border border-slate-200 p-3 shrink-0">
-              <div className="text-sm font-semibold mb-1">Task detail</div>
-              <div className="text-xs text-slate-400">
-                Click a task in the timeline to see AI predictions and risk factors.
-              </div>
-            </div>
-          )}
+                    <p className="mt-3 text-xs text-slate-500">
+                      These options only check planning hours and schedule conflicts.
+                      Selecting one saves the change immediately.
+                    </p>
 
-          {/* AI Tip */}
-          {pendingTasks.length > 0 && (
-            <div className="bg-slate-900 text-white rounded-2xl p-3 shrink-0">
-              <div className="text-xs font-semibold mb-1">AI Recommendation</div>
-              <div className="text-xs text-slate-300">
-                {(() => {
-                  const lowest = pendingTasks.reduce((min, t) =>
-                    (t.prediction?.success_probability ?? 1) <
-                    (min.prediction?.success_probability ?? 1)
-                      ? t
-                      : min,
-                    pendingTasks[0]
-                  );
-                  const pct = lowest.prediction
-                    ? Math.round(lowest.prediction.success_probability * 100)
-                    : null;
-                  if (!pct) return "Add tasks and log results to get personalized AI suggestions.";
-                  if (pct < 50)
-                    return `"${lowest.title}" has only ${pct}% predicted success. Consider rescheduling or breaking it into smaller steps.`;
-                  return `Your schedule looks manageable. Stay focused during high-importance tasks.`;
-                })()}
-              </div>
-            </div>
-          )}
+                    <div className="mt-6 rounded-2xl border border-violet-200 bg-violet-50 p-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <p className="text-xs font-bold uppercase tracking-[0.14em] text-violet-700">
+                            AI V2 ranking · Experimental
+                          </p>
+                          <h3 className="mt-1 font-semibold">Which free time fits this plan best?</h3>
+                          <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                            Your custom model scores conflict-free candidates using plan
+                            length, time of day, workload, category, energy, and focus inputs.
+                            It does not use Gemini.
+                          </p>
+                        </div>
+                        <button
+                          className="shrink-0 rounded-xl bg-violet-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-violet-800 disabled:opacity-50"
+                          disabled={recommending || !task.ai_plan_input_id || !slots.length}
+                          onClick={() => void rankTimes()}
+                        >
+                          {recommending ? "Ranking…" : "Rank with AI V2"}
+                        </button>
+                      </div>
+                      {!task.ai_plan_input_id && (
+                        <p className="mt-3 text-xs font-medium text-amber-800">
+                          This older plan has no AI V2 snapshot. Edit and save it once to create one.
+                        </p>
+                      )}
+                      {recommendationError && (
+                        <p className="mt-3 text-sm text-rose-800" role="alert">
+                          {recommendationError}
+                        </p>
+                      )}
+                      {recommendation?.candidates.length ? (
+                        <ol className="mt-4 grid gap-2 sm:grid-cols-2">
+                          {recommendation.candidates.slice(0, 4).map((candidate) => {
+                            const start = new Date(candidate.candidate_start);
+                            const end = new Date(candidate.candidate_end);
+                            return (
+                              <li key={candidate.id}>
+                                <button
+                                  className="w-full rounded-xl border border-violet-200 bg-white p-3 text-left transition hover:border-violet-500 hover:shadow-sm disabled:opacity-50"
+                                  disabled={saving}
+                                  onClick={() =>
+                                    void move(candidateMinutes(candidate), {
+                                      recommendationId: recommendation.id,
+                                      candidateId: candidate.id,
+                                    })
+                                  }
+                                >
+                                  <span className="flex items-center justify-between gap-2">
+                                    <span className="font-bold text-slate-950">
+                                      {start.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                                      –{end.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                                    </span>
+                                    <span className="text-xs font-bold text-violet-700">
+                                      #{candidate.rank}
+                                    </span>
+                                  </span>
+                                  <span className="mt-1 block text-xs text-slate-500">
+                                    Conflict-free · model-ranked fit
+                                  </span>
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ol>
+                      ) : null}
+                      <p className="mt-3 text-[11px] leading-relaxed text-violet-800/70">
+                        Rankings come from the synthetic-validated AI V2 model and are
+                        planning guidance, not a proven personal success probability.
+                      </p>
+                    </div>
+                  </>
+                )}
+                <div className="mt-6 border-t border-slate-200 pt-5">
+                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-700">
+                    AI V2 plan review
+                  </p>
+                  <h3 className="mt-1 font-semibold">How to make this plan easier to complete</h3>
+                  {predicting ? (
+                    <p role="status" className="mt-2 text-sm">
+                      Checking guidance…
+                    </p>
+                  ) : (
+                    <>
+                      <p className="mt-2 text-sm text-slate-500">
+                        {prediction
+                          ? "Your custom model assessed this plan. The actions below explain practical changes; the underlying score is withheld because real-user validation is still too small."
+                          : "AI guidance is unavailable for this plan. You can still use the schedule checks above."}
+                      </p>
+                      {prediction?.recommended_actions?.map((a) => (
+                        <div
+                          key={a.code}
+                          className="mt-3 rounded-xl bg-slate-50 p-3"
+                        >
+                          <p className="text-sm font-semibold">{a.title}</p>
+                          <p className="mt-1 text-sm text-slate-600">
+                            {a.detail}
+                          </p>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
+              </>
+            )}
+          </section>
         </div>
-      </div>
+      )}
     </div>
   );
 }

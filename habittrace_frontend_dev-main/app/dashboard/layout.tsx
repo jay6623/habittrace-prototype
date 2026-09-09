@@ -1,13 +1,13 @@
 "use client";
-
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Sidebar from "@/components/layout/sidebar";
 import TopBar from "@/components/layout/topbar";
-import ScheduleChecker from "@/components/layout/schedule-checker";
 import MobileNav from "@/components/mobile/mobile-nav";
+import PlanTabs from "@/components/layout/plan-tabs";
+import CoachChat from "@/components/coach-chat";
+import Dialog from "@/components/ui/dialog";
 import { useAuth } from "@/app/providers";
-
 export default function DashboardLayout({
   children,
 }: {
@@ -16,47 +16,62 @@ export default function DashboardLayout({
   const { user, loading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
-  const isMobileExperience = pathname.startsWith("/dashboard/today");
-
+  const [coach, setCoach] = useState(false);
   useEffect(() => {
-    // Redirect to sign-in once session loading is complete.
-    if (!loading && !user) {
-      const nextPath = pathname.startsWith("/dashboard") ? pathname : "/dashboard";
-      router.replace(`/login?next=${encodeURIComponent(nextPath)}`);
-    }
+    const openCoach = () => setCoach(true);
+    window.addEventListener("habittrace:open-coach", openCoach);
+    return () => window.removeEventListener("habittrace:open-coach", openCoach);
+  }, []);
+  useEffect(() => {
+    if (!loading && !user)
+      router.replace(`/login?next=${encodeURIComponent(pathname)}`);
   }, [user, loading, pathname, router]);
-
-  // Session loading state.
-  if (loading) {
+  if (loading)
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50">
-        <div className="text-sm text-slate-400">Loading…</div>
+      <div className="grid min-h-dvh place-items-center" role="status">
+        Loading your workspace…
       </div>
     );
-  }
-
-  // Signed out while the redirect is in progress.
   if (!user) return null;
-
-  if (isMobileExperience) {
-    return (
-      <div className="min-h-dvh bg-slate-100">
-        {children}
-        <MobileNav />
-      </div>
-    );
-  }
-
   return (
-    <div className="flex min-h-screen bg-slate-50">
+    <div className="flex min-h-dvh bg-slate-50">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:z-50 focus:bg-white focus:p-4"
+      >
+        Skip to content
+      </a>
       <Sidebar />
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="min-w-0 flex-1">
         <TopBar />
-        <main className="flex-1 p-5">
+        <main
+          id="main-content"
+          className="mx-auto max-w-7xl px-4 pb-32 pt-6 sm:px-6 lg:pb-24"
+        >
+          {/\/dashboard\/(habits|calendar|scheduler)$/.test(pathname) && (
+            <PlanTabs />
+          )}
           {children}
         </main>
       </div>
-      <ScheduleChecker />
+      <MobileNav />
+      <button
+        onClick={() => setCoach(true)}
+        className="btn-primary fixed bottom-24 right-4 z-30 shadow-lg lg:bottom-6"
+      >
+        Ask coach
+      </button>
+      {coach && (
+        <Dialog title="Plan with your coach" onClose={() => setCoach(false)}>
+          <p className="mb-3 text-sm text-slate-500">
+            Ask about your schedule or make a plan. Review proposed changes
+            before applying them.
+          </p>
+          <div className="h-[60dvh]">
+            <CoachChat />
+          </div>
+        </Dialog>
+      )}
     </div>
   );
 }

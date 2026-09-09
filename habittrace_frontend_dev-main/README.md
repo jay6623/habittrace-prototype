@@ -9,12 +9,11 @@ This directory contains the HabitTrace web application and installable mobile PW
 - TypeScript with strict mode
 - Tailwind CSS 4
 - Supabase Auth in the browser
-- Chart.js for desktop analytics
 - A dependency-free Service Worker for offline navigation fallback
 
 ## Product split
 
-The same Next.js project serves two focused experiences.
+The same Next.js project serves desktop and mobile with shared Today, Plans, Groups, Insights, and Settings navigation. Plans includes list, calendar, and scheduler views; the coach opens in a dialog without leaving the current screen.
 
 ### Desktop
 
@@ -22,18 +21,18 @@ Desktop routes retain the full planning and analysis tools:
 
 | Route | Purpose |
 |---|---|
-| `/dashboard` | Dashboard overview |
+| `/dashboard` | Today: next plan, Quick Add, start and outcome logging |
 | `/dashboard/habits` | Task management and prediction |
 | `/dashboard/calendar` | Desktop month/week calendar |
 | `/dashboard/scheduler` | Timeline scheduling and recommendations |
 | `/dashboard/analytics` | Trends and failure-pattern analytics |
 | `/dashboard/integrations` | Google Calendar connection and manual synchronization |
 | `/dashboard/group` | Group scheduling: create or join a group by invite code, shared tasks, assignment, and status updates |
-| `/dashboard/settings` | Full settings and account controls |
+| `/dashboard/settings` | Saved profile/planning defaults and personal task/execution export |
 
 ### Mobile PWA
 
-Mobile routes use a lightweight shell without the desktop sidebar, charts, or schedule checker:
+Mobile uses a five-item bottom navigation instead of the desktop sidebar. Existing mobile routes remain available:
 
 | Route | Purpose |
 |---|---|
@@ -41,7 +40,7 @@ Mobile routes use a lightweight shell without the desktop sidebar, charts, or sc
 | `/dashboard/today/calendar` | Month calendar, selected-day agenda, and date-prefilled Quick Add |
 | `/dashboard/today/account` | Display name, email, password reset, and sign-out |
 
-The bottom navigation contains only **Today** and **Calendar**. Quick Add remains prominent inside the Today and Calendar screens. The `HT` button opens mobile account management.
+Quick Add and outcome recording are shared across screen sizes. Outcomes can include actual start/end times when no timer was started. Planning defaults are stored in authenticated Supabase user metadata. Export includes personal tasks and executions, not group or AI research records; unsupported notification/theme/account-deletion features are explicitly labeled.
 
 ## Authentication and data ownership
 
@@ -97,6 +96,7 @@ Available scripts:
 | `npm run build` | Create a production build |
 | `npm start` | Serve an existing production build |
 | `npm run lint` | Run ESLint |
+| `npm test` | Test scheduling, local-date, and preference helpers |
 
 TypeScript can be checked independently:
 

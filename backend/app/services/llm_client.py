@@ -17,16 +17,10 @@ logger = logging.getLogger(__name__)
 
 ChatMessage = dict[str, str]
 GEMINI_RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}
-GEMINI_TRANSIENT_ERROR_MESSAGE = (
-    "The AI coach is temporarily busy. Please try again in a minute."
-)
-GEMINI_QUOTA_ERROR_MESSAGE = (
-    "The AI coach usage limit has been reached. Please try again later."
-)
+GEMINI_TRANSIENT_ERROR_MESSAGE = "The AI coach is temporarily busy. Please try again in a minute."
+GEMINI_QUOTA_ERROR_MESSAGE = "The AI coach usage limit has been reached. Please try again later."
 GEMINI_API_ERROR_MESSAGE = "Gemini API error. Please try again later."
-GEMINI_INCOMPLETE_RESPONSE_MESSAGE = (
-    "The AI coach response was incomplete. Please try again."
-)
+GEMINI_INCOMPLETE_RESPONSE_MESSAGE = "The AI coach response was incomplete. Please try again."
 
 
 class LLMClient(Protocol):
@@ -34,14 +28,12 @@ class LLMClient(Protocol):
         self,
         system_prompt: str,
         messages: list[ChatMessage],
-    ) -> AgentIntent:
-        ...
+    ) -> AgentIntent: ...
 
     async def stream_coaching_response(
         self,
         messages: list[ChatMessage],
-    ) -> AsyncGenerator[str, None]:
-        ...
+    ) -> AsyncGenerator[str, None]: ...
 
 
 class LLMClientError(Exception):
@@ -110,8 +102,7 @@ class OllamaLLMClient:
             ):
                 if response.status_code != 200:
                     raise LLMProviderError(
-                        "Ollama returned an error. Confirm that the configured "
-                        "model is installed."
+                        "Ollama returned an error. Confirm that the configured model is installed."
                     )
                 async for line in response.aiter_lines():
                     if not line:
@@ -139,9 +130,7 @@ class GeminiLLMClient:
     def _api_key(self) -> str:
         api_key = (settings.gemini_api_key or "").strip()
         if not api_key:
-            raise LLMProviderError(
-                "GEMINI_API_KEY is required when LLM_PROVIDER=gemini."
-            )
+            raise LLMProviderError("GEMINI_API_KEY is required when LLM_PROVIDER=gemini.")
         return api_key
 
     @staticmethod
@@ -218,9 +207,7 @@ class GeminiLLMClient:
         if reason in {None, "STOP", "FINISH_REASON_UNSPECIFIED"}:
             return
         if reason == "MAX_TOKENS":
-            raise LLMProviderError(
-                "The AI coach reached its response limit. Please try again."
-            )
+            raise LLMProviderError("The AI coach reached its response limit. Please try again.")
         raise LLMProviderError(GEMINI_INCOMPLETE_RESPONSE_MESSAGE)
 
     @staticmethod

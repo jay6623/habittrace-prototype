@@ -1,4 +1,5 @@
 """V2 model inference endpoint."""
+
 from typing import Annotated
 from uuid import UUID
 

@@ -6,6 +6,7 @@ limit, insert, update, delete. Unique keys can be declared per table so that a
 duplicate insert raises a PostgREST 23505 error like the real database, and
 column defaults can be declared to mirror the schema's DEFAULT clauses.
 """
+
 from __future__ import annotations
 
 from copy import deepcopy
@@ -34,6 +35,7 @@ class MemoryQuery:
         self.order_column: str | None = None
         self.descending = False
         self.row_limit: int | None = None
+        self.row_range: tuple[int, int] | None = None
 
     def select(self, _columns: str = "*") -> MemoryQuery:
         return self
@@ -60,6 +62,10 @@ class MemoryQuery:
         self.row_limit = count
         return self
 
+    def range(self, start: int, end: int) -> MemoryQuery:
+        self.row_range = (start, end)
+        return self
+
     def insert(self, values: Row) -> MemoryQuery:
         self.operation = "insert"
         self.values = deepcopy(values)
@@ -83,6 +89,9 @@ class MemoryQuery:
         if self.order_column is not None:
             column = self.order_column
             matches.sort(key=lambda row: str(row.get(column, "")), reverse=self.descending)
+        if self.row_range is not None:
+            start, end = self.row_range
+            matches = matches[start : end + 1]
         if self.row_limit is not None:
             matches = matches[: self.row_limit]
 

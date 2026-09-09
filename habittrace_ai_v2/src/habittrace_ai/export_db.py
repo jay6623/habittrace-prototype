@@ -11,7 +11,7 @@ import argparse
 import hashlib
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -27,7 +27,7 @@ from habittrace_ai.contracts import (
 )
 from habittrace_ai.dataset import build_training_datasets
 
-UTC = timezone.utc
+UTC = UTC
 
 TABLES = {
     "plans": ("ai_plan_inputs", "created_at", REQUIRED_PLAN_COLUMNS),
@@ -169,35 +169,36 @@ def export_snapshot(
     # Synthetic fixtures are for local development only and must not silently
     # enter a real-data candidate model. Keep their dependent rows out too.
     synthetic_plan_ids = set(
-        frames["plans"].loc[
+        frames["plans"]
+        .loc[
             frames["plans"].get("input_source", pd.Series(dtype=object)).eq("synthetic"),
             "id",
-        ].astype(str)
+        ]
+        .astype(str)
     )
     if synthetic_plan_ids:
-        frames["plans"] = frames["plans"].loc[
-            ~frames["plans"]["id"].astype(str).isin(synthetic_plan_ids)
-        ].copy()
+        frames["plans"] = (
+            frames["plans"].loc[~frames["plans"]["id"].astype(str).isin(synthetic_plan_ids)].copy()
+        )
         real_plan_ids = set(frames["plans"]["id"].astype(str))
-        frames["outcomes"] = frames["outcomes"].loc[
-            frames["outcomes"]["plan_input_id"].astype(str).isin(real_plan_ids)
-        ].copy()
+        frames["outcomes"] = (
+            frames["outcomes"]
+            .loc[frames["outcomes"]["plan_input_id"].astype(str).isin(real_plan_ids)]
+            .copy()
+        )
         real_outcome_ids = set(frames["outcomes"]["id"].astype(str))
-        frames["failure_reasons"] = frames["failure_reasons"].loc[
-            frames["failure_reasons"]["outcome_id"].astype(str).isin(real_outcome_ids)
-        ].copy()
+        frames["failure_reasons"] = (
+            frames["failure_reasons"]
+            .loc[frames["failure_reasons"]["outcome_id"].astype(str).isin(real_outcome_ids)]
+            .copy()
+        )
 
     outdir.mkdir(parents=True, exist_ok=True)
-    paths = {
-        name: outdir / f"{name}.csv"
-        for name in ("plans", "outcomes", "failure_reasons")
-    }
+    paths = {name: outdir / f"{name}.csv" for name in ("plans", "outcomes", "failure_reasons")}
     for name, path in paths.items():
         frames[name].to_csv(path, index=False)
 
-    quality = _quality_report(
-        frames["plans"], frames["outcomes"], frames["failure_reasons"]
-    )
+    quality = _quality_report(frames["plans"], frames["outcomes"], frames["failure_reasons"])
     report = {
         "exported_at": datetime.now(UTC).isoformat(),
         "source": "ai_supabase_rest_read_only",
@@ -211,9 +212,7 @@ def export_snapshot(
         json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     if not quality["valid"] and not allow_invalid:
-        raise RuntimeError(
-            f"Export completed but quality validation failed: {quality['error']}"
-        )
+        raise RuntimeError(f"Export completed but quality validation failed: {quality['error']}")
     return report
 
 
@@ -248,9 +247,7 @@ def main() -> None:
     if not ai_url:
         raise SystemExit("AI_SUPABASE_URL is required (or pass --ai-url).")
     if not service_key:
-        raise SystemExit(
-            "AI_SUPABASE_SERVICE_ROLE_KEY is required (or pass --service-key)."
-        )
+        raise SystemExit("AI_SUPABASE_SERVICE_ROLE_KEY is required (or pass --service-key).")
 
     try:
         report = export_snapshot(

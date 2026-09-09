@@ -1,4 +1,5 @@
 """Hybrid time recommendations: hard constraints plus AI success scoring."""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -131,11 +132,7 @@ class AITimeRecommendationService:
 
         rows = self.plans.list_schedule_rows(user_id)
         excluded_ids = self._revision_chain_ids(plan, rows)
-        schedule = [
-            row
-            for row in rows
-            if str(row.get("id")) not in excluded_ids
-        ]
+        schedule = [row for row in rows if str(row.get("id")) not in excluded_ids]
         candidates: list[dict] = []
         current = body.earliest_start
         while current <= latest_start:

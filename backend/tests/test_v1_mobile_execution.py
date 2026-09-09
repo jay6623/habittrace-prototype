@@ -158,9 +158,7 @@ def test_mobile_completion_updates_owned_execution_and_task(
     authenticated_client: TestClient, monkeypatch
 ) -> None:
     database = _use_memory_database(monkeypatch)
-    started = authenticated_client.post(
-        "/executions/start", json={"task_id": "task-owned"}
-    ).json()
+    started = authenticated_client.post("/executions/start", json={"task_id": "task-owned"}).json()
 
     missing_reason = authenticated_client.patch(
         f"/executions/{started['id']}/complete",
@@ -193,3 +191,46 @@ def test_task_list_never_returns_another_users_plan(
 
     assert response.status_code == 200
     assert [row["id"] for row in response.json()] == ["task-owned"]
+
+
+def test_manual_outcome_times_are_validated_and_persisted(authenticated_client, monkeypatch):
+    _use_memory_database(monkeypatch)
+    started = authenticated_client.post("/executions/start", json={"task_id": "task-owned"}).json()
+    payload = {
+        "task_status": "success",
+        "actual_start_time": "2026-08-26T08:15:00+00:00",
+        "actual_end_time": "2026-08-26T08:45:00+00:00",
+    }
+    result = authenticated_client.patch(f"/executions/{started['id']}/complete", json=payload)
+    assert result.status_code == 200
+    assert result.json()["actual_start_time"] == payload["actual_start_time"]
+    assert result.json()["actual_end_time"] == payload["actual_end_time"]
+    invalid = {**payload, "actual_end_time": "2026-08-26T08:00:00+00:00"}
+    assert (
+        authenticated_client.patch(
+            f"/executions/{started['id']}/complete", json=invalid
+        ).status_code
+        == 422
+    )
+    invalid = {**payload, "actual_start_time": "2026-08-26T08:15:00"}
+    assert (
+        authenticated_client.patch(
+            f"/executions/{started['id']}/complete", json=invalid
+        ).status_code
+        == 422
+    )
+
+
+def test_completion_retry_repairs_task_status(authenticated_client, monkeypatch):
+    db = _use_memory_database(monkeypatch)
+    started = authenticated_client.post("/executions/start", json={"task_id": "task-owned"}).json()
+    endpoint = f"/executions/{started['id']}/complete"
+    result = authenticated_client.patch(endpoint, json={"task_status": "success"})
+    assert result.status_code == 200
+    db.rows["tasks"][0]["task_status"] = "pending"
+    repeated = authenticated_client.patch(
+        endpoint, json={"task_status": "failed", "failure_reason": "other"}
+    )
+    assert repeated.status_code == 200
+    assert db.rows["tasks"][0]["task_status"] == "success"
+    assert len(db.rows["executions"]) == 1

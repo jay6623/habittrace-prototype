@@ -2,18 +2,18 @@
 Analytics aggregation — queries tasks + executions from Supabase
 and returns chart-ready data for the frontend.
 """
+
 from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date, timedelta
-from typing import Optional
 
 from supabase import Client
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _hour_from_time_str(time_str: str) -> int:
     """Parse a time string like '2:00 PM' or '14:00' into a 0-23 integer hour."""
@@ -23,6 +23,7 @@ def _hour_from_time_str(time_str: str) -> int:
             for fmt in ("%I:%M %p", "%I:%M%p"):
                 try:
                     from datetime import datetime
+
                     return datetime.strptime(s, fmt).hour
                 except ValueError:
                     continue
@@ -53,6 +54,7 @@ def _period_to_days(period: str) -> int:
 def _trend_labels_and_dates(period: str):
     """Return (labels, iso_dates) pairs for the given period."""
     from datetime import datetime
+
     today = date.today()
     if period == "week":
         days = [(today - timedelta(days=i)) for i in range(6, -1, -1)]
@@ -74,6 +76,7 @@ def _trend_labels_and_dates(period: str):
             m = (today.month - i - 1) % 12 + 1
             y = today.year if today.month - i > 0 else today.year - 1
             from datetime import datetime
+
             labels.append(datetime(y, m, 1).strftime("%b"))
             iso.append(datetime(y, m, 1).date().isoformat())
     return labels, iso
@@ -82,6 +85,7 @@ def _trend_labels_and_dates(period: str):
 # ---------------------------------------------------------------------------
 # Service
 # ---------------------------------------------------------------------------
+
 
 class AnalyticsService:
     def __init__(self, db: Client) -> None:
@@ -115,12 +119,10 @@ class AnalyticsService:
 
         success_rate = (success_count / total * 100) if total > 0 else 0.0
         total_planned_mins = sum(t.get("planned_duration_min", 0) for t in tasks)
-        avg_importance = (
-            sum(t.get("importance", 0) for t in tasks) / total
-        ) if total > 0 else 0.0
+        avg_importance = (sum(t.get("importance", 0) for t in tasks) / total) if total > 0 else 0.0
         avg_interruptions = (
-            sum(e.get("interruption_count", 0) for e in execs) / len(execs)
-        ) if execs else 0.0
+            (sum(e.get("interruption_count", 0) for e in execs) / len(execs)) if execs else 0.0
+        )
 
         # ── Failure by category ─────────────────────────────────────────
         failure_by_category: dict[str, int] = defaultdict(int)
@@ -128,8 +130,7 @@ class AnalyticsService:
             failure_by_category[t.get("task_category", "Other")] += 1
 
         most_failed_category = (
-            max(failure_by_category, key=failure_by_category.get)
-            if failure_by_category else "N/A"
+            max(failure_by_category, key=failure_by_category.get) if failure_by_category else "N/A"
         )
 
         # ── Failure by reason ───────────────────────────────────────────
@@ -151,9 +152,7 @@ class AnalyticsService:
             bucket: round(v["success"] / v["total"] * 100, 1) if v["total"] > 0 else 0.0
             for bucket, v in hour_stats.items()
         }
-        best_time = (
-            max(success_by_hour, key=success_by_hour.get) if success_by_hour else "N/A"
-        )
+        best_time = max(success_by_hour, key=success_by_hour.get) if success_by_hour else "N/A"
 
         # ── Execution trend (per day for week, simplified for longer) ───
         execution_trend = self._build_trend(tasks, period)
@@ -190,14 +189,18 @@ class AnalyticsService:
                 )
                 total = len(day_tasks)
                 success_rate = (
-                    sum(1 for t in day_tasks if t.get("task_status") == "success") / total * 100
-                ) if total > 0 else 0.0
-                result.append({
-                    "label": d.strftime("%a"),
-                    "planned_mins": planned,
-                    "completed_mins": completed,
-                    "success_rate": round(success_rate, 1),
-                })
+                    (sum(1 for t in day_tasks if t.get("task_status") == "success") / total * 100)
+                    if total > 0
+                    else 0.0
+                )
+                result.append(
+                    {
+                        "label": d.strftime("%a"),
+                        "planned_mins": planned,
+                        "completed_mins": completed,
+                        "success_rate": round(success_rate, 1),
+                    }
+                )
             return result
 
         elif period == "month":
@@ -206,7 +209,8 @@ class AnalyticsService:
                 end = today - timedelta(weeks=week_num)
                 start = end - timedelta(days=6)
                 week_tasks = [
-                    t for t in tasks
+                    t
+                    for t in tasks
                     if start.isoformat() <= (t.get("planned_date") or "") <= end.isoformat()
                 ]
                 planned = sum(t.get("planned_duration_min", 0) for t in week_tasks)
@@ -217,14 +221,19 @@ class AnalyticsService:
                 )
                 total = len(week_tasks)
                 sr = (
-                    sum(1 for t in week_tasks if t.get("task_status") == "success") / total * 100
-                ) if total > 0 else 0.0
-                result.insert(0, {
-                    "label": f"Week {4 - week_num}",
-                    "planned_mins": planned,
-                    "completed_mins": completed,
-                    "success_rate": round(sr, 1),
-                })
+                    (sum(1 for t in week_tasks if t.get("task_status") == "success") / total * 100)
+                    if total > 0
+                    else 0.0
+                )
+                result.insert(
+                    0,
+                    {
+                        "label": f"Week {4 - week_num}",
+                        "planned_mins": planned,
+                        "completed_mins": completed,
+                        "success_rate": round(sr, 1),
+                    },
+                )
             return result
 
         else:  # 3months
@@ -232,7 +241,8 @@ class AnalyticsService:
             for i in range(2, -1, -1):
                 month_date = date(today.year, today.month, 1) - timedelta(days=i * 30)
                 month_tasks = [
-                    t for t in tasks
+                    t
+                    for t in tasks
                     if (t.get("planned_date") or "").startswith(month_date.strftime("%Y-%m"))
                 ]
                 planned = sum(t.get("planned_duration_min", 0) for t in month_tasks)
@@ -243,14 +253,18 @@ class AnalyticsService:
                 )
                 total = len(month_tasks)
                 sr = (
-                    sum(1 for t in month_tasks if t.get("task_status") == "success") / total * 100
-                ) if total > 0 else 0.0
-                result.append({
-                    "label": month_date.strftime("%b"),
-                    "planned_mins": planned,
-                    "completed_mins": completed,
-                    "success_rate": round(sr, 1),
-                })
+                    (sum(1 for t in month_tasks if t.get("task_status") == "success") / total * 100)
+                    if total > 0
+                    else 0.0
+                )
+                result.append(
+                    {
+                        "label": month_date.strftime("%b"),
+                        "planned_mins": planned,
+                        "completed_mins": completed,
+                        "success_rate": round(sr, 1),
+                    }
+                )
             return result
 
     def get_plan_health(self, user_id: str) -> dict:
@@ -274,44 +288,50 @@ class AnalyticsService:
         # Check for common risk patterns
         risks = []
         late_tasks = [
-            t for t in tasks
-            if _hour_from_time_str(t.get("planned_start_time", "12:00")) >= 21
+            t for t in tasks if _hour_from_time_str(t.get("planned_start_time", "12:00")) >= 21
         ]
         if late_tasks:
-            risks.append({
-                "level": "high",
-                "title": "Late-night tasks",
-                "detail": f"{len(late_tasks)} task(s) planned after 9 PM — high failure risk",
-            })
+            risks.append(
+                {
+                    "level": "high",
+                    "title": "Late-night tasks",
+                    "detail": f"{len(late_tasks)} task(s) planned after 9 PM — high failure risk",
+                }
+            )
 
-        long_tasks = [
-            t for t in tasks if t.get("planned_duration_min", 0) > 90
-        ]
+        long_tasks = [t for t in tasks if t.get("planned_duration_min", 0) > 90]
         if long_tasks:
-            risks.append({
-                "level": "medium",
-                "title": "Very long tasks",
-                "detail": f"{len(long_tasks)} task(s) over 90 min — consider splitting",
-            })
+            risks.append(
+                {
+                    "level": "medium",
+                    "title": "Very long tasks",
+                    "detail": f"{len(long_tasks)} task(s) over 90 min — consider splitting",
+                }
+            )
 
         low_energy = [
-            t for t in tasks
+            t
+            for t in tasks
             if t.get("energy_level", 3) <= 2 and t.get("planned_duration_min", 0) > 45
         ]
         if low_energy:
-            risks.append({
-                "level": "medium",
-                "title": "Low energy + long task",
-                "detail": f"{len(low_energy)} task(s) flagged as low energy but long duration",
-            })
+            risks.append(
+                {
+                    "level": "medium",
+                    "title": "Low energy + long task",
+                    "detail": f"{len(low_energy)} task(s) flagged as low energy but long duration",
+                }
+            )
 
         total_mins = sum(t.get("planned_duration_min", 0) for t in tasks)
         if total_mins > 8 * 60:
-            risks.append({
-                "level": "low",
-                "title": "High daily load",
-                "detail": f"{total_mins} min planned — that's a very full day",
-            })
+            risks.append(
+                {
+                    "level": "low",
+                    "title": "High daily load",
+                    "detail": f"{total_mins} min planned — that's a very full day",
+                }
+            )
 
         # Rough heuristic probability based on task properties
         # (real probability comes from POST /predict per task)

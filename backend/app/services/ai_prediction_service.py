@@ -1,4 +1,5 @@
 """Persisted AI V2 inference for owned plan snapshots."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -86,10 +87,8 @@ class AIPredictionService:
             if key in {"source", "factors", "recommended_actions"}
         }
         if not explanation:
-            explanation = (success.get("explanation_snapshot") or {})
-        success_model = self.predictions.get_model_version_by_id(
-            str(success["model_version_id"])
-        )
+            explanation = success.get("explanation_snapshot") or {}
+        success_model = self.predictions.get_model_version_by_id(str(success["model_version_id"]))
         failure_model = (
             self.predictions.get_model_version_by_id(str(failure["model_version_id"]))
             if failure
@@ -98,21 +97,15 @@ class AIPredictionService:
         return {
             "model_version": (success_model or {}).get("version"),
             "success_probability": success["success_probability"],
-            "failure_reason_probabilities": (failure or {}).get(
-                "reason_probabilities", {}
-            ),
-            "predicted_failure_reason": failure_snapshot.get(
-                "predicted_failure_reason"
-            ),
+            "failure_reason_probabilities": (failure or {}).get("reason_probabilities", {}),
+            "predicted_failure_reason": failure_snapshot.get("predicted_failure_reason"),
             "explanation": explanation,
             "recommended_actions": explanation.get("recommended_actions", []),
             "success_prediction_id": success["id"],
             "failure_prediction_id": (failure or {}).get("id"),
             "model_version_ids": {
                 "success": success["model_version_id"],
-                "failure_reason": (
-                    failure_model or {}
-                ).get("id"),
+                "failure_reason": (failure_model or {}).get("id"),
             },
         }
 

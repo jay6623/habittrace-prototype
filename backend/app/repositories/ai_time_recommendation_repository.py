@@ -1,4 +1,5 @@
 """Supabase access for time recommendation requests and candidates."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -12,9 +13,7 @@ UTC = timezone.utc
 
 class AITimeRecommendationRepository(BaseRepository):
     def create_recommendation(self, payload: dict) -> dict:
-        response = self._execute(
-            self.db.table("ai_time_recommendations").insert(payload)
-        )
+        response = self._execute(self.db.table("ai_time_recommendations").insert(payload))
         if not response.data:
             raise RepositoryError("The database did not return the time recommendation.")
         return response.data[0]

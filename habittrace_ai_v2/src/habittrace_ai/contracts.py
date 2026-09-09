@@ -15,9 +15,7 @@ FAILURE_REASON_CODES: tuple[str, ...] = (
     "other",
 )
 
-OUTCOME_STATUSES: frozenset[str] = frozenset(
-    {"not_started", "partial", "completed", "abandoned"}
-)
+OUTCOME_STATUSES: frozenset[str] = frozenset({"not_started", "partial", "completed", "abandoned"})
 
 PLAN_TABLE_COLUMNS: tuple[str, ...] = (
     "id",

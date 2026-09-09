@@ -5,6 +5,8 @@ import { useAuth } from "@/app/providers";
 import {
   ApiError,
   createGroup,
+  createTask,
+  getTasks,
   createGroupTask,
   deleteGroup,
   deleteGroupTask,
@@ -26,6 +28,16 @@ import {
   readStoredGroupId,
   storeGroupId,
 } from "@/lib/group";
+import QuickAddForm from "@/components/mobile/quick-add-form";
+import Dialog from "@/components/ui/dialog";
+import {
+  localDateString,
+  createQuickAddDefaults,
+  toQuickTaskCreate,
+  TASK_CATEGORIES,
+  type QuickAddDraft,
+} from "@/lib/mobile-task";
+import { useDataRefresh } from "@/lib/refresh";
 import GroupSetup from "@/components/group/group-setup";
 import GroupTaskForm from "@/components/group/group-task-form";
 
@@ -38,26 +50,30 @@ interface ToastState {
 }
 
 const priorityBadge: Record<string, string> = {
-  high:   "bg-rose-100 text-rose-700",
+  high: "bg-rose-100 text-rose-700",
   medium: "bg-amber-100 text-amber-700",
-  low:    "bg-slate-100 text-slate-600",
+  low: "bg-slate-100 text-slate-600",
 };
 
 const categoryChip: Record<string, string> = {
-  Work:              "bg-violet-100 text-violet-800",
-  Study:             "bg-sky-100 text-sky-800",
-  Chores:            "bg-amber-100 text-amber-800",
-  "Fitness/Health":  "bg-emerald-100 text-emerald-800",
-  "Errands/Admin":   "bg-orange-100 text-orange-800",
+  Work: "bg-violet-100 text-violet-800",
+  Study: "bg-sky-100 text-sky-800",
+  Chores: "bg-amber-100 text-amber-800",
+  "Fitness/Health": "bg-emerald-100 text-emerald-800",
+  "Errands/Admin": "bg-orange-100 text-orange-800",
   "Hobbies/Leisure": "bg-pink-100 text-pink-800",
-  Social:            "bg-indigo-100 text-indigo-800",
-  Other:             "bg-slate-100 text-slate-600",
+  Social: "bg-indigo-100 text-indigo-800",
+  Other: "bg-slate-100 text-slate-600",
 };
 
-const STATUS_OPTIONS: { value: GroupTaskStatus; label: string; active: string }[] = [
+const STATUS_OPTIONS: {
+  value: GroupTaskStatus;
+  label: string;
+  active: string;
+}[] = [
   { value: "pending", label: "Pending", active: "bg-slate-900 text-white" },
-  { value: "success", label: "Done",    active: "bg-emerald-600 text-white" },
-  { value: "failed",  label: "Failed",  active: "bg-rose-600 text-white" },
+  { value: "success", label: "Done", active: "bg-emerald-600 text-white" },
+  { value: "failed", label: "Not completed", active: "bg-rose-600 text-white" },
 ];
 
 function rateTone(rate: number): { text: string; bar: string } {
@@ -84,6 +100,11 @@ export default function GroupPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
 
+  const [assignment, setAssignment] = useState("all");
+  const [copyDraft, setCopyDraft] = useState<QuickAddDraft | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<
+    GroupTask | "group" | null
+  >(null);
   const [tab, setTab] = useState<Tab>("tasks");
   const [showInvite, setShowInvite] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
@@ -110,7 +131,8 @@ export default function GroupPage() {
       const list = await getGroups();
       setGroups(list);
       setSelectedGroupId((current) => {
-        if (current && list.some((group) => group.id === current)) return current;
+        if (current && list.some((group) => group.id === current))
+          return current;
         const stored = userId ? readStoredGroupId(userId) : null;
         if (stored && list.some((group) => group.id === stored)) return stored;
         return list[0]?.id ?? null;
@@ -131,12 +153,17 @@ export default function GroupPage() {
       } catch (caught) {
         if (caught instanceof ApiError && caught.status === 404) {
           // Deleted, or the user was removed, since the list loaded.
-          setToast({ message: "That group is no longer available.", tone: "error" });
+          setToast({
+            message: "That group is no longer available.",
+            tone: "error",
+          });
           selectGroup(null);
           void loadGroups();
           return;
         }
-        setDetailError(describeApiError(caught, "We couldn't load this group."));
+        setDetailError(
+          describeApiError(caught, "We couldn't load this group."),
+        );
       } finally {
         setDetailLoading(false);
       }
@@ -164,12 +191,25 @@ export default function GroupPage() {
     return () => window.clearTimeout(timer);
   }, [copied]);
 
+  const refresh = useCallback(() => {
+    void loadGroups();
+    if (selectedGroupId) void loadDetail(selectedGroupId);
+  }, [loadGroups, loadDetail, selectedGroupId]);
+  useDataRefresh(refresh);
+
   // ── Derived state ───────────────────────────────────────────────────────
-  const selectedGroup = groups.find((group) => group.id === selectedGroupId) ?? null;
-  const activeDetail = detail && detail.group.id === selectedGroupId ? detail : null;
+  const selectedGroup =
+    groups.find((group) => group.id === selectedGroupId) ?? null;
+  const activeDetail =
+    detail && detail.group.id === selectedGroupId ? detail : null;
   const tasks = useMemo(() => activeDetail?.tasks ?? [], [activeDetail]);
   const members = useMemo(() => activeDetail?.members ?? [], [activeDetail]);
 
+  const visibleTasks = tasks.filter(
+    (task) =>
+      assignment === "all" ||
+      (assignment === "mine" ? task.assigned_to === userId : !task.assigned_to),
+  );
   const done = tasks.filter((task) => task.status === "success").length;
   const failed = tasks.filter((task) => task.status === "failed").length;
   const pending = tasks.length - done - failed;
@@ -180,7 +220,8 @@ export default function GroupPage() {
 
   const memberStats = useMemo(() => {
     const stats = new Map<string, { assigned: number; done: number }>();
-    for (const member of members) stats.set(member.user_id, { assigned: 0, done: 0 });
+    for (const member of members)
+      stats.set(member.user_id, { assigned: 0, done: 0 });
     for (const task of tasks) {
       if (!task.assigned_to) continue;
       const entry = stats.get(task.assigned_to);
@@ -198,13 +239,18 @@ export default function GroupPage() {
     selectGroup(created.id);
     setShowSetup(false);
     setShowInvite(true);
-    setToast({ message: "Group created. Share the invite code with your team.", tone: "success" });
+    setToast({
+      message: "Group created. Share the invite code with your team.",
+      tone: "success",
+    });
   }
 
   async function handleJoinGroup(inviteCode: string) {
     const joined = await joinGroup(inviteCode);
     setGroups((current) =>
-      current.some((group) => group.id === joined.id) ? current : [...current, joined],
+      current.some((group) => group.id === joined.id)
+        ? current
+        : [...current, joined],
     );
     selectGroup(joined.id);
     setShowSetup(false);
@@ -226,7 +272,12 @@ export default function GroupPage() {
   function replaceTask(next: GroupTask) {
     setDetail((current) =>
       current && current.group.id === next.group_id
-        ? { ...current, tasks: current.tasks.map((task) => (task.id === next.id ? next : task)) }
+        ? {
+            ...current,
+            tasks: current.tasks.map((task) =>
+              task.id === next.id ? next : task,
+            ),
+          }
         : current,
     );
   }
@@ -250,13 +301,16 @@ export default function GroupPage() {
 
   async function handleDeleteTask(task: GroupTask) {
     if (busyTaskId) return;
-    if (!window.confirm(`Delete "${task.title}" for everyone in the group?`)) return;
+
     setBusyTaskId(task.id);
     try {
       await deleteGroupTask(task.group_id, task.id);
       setDetail((current) =>
         current && current.group.id === task.group_id
-          ? { ...current, tasks: current.tasks.filter((item) => item.id !== task.id) }
+          ? {
+              ...current,
+              tasks: current.tasks.filter((item) => item.id !== task.id),
+            }
           : current,
       );
     } catch (caught) {
@@ -271,13 +325,6 @@ export default function GroupPage() {
 
   async function handleDeleteGroup() {
     if (!selectedGroup || deletingGroup) return;
-    if (
-      !window.confirm(
-        `Delete "${selectedGroup.name}" for all ${members.length} member${members.length === 1 ? "" : "s"}? This cannot be undone.`,
-      )
-    ) {
-      return;
-    }
     setDeletingGroup(true);
     try {
       await deleteGroup(selectedGroup.id);
@@ -285,7 +332,10 @@ export default function GroupPage() {
       setGroups(remaining);
       setDetail(null);
       selectGroup(remaining[0]?.id ?? null);
-      setToast({ message: `${selectedGroup.name} was deleted.`, tone: "success" });
+      setToast({
+        message: `${selectedGroup.name} was deleted.`,
+        tone: "success",
+      });
     } catch (caught) {
       setToast({
         message: describeApiError(caught, "We couldn't delete this group."),
@@ -298,16 +348,23 @@ export default function GroupPage() {
 
   function handleCopyInvite() {
     if (!selectedGroup) return;
-    const clipboard = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
+    const clipboard =
+      typeof navigator !== "undefined" ? navigator.clipboard : undefined;
     if (!clipboard) {
-      setToast({ message: "Copying isn't available here. Select the code to copy it.", tone: "error" });
+      setToast({
+        message: "Copying isn't available here. Select the code to copy it.",
+        tone: "error",
+      });
       return;
     }
     clipboard
       .writeText(selectedGroup.invite_code)
       .then(() => setCopied(true))
       .catch(() =>
-        setToast({ message: "Copying failed. Select the code to copy it.", tone: "error" }),
+        setToast({
+          message: "Copying failed. Select the code to copy it.",
+          tone: "error",
+        }),
       );
   }
 
@@ -319,10 +376,14 @@ export default function GroupPage() {
       <div>
         <div className="flex items-center gap-2">
           <div className="text-sm text-slate-500">Group Scheduling</div>
-          <span className="text-xs px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 font-medium">Beta</span>
+          <span className="text-xs px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 font-medium">
+            Beta
+          </span>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
-          <h1 className="text-2xl font-bold">{selectedGroup?.name ?? "Your groups"}</h1>
+          <h1 className="text-2xl font-bold">
+            {selectedGroup?.name ?? "Your groups"}
+          </h1>
           {groups.length > 1 && (
             <select
               aria-label="Switch group"
@@ -341,7 +402,11 @@ export default function GroupPage() {
       </div>
       {groups.length > 0 && (
         <div className="flex gap-2 flex-wrap">
-          <button className={secondaryButton} onClick={() => setShowSetup((open) => !open)} type="button">
+          <button
+            className={secondaryButton}
+            onClick={() => setShowSetup((open) => !open)}
+            type="button"
+          >
             New / Join
           </button>
           <button
@@ -382,7 +447,11 @@ export default function GroupPage() {
         {header}
         <div className="px-4 py-3 rounded-xl bg-amber-50 border border-amber-100 text-sm text-amber-700 flex items-center justify-between gap-3">
           <span>{groupsError}</span>
-          <button className={secondaryButton} onClick={() => void loadGroups()} type="button">
+          <button
+            className={secondaryButton}
+            onClick={() => void loadGroups()}
+            type="button"
+          >
             Retry
           </button>
         </div>
@@ -394,7 +463,11 @@ export default function GroupPage() {
     return (
       <div className="space-y-5">
         {header}
-        <GroupSetup mode="empty" onCreate={handleCreateGroup} onJoin={handleJoinGroup} />
+        <GroupSetup
+          mode="empty"
+          onCreate={handleCreateGroup}
+          onJoin={handleJoinGroup}
+        />
         <div className="text-xs text-slate-400 text-center py-2">
           Group scheduling is in Beta — teammates see changes when they refresh.
         </div>
@@ -418,16 +491,22 @@ export default function GroupPage() {
       {/* Invite panel */}
       {showInvite && selectedGroup && (
         <div className="bg-white rounded-2xl border border-violet-200 p-5">
-          <div className="font-semibold mb-1">Invite to {selectedGroup.name}</div>
+          <div className="font-semibold mb-1">
+            Invite to {selectedGroup.name}
+          </div>
           <div className="text-sm text-slate-500 mb-3">
-            Share this code with teammates — they can join from their HabitTrace account using
-            &quot;New / Join&quot;.
+            Share this code with teammates — they can join from their HabitTrace
+            account using &quot;New / Join&quot;.
           </div>
           <div className="flex gap-2">
             <div className="flex-1 bg-slate-100 rounded-xl px-4 py-3 font-mono text-sm tracking-wider text-slate-700 select-all">
               {selectedGroup.invite_code}
             </div>
-            <button className={`${primaryButton} py-3`} onClick={handleCopyInvite} type="button">
+            <button
+              className={`${primaryButton} py-3`}
+              onClick={handleCopyInvite}
+              type="button"
+            >
               {copied ? "Copied ✓" : "Copy"}
             </button>
           </div>
@@ -451,11 +530,16 @@ export default function GroupPage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white rounded-2xl border border-slate-200 p-4">
           <div className="text-xs text-slate-500">Group success rate</div>
-          <div className={`text-2xl font-bold mt-1 ${tasks.length ? "text-emerald-600" : "text-slate-400"}`}>
+          <div
+            className={`text-2xl font-bold mt-1 ${tasks.length ? "text-emerald-600" : "text-slate-400"}`}
+          >
             {tasks.length ? `${groupRate}%` : "—"}
           </div>
           <div className="mt-2 h-2 rounded-full bg-slate-100 overflow-hidden">
-            <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${groupRate}%` }} />
+            <div
+              className="h-full bg-emerald-400 rounded-full"
+              style={{ width: `${groupRate}%` }}
+            />
           </div>
         </div>
         <div className="bg-white rounded-2xl border border-slate-200 p-4">
@@ -490,7 +574,9 @@ export default function GroupPage() {
             onClick={() => setTab(t)}
             type="button"
             className={`px-4 py-2 text-sm font-medium capitalize transition-colors border-r border-slate-200 last:border-r-0 ${
-              tab === t ? "bg-slate-900 text-white" : "bg-white text-slate-500 hover:text-slate-700"
+              tab === t
+                ? "bg-slate-900 text-white"
+                : "bg-white text-slate-500 hover:text-slate-700"
             }`}
           >
             {t}
@@ -508,55 +594,122 @@ export default function GroupPage() {
       {activeDetail && tab === "tasks" && (
         <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
           <div className="p-5 border-b border-slate-200">
-            <div className="font-semibold">Group tasks</div>
-            <div className="text-sm text-slate-500">Shared tasks assigned to team members</div>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="font-semibold">Group tasks</div>
+              <select
+                aria-label="Filter by assignment"
+                className="field !w-auto"
+                value={assignment}
+                onChange={(e) => setAssignment(e.target.value)}
+              >
+                <option value="all">Everyone’s tasks</option>
+                <option value="mine">Assigned to me</option>
+                <option value="unassigned">Unassigned</option>
+              </select>
+            </div>
+            <div className="text-sm text-slate-500">
+              Shared tasks assigned to team members
+            </div>
           </div>
-          {tasks.length === 0 ? (
+          {visibleTasks.length === 0 ? (
             <div className="p-8 text-center">
-              <div className="text-sm text-slate-500 mb-3">No shared tasks yet.</div>
-              <button className={primaryButton} onClick={() => setShowAddTask(true)} type="button">
+              <div className="text-sm text-slate-500 mb-3">
+                No shared tasks match this view.
+              </div>
+              <button
+                className={primaryButton}
+                onClick={() => setShowAddTask(true)}
+                type="button"
+              >
                 + Add the first task
               </button>
             </div>
           ) : (
             <div className="divide-y divide-slate-100">
-              {tasks.map((task) => {
+              {visibleTasks.map((task) => {
                 const busy = busyTaskId === task.id;
                 const due = formatDue(task);
                 const assignee = task.assigned_to
-                  ? memberName({ user_id: task.assigned_to, display_name: task.assignee_name }, userId)
+                  ? memberName(
+                      {
+                        user_id: task.assigned_to,
+                        display_name: task.assignee_name,
+                      },
+                      userId,
+                    )
                   : "Unassigned";
                 return (
                   <div
                     key={task.id}
                     className={`px-5 py-4 ${
-                      task.status === "success" ? "bg-emerald-50/40" :
-                      task.status === "failed"  ? "bg-rose-50/40" : ""
+                      task.status === "success"
+                        ? "bg-emerald-50/40"
+                        : task.status === "failed"
+                          ? "bg-rose-50/40"
+                          : ""
                     }`}
                   >
-                    <div className="flex items-start gap-3">
-                      <div className={`mt-1.5 h-3 w-3 rounded-full shrink-0 ${
-                        task.status === "success" ? "bg-emerald-400" :
-                        task.status === "failed"  ? "bg-rose-400" : "bg-slate-300"
-                      }`} />
+                    <div className="flex flex-wrap items-start gap-3">
+                      <div
+                        className={`mt-1.5 h-3 w-3 rounded-full shrink-0 ${
+                          task.status === "success"
+                            ? "bg-emerald-400"
+                            : task.status === "failed"
+                              ? "bg-rose-400"
+                              : "bg-slate-300"
+                        }`}
+                      />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className={`text-sm font-medium ${task.status !== "pending" ? "text-slate-400 line-through" : ""}`}>
+                          <span
+                            className={`text-sm font-medium ${task.status !== "pending" ? "text-slate-400 line-through" : ""}`}
+                          >
                             {task.title}
                           </span>
-                          <span className={`text-xs px-2 py-0.5 rounded-full ${categoryChip[task.category] ?? "bg-slate-100 text-slate-600"}`}>
+                          <span
+                            className={`text-xs px-2 py-0.5 rounded-full ${categoryChip[task.category] ?? "bg-slate-100 text-slate-600"}`}
+                          >
                             {task.category}
                           </span>
-                          <span className={`text-xs px-2 py-0.5 rounded-full ${priorityBadge[task.priority]}`}>
+                          <span
+                            className={`text-xs px-2 py-0.5 rounded-full ${priorityBadge[task.priority]}`}
+                          >
                             {task.priority}
                           </span>
                         </div>
                         <div className="text-xs text-slate-500 mt-1">
-                          Assigned to <span className="font-medium">{assignee}</span>
+                          Assigned to{" "}
+                          <span className="font-medium">{assignee}</span>
                           {due && <> · Due {due}</>}
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 shrink-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          className="btn-secondary"
+                          onClick={() =>
+                            setCopyDraft({
+                              title: task.title,
+                              plannedDate: task.due_date ?? localDateString(),
+                              plannedTime:
+                                task.due_time?.slice(0, 5) ??
+                                createQuickAddDefaults().plannedTime,
+                              durationMinutes: 30,
+                              category: TASK_CATEGORIES.includes(
+                                task.category as QuickAddDraft["category"],
+                              )
+                                ? (task.category as QuickAddDraft["category"])
+                                : "Other",
+                              importance:
+                                task.priority === "high"
+                                  ? 5
+                                  : task.priority === "low"
+                                    ? 2
+                                    : 3,
+                            })
+                          }
+                        >
+                          Copy to my plans
+                        </button>
                         <div
                           aria-label={`Status for ${task.title}`}
                           className="flex rounded-lg border border-slate-200 overflow-hidden"
@@ -572,7 +725,9 @@ export default function GroupPage() {
                               }`}
                               disabled={busy}
                               key={option.value}
-                              onClick={() => void handleStatusChange(task, option.value)}
+                              onClick={() =>
+                                void handleStatusChange(task, option.value)
+                              }
                               type="button"
                             >
                               {option.label}
@@ -583,7 +738,7 @@ export default function GroupPage() {
                           aria-label={`Delete ${task.title}`}
                           className="h-7 w-7 grid place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition-colors disabled:opacity-60"
                           disabled={busy}
-                          onClick={() => void handleDeleteTask(task)}
+                          onClick={() => setConfirmDelete(task)}
                           type="button"
                         >
                           ×
@@ -603,18 +758,28 @@ export default function GroupPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           {members.map((member) => {
             const name = memberName(member, userId);
-            const stats = memberStats.get(member.user_id) ?? { assigned: 0, done: 0 };
-            const rate = stats.assigned ? Math.round((stats.done / stats.assigned) * 100) : null;
+            const stats = memberStats.get(member.user_id) ?? {
+              assigned: 0,
+              done: 0,
+            };
+            const rate = stats.assigned
+              ? Math.round((stats.done / stats.assigned) * 100)
+              : null;
             const tone = rate === null ? null : rateTone(rate);
             return (
-              <div key={member.user_id} className="bg-white rounded-2xl border border-slate-200 p-5">
+              <div
+                key={member.user_id}
+                className="bg-white rounded-2xl border border-slate-200 p-5"
+              >
                 <div className="flex items-center gap-3 mb-3">
                   <div className="h-11 w-11 rounded-full bg-slate-900 text-white grid place-items-center font-bold text-sm">
                     {memberInitial(name)}
                   </div>
                   <div className="min-w-0">
                     <div className="font-semibold text-sm truncate">{name}</div>
-                    <div className="text-xs text-slate-500 capitalize">{member.role}</div>
+                    <div className="text-xs text-slate-500 capitalize">
+                      {member.role}
+                    </div>
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -624,8 +789,12 @@ export default function GroupPage() {
                   </div>
                   <div className="flex justify-between text-xs">
                     <span className="text-slate-500">Completed</span>
-                    <span className={`font-medium ${tone?.text ?? "text-slate-400"}`}>
-                      {rate === null ? "No tasks yet" : `${stats.done} · ${rate}%`}
+                    <span
+                      className={`font-medium ${tone?.text ?? "text-slate-400"}`}
+                    >
+                      {rate === null
+                        ? "No tasks yet"
+                        : `${stats.done} · ${rate}%`}
                     </span>
                   </div>
                   <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden mt-1">
@@ -640,9 +809,17 @@ export default function GroupPage() {
           })}
           {members.length === 1 && (
             <div className="rounded-2xl border border-dashed border-slate-300 p-5 flex flex-col items-start justify-center gap-2">
-              <div className="text-sm font-medium">It&apos;s just you so far</div>
-              <div className="text-xs text-slate-500">Share the invite code so teammates can join.</div>
-              <button className={secondaryButton} onClick={() => setShowInvite(true)} type="button">
+              <div className="text-sm font-medium">
+                It&apos;s just you so far
+              </div>
+              <div className="text-xs text-slate-500">
+                Share the invite code so teammates can join.
+              </div>
+              <button
+                className={secondaryButton}
+                onClick={() => setShowInvite(true)}
+                type="button"
+              >
                 Show invite code
               </button>
             </div>
@@ -657,14 +834,21 @@ export default function GroupPage() {
             <div className="font-semibold mb-4">Task completion by member</div>
             <div className="space-y-4">
               {members.map((member) => {
-                const stats = memberStats.get(member.user_id) ?? { assigned: 0, done: 0 };
-                const rate = stats.assigned ? Math.round((stats.done / stats.assigned) * 100) : 0;
+                const stats = memberStats.get(member.user_id) ?? {
+                  assigned: 0,
+                  done: 0,
+                };
+                const rate = stats.assigned
+                  ? Math.round((stats.done / stats.assigned) * 100)
+                  : 0;
                 return (
                   <div key={member.user_id}>
                     <div className="flex justify-between text-sm mb-1">
                       <span>{memberName(member, userId)}</span>
                       <span className="text-slate-500">
-                        {stats.assigned ? `${stats.done} / ${stats.assigned}` : "No tasks"}
+                        {stats.assigned
+                          ? `${stats.done} / ${stats.assigned}`
+                          : "No tasks"}
                       </span>
                     </div>
                     <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
@@ -682,24 +866,46 @@ export default function GroupPage() {
           <div className="space-y-5">
             <div className="bg-white rounded-2xl border border-slate-200 p-5">
               <div className="font-semibold mb-4">Recently added</div>
-              {tasks.length === 0 ? (
-                <div className="text-sm text-slate-500">Nothing yet — add a group task to get started.</div>
+              {visibleTasks.length === 0 ? (
+                <div className="text-sm text-slate-500">
+                  Nothing yet — add a group task to get started.
+                </div>
               ) : (
                 <div className="space-y-3">
                   {tasks.slice(0, 5).map((task) => (
-                    <div key={task.id} className="flex items-start gap-3">
-                      <div className={`mt-1.5 h-2 w-2 rounded-full shrink-0 ${
-                        task.status === "success" ? "bg-emerald-400" :
-                        task.status === "failed"  ? "bg-rose-400" : "bg-sky-400"
-                      }`} />
+                    <div
+                      key={task.id}
+                      className="flex flex-wrap items-start gap-3"
+                    >
+                      <div
+                        className={`mt-1.5 h-2 w-2 rounded-full shrink-0 ${
+                          task.status === "success"
+                            ? "bg-emerald-400"
+                            : task.status === "failed"
+                              ? "bg-rose-400"
+                              : "bg-sky-400"
+                        }`}
+                      />
                       <div className="text-sm min-w-0">
-                        <span className="text-slate-700">&quot;{task.title}&quot;</span>
+                        <span className="text-slate-700">
+                          &quot;{task.title}&quot;
+                        </span>
                         <span className="text-xs text-slate-400 ml-2">
                           {task.assigned_to
-                            ? memberName({ user_id: task.assigned_to, display_name: task.assignee_name }, userId)
+                            ? memberName(
+                                {
+                                  user_id: task.assigned_to,
+                                  display_name: task.assignee_name,
+                                },
+                                userId,
+                              )
                             : "Unassigned"}
                           {" · "}
-                          {task.status === "success" ? "Done" : task.status === "failed" ? "Failed" : "Pending"}
+                          {task.status === "success"
+                            ? "Done"
+                            : task.status === "failed"
+                              ? "Failed"
+                              : "Pending"}
                         </span>
                       </div>
                     </div>
@@ -712,12 +918,13 @@ export default function GroupPage() {
               <div className="bg-white rounded-2xl border border-rose-100 p-5">
                 <div className="font-semibold mb-1">Delete group</div>
                 <div className="text-sm text-slate-500 mb-3">
-                  Removes the group and all of its shared tasks for every member.
+                  Removes the group and all of its shared tasks for every
+                  member.
                 </div>
                 <button
                   className="px-4 py-2 rounded-xl border border-rose-200 text-rose-700 hover:bg-rose-50 text-sm font-medium transition-colors disabled:opacity-60"
                   disabled={deletingGroup}
-                  onClick={() => void handleDeleteGroup()}
+                  onClick={() => setConfirmDelete("group")}
                   type="button"
                 >
                   {deletingGroup ? "Deleting…" : "Delete this group"}
@@ -736,7 +943,9 @@ export default function GroupPage() {
         <div
           aria-live="polite"
           className={`fixed left-1/2 top-4 z-[60] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-2xl px-4 py-3 text-center text-sm font-bold shadow-xl ${
-            toast.tone === "success" ? "bg-emerald-600 text-white" : "bg-rose-600 text-white"
+            toast.tone === "success"
+              ? "bg-emerald-600 text-white"
+              : "bg-rose-600 text-white"
           }`}
           role={toast.tone === "error" ? "alert" : "status"}
         >
@@ -744,6 +953,56 @@ export default function GroupPage() {
         </div>
       )}
 
+      {copyDraft && (
+        <QuickAddForm
+          initialDraft={copyDraft}
+          onDismiss={() => setCopyDraft(null)}
+          onSubmit={async (draft) => {
+            const existing = await getTasks(draft.plannedDate);
+            await createTask(toQuickTaskCreate(draft, existing.length + 1));
+            setCopyDraft(null);
+            setToast({
+              tone: "success",
+              message:
+                "Personal copy created. Changes to this copy do not update the group task.",
+            });
+          }}
+        />
+      )}
+      {confirmDelete && (
+        <Dialog
+          title="Delete for everyone?"
+          busy={!!busyTaskId || deletingGroup}
+          onClose={() => setConfirmDelete(null)}
+        >
+          <p className="mb-5 text-sm">
+            {confirmDelete === "group"
+              ? "This group and its shared tasks"
+              : `“${confirmDelete.title}”`}{" "}
+            will be permanently removed for every member.
+          </p>
+          <div className="flex gap-3">
+            <button
+              className="btn-secondary"
+              disabled={!!busyTaskId || deletingGroup}
+              onClick={() => setConfirmDelete(null)}
+            >
+              Cancel
+            </button>
+            <button
+              className="btn-primary !bg-rose-700"
+              disabled={!!busyTaskId || deletingGroup}
+              onClick={async () => {
+                if (confirmDelete === "group") await handleDeleteGroup();
+                else await handleDeleteTask(confirmDelete);
+                setConfirmDelete(null);
+              }}
+            >
+              Delete
+            </button>
+          </div>
+        </Dialog>
+      )}
       {showAddTask && activeDetail && (
         <GroupTaskForm
           currentUserId={userId}

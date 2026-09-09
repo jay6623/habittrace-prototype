@@ -5,6 +5,7 @@ does not apply. Every group-scoped operation therefore verifies the caller's
 membership here before reading or writing any group data. Non-members receive
 404 so that group existence is never revealed.
 """
+
 from __future__ import annotations
 
 import logging
@@ -83,9 +84,7 @@ class GroupService:
         )
         return {
             "group": {**group, "role": membership["role"]},
-            "members": [
-                {**row, "display_name": names.get(str(row["user_id"]))} for row in members
-            ],
+            "members": [{**row, "display_name": names.get(str(row["user_id"]))} for row in members],
             "tasks": [self._with_assignee_name(task, names) for task in tasks],
         }
 
@@ -109,9 +108,7 @@ class GroupService:
         data = _serialize_task_fields(body.model_dump())
         if data.get("assigned_to") is not None:
             self._validate_assignee(group_id, str(data["assigned_to"]))
-        data.update(
-            {"group_id": str(group_id), "created_by": str(user_id), "status": "pending"}
-        )
+        data.update({"group_id": str(group_id), "created_by": str(user_id), "status": "pending"})
         return self._with_assignee_name(self.groups.create_task(data))
 
     def update_task(

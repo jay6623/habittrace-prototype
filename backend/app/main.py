@@ -8,6 +8,7 @@ Start with:
 Behind a reverse proxy (HTTPS), set TRUST_FORWARDED_HEADERS=true and run with
 proxy-aware settings (see README).
 """
+
 import logging
 from contextlib import asynccontextmanager
 
@@ -18,6 +19,7 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from .config import get_cors_allow_origins, get_settings, parse_proxy_trusted_hosts
 from .core.errors import register_application_error_handlers
 from .routes import (
+    account,
     analytics,
     chat,
     executions,
@@ -97,5 +99,6 @@ app.include_router(
     prefix="/integrations/google-calendar",
     tags=["integrations"],
 )
+app.include_router(account.router, prefix="/account", tags=["account"])
 app.include_router(groups.router, prefix="/groups", tags=["groups"])
 app.include_router(ai_v2_router)

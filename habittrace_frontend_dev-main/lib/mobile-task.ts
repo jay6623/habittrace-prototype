@@ -72,6 +72,7 @@ export function taskTimeInMinutes(time: string): number {
   let hour = Number(match[1]);
   const minute = Number(match[2]);
   const meridiem = match[3]?.toUpperCase();
+  if (minute > 59 || hour > (meridiem ? 12 : 23) || (meridiem && hour < 1)) return Number.MAX_SAFE_INTEGER;
   if (meridiem === "AM" && hour === 12) hour = 0;
   if (meridiem === "PM" && hour !== 12) hour += 12;
   return hour * 60 + minute;

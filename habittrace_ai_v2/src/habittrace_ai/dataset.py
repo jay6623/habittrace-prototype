@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
+from typing import Any, cast
 
 import pandas as pd
 
@@ -18,7 +18,7 @@ from habittrace_ai.contracts import (
 )
 from habittrace_ai.labels import derive_success_labels
 
-UTC = timezone.utc
+UTC = UTC
 
 
 @dataclass(frozen=True)
@@ -37,7 +37,7 @@ def _aware_utc(value: object, *, field: str) -> datetime:
     result = pd.Timestamp(raw).to_pydatetime()
     if result.tzinfo is None or result.utcoffset() is None:
         raise ValueError(f"{field} must be timezone-aware")
-    return result.astimezone(UTC)
+    return cast(datetime, result.astimezone(UTC))
 
 
 def _assert_unique(frame: pd.DataFrame, column: str, *, name: str) -> None:
@@ -87,9 +87,7 @@ def _confirmed_reason_targets(
     confirmed = failure_reasons.loc[failure_reasons["user_confirmed"].eq(True)].copy()  # noqa: E712
     if confirmed.empty:
         empty_examples = (
-            success_examples.iloc[0:0]
-            .set_index("outcome_id")
-            .drop(columns=["success_label"])
+            success_examples.iloc[0:0].set_index("outcome_id").drop(columns=["success_label"])
         )
         empty_targets = pd.DataFrame(
             index=pd.Index([], name="outcome_id"),
@@ -131,9 +129,7 @@ def _confirmed_reason_targets(
     reason_available_at = confirmed.groupby("outcome_id")["reason_created_at"].max()
 
     labeled_outcome_ids = confirmed["outcome_id"].drop_duplicates().tolist()
-    labeled = success_examples.loc[
-        success_examples["outcome_id"].isin(labeled_outcome_ids)
-    ].copy()
+    labeled = success_examples.loc[success_examples["outcome_id"].isin(labeled_outcome_ids)].copy()
     labeled = labeled.set_index("outcome_id").loc[labeled_outcome_ids]
     labeled["label_available_at"] = [
         max(

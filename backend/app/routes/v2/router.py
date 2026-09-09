@@ -1,4 +1,5 @@
 """Aggregate router for the AI V2 API."""
+
 from fastapi import APIRouter
 
 from . import (

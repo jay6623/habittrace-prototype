@@ -45,9 +45,7 @@ def test_boundary_crossing_revision_lineage_is_excluded(plans: pd.DataFrame) -> 
     examples.loc[child_index, "parent_plan_input_id"] = root_id
 
     split = temporal_train_validation_test_split(examples)
-    partitions = [
-        set(partition["id"]) for partition in (split.train, split.validation, split.test)
-    ]
+    partitions = [set(partition["id"]) for partition in (split.train, split.validation, split.test)]
 
     assert root_id in split.excluded_lineages
     assert all(root_id not in partition for partition in partitions)

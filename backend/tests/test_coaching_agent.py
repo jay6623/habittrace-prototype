@@ -175,9 +175,7 @@ def test_regular_coaching_question_skips_extra_intent_api_call() -> None:
     llm = _ClassifyCounterLLM()
     service.llm = llm
 
-    intent = asyncio.run(
-        service._classify_intent("Why do my Study tasks keep failing?", "UTC", [])
-    )
+    intent = asyncio.run(service._classify_intent("Why do my Study tasks keep failing?", "UTC", []))
 
     assert intent.intent == "coach"
     assert llm.classify_calls == 0
@@ -281,9 +279,7 @@ def test_coaching_context_scopes_failure_evidence_to_category() -> None:
     )
 
     context = CoachingContextService(db).build("user-1")
-    study = next(
-        item for item in context["category_patterns"] if item["category"] == "Study"
-    )
+    study = next(item for item in context["category_patterns"] if item["category"] == "Study")
 
     assert study["success_rate"] == 50.0
     assert study["average_planned_minutes"] == 90.0

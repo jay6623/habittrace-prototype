@@ -36,9 +36,9 @@ class SuccessProbabilityModel:
             raise ValueError("success labels must be binary zero/one values") from exc
         if numeric_labels.ndim != 1:
             raise ValueError("success labels must be a one-dimensional binary vector")
-        if not np.all(np.isfinite(numeric_labels)) or not set(
-            np.unique(numeric_labels)
-        ).issubset({0.0, 1.0}):
+        if not np.all(np.isfinite(numeric_labels)) or not set(np.unique(numeric_labels)).issubset(
+            {0.0, 1.0}
+        ):
             raise ValueError("success labels must be binary zero/one values")
         y = numeric_labels.astype(int)
         if len(plans) != len(y):

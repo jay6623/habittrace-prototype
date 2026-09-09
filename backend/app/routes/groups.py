@@ -1,4 +1,5 @@
 """Group scheduling routes. All routes require a verified Supabase user."""
+
 from __future__ import annotations
 
 from typing import Annotated
