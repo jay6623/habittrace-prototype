@@ -24,6 +24,8 @@ class AIPredictResponse(BaseModel):
 
     model_version: str
     success_probability: float = Field(ge=0, le=1)
+    base_success_probability: float | None = Field(default=None, ge=0, le=1)
+    personalization: dict = Field(default_factory=dict)
     failure_reason_probabilities: dict[str, float]
     predicted_failure_reason: str | None
     predicted_at: datetime

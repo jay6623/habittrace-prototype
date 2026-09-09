@@ -12,13 +12,15 @@ from ..repositories.ai_prediction_repository import AIPredictionRepository
 from ..repositories.ai_time_recommendation_repository import (
     AITimeRecommendationRepository,
 )
+from ..repositories.personalization_repository import PersonalizationRepository
 from ..services.ai_failure_reason_service import AIFailureReasonService
 from ..services.ai_outcome_service import AIOutcomeService
 from ..services.ai_plan_service import AIPlanService
 from ..services.ai_prediction_service import AIPredictionService
 from ..services.ai_time_recommendation_service import AITimeRecommendationService
 from ..services.ai_v2_ml_service import get_ai_v2_ml_service
-from .database import get_ai_database
+from ..services.personalization_service import PersonalizationService
+from .database import get_ai_database, get_primary_database
 
 
 def get_ai_plan_service(
@@ -45,16 +47,19 @@ def get_ai_failure_reason_service(
 
 def get_ai_prediction_service(
     db: Annotated[Client, Depends(get_ai_database)],
+    primary_db: Annotated[Client, Depends(get_primary_database)],
 ) -> AIPredictionService:
     return AIPredictionService(
         AIPlanRepository(db),
         AIPredictionRepository(db),
         get_ai_v2_ml_service(),
+        PersonalizationService(PersonalizationRepository(primary_db)),
     )
 
 
 def get_ai_time_recommendation_service(
     db: Annotated[Client, Depends(get_ai_database)],
+    primary_db: Annotated[Client, Depends(get_primary_database)],
 ) -> AITimeRecommendationService:
     return AITimeRecommendationService(
         AIPlanRepository(db),
@@ -63,6 +68,8 @@ def get_ai_time_recommendation_service(
             AIPlanRepository(db),
             AIPredictionRepository(db),
             get_ai_v2_ml_service(),
+            PersonalizationService(PersonalizationRepository(primary_db)),
         ),
         get_ai_v2_ml_service(),
+        PersonalizationService(PersonalizationRepository(primary_db)),
     )

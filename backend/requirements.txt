@@ -14,5 +14,5 @@ cryptography>=43.0.0
 # ML (same constraints as the model repo / AI V2 artifacts)
 pandas>=2.2.0
 numpy>=2.0.0
-scikit-learn>=1.8.0
+scikit-learn==1.9.0
 joblib>=1.4.0

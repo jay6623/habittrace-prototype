@@ -7,8 +7,8 @@ import {
   completeExecution,
   createMobileAIOutcome,
   createTask,
+  ensureAIPlan,
   getActiveExecutions,
-  getAIPlanPrediction,
   getTasks,
   predictAIPlan,
   startExecution,
@@ -58,6 +58,10 @@ function formatMinutes(minutes: number) {
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
   return rest ? `${hours}h ${rest}m` : `${hours}h`;
+}
+
+function formatSuccessProbability(probability: number) {
+  return `${Math.round(Math.max(0, Math.min(1, probability)) * 100)}%`;
 }
 
 function taskStatusLabel(task: Task, active: boolean) {
@@ -134,9 +138,7 @@ export default function DesktopCommandCenter() {
 
   useEffect(() => {
     let cancelled = false;
-    const eligible = todayTasks.filter(
-      (task) => task.task_status === "pending" && task.ai_plan_input_id,
-    );
+    const eligible = todayTasks.filter((task) => task.task_status === "pending");
     if (!eligible.length) {
       setAiPredictions({});
       setAiLoading(false);
@@ -145,21 +147,35 @@ export default function DesktopCommandCenter() {
     setAiLoading(true);
     void Promise.allSettled(
       eligible.map(async (task) => {
-        const planId = task.ai_plan_input_id!;
-        const prediction =
-          (await getAIPlanPrediction(planId)) ?? (await predictAIPlan(planId));
-        return [task.id, prediction] as const;
+        const planId = task.ai_plan_input_id ?? (await ensureAIPlan(task));
+        const prediction = await predictAIPlan(planId);
+        return [task.id, planId, prediction] as const;
       }),
     ).then((results) => {
       if (cancelled) return;
       setAiPredictions(
         results.reduce<Record<string, Prediction>>((byTask, result) => {
           if (result.status === "fulfilled") {
-            byTask[result.value[0]] = result.value[1];
+            byTask[result.value[0]] = result.value[2];
           }
           return byTask;
         }, {}),
       );
+      const planIds = new Map(
+        results
+          .filter((result) => result.status === "fulfilled")
+          .map((result) => [result.value[0], result.value[1]]),
+      );
+      if (planIds.size) {
+        setTasks((current) =>
+          current.map((task) => {
+            const planId = planIds.get(task.id);
+            return planId && !task.ai_plan_input_id
+              ? { ...task, ai_plan_input_id: planId }
+              : task;
+          }),
+        );
+      }
       setAiLoading(false);
     });
     return () => {
@@ -199,11 +215,11 @@ export default function DesktopCommandCenter() {
     if (aiAssessment) {
       const action = aiAssessment.prediction.recommended_actions?.[0];
       return {
-        eyebrow: "AI V2 plan review",
+        eyebrow: "Personalized recommendation",
         title: `${aiAssessment.task.title} needs the most preparation.`,
         detail:
           action?.detail ??
-          "Your custom model found this plan less robust than today’s other assessed plans. Review its scope and timing before you begin.",
+          "This plan may need more preparation than your other plans today. Review its scope and timing before you begin.",
         actionTitle: action?.title,
         source: "ai-v2" as const,
       };
@@ -400,8 +416,21 @@ export default function DesktopCommandCenter() {
                           <div className="flex items-center gap-2">
                             <h3 className="truncate font-bold">{task.title}</h3>
                             {isNext && <span className="rounded-full bg-emerald-400/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-300">{inProgress ? "Active" : "Up next"}</span>}
+                            {aiPredictions[task.id] && (
+                              <span
+                                className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${isNext ? "bg-emerald-400/15 text-emerald-300" : "bg-emerald-50 text-emerald-700"}`}
+                                title="Experimental estimate based on the information available when this plan was created"
+                              >
+                                Estimated success {formatSuccessProbability(aiPredictions[task.id].success_probability)}
+                              </span>
+                            )}
                           </div>
                           <p className={`mt-1 text-xs ${isNext ? "text-slate-400" : "text-slate-500"}`}>{task.task_category} · {task.planned_duration_min} min · {taskStatusLabel(task, inProgress)}</p>
+                          {aiPredictions[task.id]?.personalization?.applied && (
+                            <p className={`mt-1 text-[11px] ${isNext ? "text-emerald-300/80" : "text-emerald-700"}`}>
+                              Personalized using {aiPredictions[task.id].personalization!.sample_count} previous plans
+                            </p>
+                          )}
                         </div>
                         {task.task_status === "pending" && (
                           <div className="flex shrink-0 gap-2">
@@ -426,9 +455,9 @@ export default function DesktopCommandCenter() {
               <span className="grid h-10 w-10 place-items-center rounded-2xl bg-emerald-600 font-bold text-white">✦</span>
               <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">
                 {brief.source === "ai-v2"
-                  ? "AI V2 · custom model · experimental"
+                  ? "Personalized recommendation · Experimental"
                   : aiLoading
-                    ? "AI V2 is assessing today’s plans"
+                    ? "Preparing personalized recommendations"
                     : "Schedule-based guidance"}
               </span>
             </div>
@@ -437,13 +466,13 @@ export default function DesktopCommandCenter() {
             <p className="mt-3 text-sm leading-relaxed text-slate-600">{brief.detail}</p>
             {brief.actionTitle && (
               <p className="mt-4 rounded-xl bg-white/70 px-3 py-2 text-sm font-semibold text-emerald-950 ring-1 ring-emerald-100">
-                Suggested action: {brief.actionTitle}
+                Recommendation: {brief.actionTitle}
               </p>
             )}
             {brief.source === "ai-v2" && (
               <p className="mt-3 text-[11px] leading-relaxed text-emerald-900/65">
-                The model compares plan inputs; it does not use Gemini and is not yet
-                validated as a personal success probability.
+                Estimates are experimental planning guidance and are not yet validated
+                as personal success probabilities.
               </p>
             )}
             <div className="mt-6 flex gap-2">

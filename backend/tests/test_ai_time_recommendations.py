@@ -65,6 +65,23 @@ class ModelFake:
         }
 
 
+class PersonalizationFake:
+    def build_profile(self, user_id, **kwargs):
+        return object()
+
+    def apply(self, result, plan, profile):
+        return {
+            **result,
+            "personalization": {
+                "applied": False,
+                "sample_count": 0,
+                "confidence": 0.0,
+                "history_success_rate": None,
+                "factors": [],
+            },
+        }
+
+
 class RecommendationsFake:
     def __init__(self):
         self.recommendation = None
@@ -88,7 +105,7 @@ class RecommendationsFake:
 def test_time_recommendation_filters_conflicts_and_ranks_candidates() -> None:
     recommendations = RecommendationsFake()
     service = AITimeRecommendationService(
-        PlansFake(), recommendations, PredictionsFake(), ModelFake()
+        PlansFake(), recommendations, PredictionsFake(), ModelFake(), PersonalizationFake()
     )
     body = TimeRecommendationCreate(
         earliest_start="2026-07-14T08:00:00+00:00",
@@ -109,7 +126,7 @@ def test_time_recommendation_filters_conflicts_and_ranks_candidates() -> None:
 
 def test_time_recommendation_rejects_window_shorter_than_plan() -> None:
     service = AITimeRecommendationService(
-        PlansFake(), RecommendationsFake(), PredictionsFake(), ModelFake()
+        PlansFake(), RecommendationsFake(), PredictionsFake(), ModelFake(), PersonalizationFake()
     )
     body = TimeRecommendationCreate(
         earliest_start="2026-07-14T08:00:00+00:00",

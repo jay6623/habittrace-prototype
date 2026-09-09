@@ -8,8 +8,8 @@ import {
   updateTask,
   reviseAIPlan,
   clearAIPlan,
+  ensureAIPlan,
   predictAIPlan,
-  getAIPlanPrediction,
   createTimeRecommendation,
   selectTimeCandidate,
   type Task,
@@ -46,6 +46,7 @@ function Scheduler() {
   const [selected, setSelected] = useState<string | null>(null);
   const [prediction, setPrediction] = useState<Prediction | null>(null);
   const [predicting, setPredicting] = useState(false);
+  const [predictionError, setPredictionError] = useState(false);
   const [recommendation, setRecommendation] =
     useState<TimeRecommendation | null>(null);
   const [recommending, setRecommending] = useState(false);
@@ -90,6 +91,9 @@ function Scheduler() {
     setSelected(params.get("task"));
   }, [params]);
   const task = tasks.find((t) => t.id === selected);
+  const successPercent = prediction
+    ? Math.round(Math.max(0, Math.min(1, prediction.success_probability)) * 100)
+    : null;
   useEffect(() => {
     setRecommendation(null);
     setRecommendationError(null);
@@ -97,17 +101,32 @@ function Scheduler() {
   useEffect(() => {
     let cancelled = false;
     setPrediction(null);
-    if (!task?.ai_plan_input_id) {
+    setPredictionError(false);
+    if (!task) {
       setPredicting(false);
       return;
     }
     setPredicting(true);
-    getAIPlanPrediction(task.ai_plan_input_id)
-      .then((p) => p ?? predictAIPlan(task.ai_plan_input_id!))
+    const planIdPromise = task.ai_plan_input_id
+      ? Promise.resolve(task.ai_plan_input_id)
+      : ensureAIPlan(task);
+    planIdPromise
+      .then(async (planId) => {
+        if (!task.ai_plan_input_id) {
+          setTasks((current) =>
+            current.map((item) =>
+              item.id === task.id ? { ...item, ai_plan_input_id: planId } : item,
+            ),
+          );
+        }
+        return predictAIPlan(planId);
+      })
       .then((p) => {
         if (!cancelled) setPrediction(p);
       })
-      .catch(() => {})
+      .catch(() => {
+        if (!cancelled) setPredictionError(true);
+      })
       .finally(() => {
         if (!cancelled) setPredicting(false);
       });
@@ -199,7 +218,7 @@ function Scheduler() {
     } catch {
       setRecommendation(null);
       setRecommendationError(
-        "AI V2 couldn’t rank a conflict-free time in this window. The rule-based times above are still available.",
+        "Personalized recommendations are unavailable for this window. The conflict-free times above are still available.",
       );
     } finally {
       setRecommending(false);
@@ -292,7 +311,29 @@ function Scheduler() {
               </p>
             ) : (
               <>
-                <h2 className="text-xl font-semibold">{task.title}</h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-xl font-semibold">{task.title}</h2>
+                  {successPercent !== null && (
+                    <span
+                      className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700"
+                      title="Experimental estimate based on the information available when this plan was created"
+                    >
+                      Estimated success {successPercent}%
+                    </span>
+                  )}
+                </div>
+                {prediction?.personalization?.applied && (
+                  <div className="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+                    <p className="font-semibold">
+                      Personalized using {prediction.personalization.sample_count} previous plans
+                    </p>
+                    {prediction.personalization.factors[0] && (
+                      <p className="mt-1 text-emerald-800">
+                        {prediction.personalization.factors[0].message}
+                      </p>
+                    )}
+                  </div>
+                )}
                 <p className="mt-2 text-sm text-slate-500">
                   {preferences.workStart}–{preferences.workEnd} ·{" "}
                   {task.planned_duration_min} minutes.{" "}
@@ -348,13 +389,12 @@ function Scheduler() {
                       <div className="flex items-start justify-between gap-4">
                         <div>
                           <p className="text-xs font-bold uppercase tracking-[0.14em] text-violet-700">
-                            AI V2 ranking · Experimental
+                            Personalized recommendation · Experimental
                           </p>
                           <h3 className="mt-1 font-semibold">Which free time fits this plan best?</h3>
                           <p className="mt-2 text-sm leading-relaxed text-slate-600">
-                            Your custom model scores conflict-free candidates using plan
-                            length, time of day, workload, category, energy, and focus inputs.
-                            It does not use Gemini.
+                            We compare conflict-free times using plan length, time of day,
+                            workload, category, energy, and focus.
                           </p>
                         </div>
                         <button
@@ -362,12 +402,14 @@ function Scheduler() {
                           disabled={recommending || !task.ai_plan_input_id || !slots.length}
                           onClick={() => void rankTimes()}
                         >
-                          {recommending ? "Ranking…" : "Rank with AI V2"}
+                          {recommending ? "Finding times…" : "Get personalized recommendations"}
                         </button>
                       </div>
                       {!task.ai_plan_input_id && (
                         <p className="mt-3 text-xs font-medium text-amber-800">
-                          This older plan has no AI V2 snapshot. Edit and save it once to create one.
+                          {predictionError
+                            ? "We couldn’t prepare recommendations for this plan. Check the backend connection and try again."
+                            : "Preparing personalized recommendations for this plan…"}
                         </p>
                       )}
                       {recommendationError && (
@@ -397,13 +439,21 @@ function Scheduler() {
                                       {start.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
                                       –{end.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
                                     </span>
-                                    <span className="text-xs font-bold text-violet-700">
-                                      #{candidate.rank}
+                                    <span className="text-right text-xs font-bold text-violet-700">
+                                      <span className="block">#{candidate.rank}</span>
+                                      <span className="block text-[10px] font-semibold text-violet-600">
+                                        Estimated success {Math.round(Math.max(0, Math.min(1, candidate.predicted_success_probability)) * 100)}%
+                                      </span>
                                     </span>
                                   </span>
                                   <span className="mt-1 block text-xs text-slate-500">
-                                    Conflict-free · model-ranked fit
+                                    Conflict-free · personalized fit
                                   </span>
+                                  {candidate.reason_snapshot.personalization?.applied && (
+                                    <span className="mt-1 block text-[10px] text-violet-700">
+                                      Based on {candidate.reason_snapshot.personalization.sample_count} previous plans
+                                    </span>
+                                  )}
                                 </button>
                               </li>
                             );
@@ -411,15 +461,14 @@ function Scheduler() {
                         </ol>
                       ) : null}
                       <p className="mt-3 text-[11px] leading-relaxed text-violet-800/70">
-                        Rankings come from the synthetic-validated AI V2 model and are
-                        planning guidance, not a proven personal success probability.
+                        Estimates are guidance and may change as your plan changes.
                       </p>
                     </div>
                   </>
                 )}
                 <div className="mt-6 border-t border-slate-200 pt-5">
                   <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-700">
-                    AI V2 plan review
+                    Personalized recommendation
                   </p>
                   <h3 className="mt-1 font-semibold">How to make this plan easier to complete</h3>
                   {predicting ? (
@@ -430,7 +479,7 @@ function Scheduler() {
                     <>
                       <p className="mt-2 text-sm text-slate-500">
                         {prediction
-                          ? "Your custom model assessed this plan. The actions below explain practical changes; the underlying score is withheld because real-user validation is still too small."
+                          ? "Based on this plan’s estimated success score, the suggestions below highlight practical changes that may make it easier to complete."
                           : "AI guidance is unavailable for this plan. You can still use the schedule checks above."}
                       </p>
                       {prediction?.recommended_actions?.map((a) => (

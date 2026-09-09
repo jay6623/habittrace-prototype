@@ -11,6 +11,7 @@ from ..core.errors import ResourceNotFoundError
 from ..repositories.ai_plan_repository import AIPlanRepository
 from ..repositories.ai_prediction_repository import AIPredictionRepository
 from .ai_v2_ml_service import AIV2MLService
+from .personalization_service import PersonalizationService
 
 UTC = timezone.utc
 
@@ -21,10 +22,28 @@ class AIPredictionService:
         plans: AIPlanRepository,
         predictions: AIPredictionRepository,
         model_service: AIV2MLService,
+        personalization: PersonalizationService,
     ) -> None:
         self.plans = plans
         self.predictions = predictions
         self.model_service = model_service
+        self.personalization = personalization
+
+    def score_plan(self, user_id: UUID, plan: dict) -> dict:
+        """Return the shared-model result adjusted by the user's prior outcomes."""
+        result = self.model_service.predict(plan)
+        profile = self.personalization.build_profile(
+            user_id,
+            exclude_plan_id=plan.get("id"),
+        )
+        personalized = self.personalization.apply(result, plan, profile)
+        explanation = dict(personalized.get("explanation") or {})
+        explanation["personalization"] = personalized["personalization"]
+        explanation["base_success_probability"] = personalized[
+            "base_success_probability"
+        ]
+        personalized["explanation"] = explanation
+        return personalized
 
     def predict_for_plan(self, user_id: UUID, plan_input_id: UUID) -> dict:
         plan = self.plans.get_owned(plan_input_id, user_id)
@@ -33,7 +52,7 @@ class AIPredictionService:
         if not self.model_service.is_ready:
             raise RuntimeError("AI V2 model artifacts are not loaded")
 
-        result = self.model_service.predict(plan)
+        result = self.score_plan(user_id, plan)
         version = self.model_service.model_version
         success_version = self._ensure_model_version("success", version)
         failure_version = self._ensure_model_version("failure_reason", version)
@@ -84,7 +103,14 @@ class AIPredictionService:
         explanation = {
             key: value
             for key, value in failure_snapshot.items()
-            if key in {"source", "factors", "recommended_actions"}
+            if key
+            in {
+                "source",
+                "factors",
+                "recommended_actions",
+                "personalization",
+                "base_success_probability",
+            }
         }
         if not explanation:
             explanation = success.get("explanation_snapshot") or {}
@@ -97,6 +123,17 @@ class AIPredictionService:
         return {
             "model_version": (success_model or {}).get("version"),
             "success_probability": success["success_probability"],
+            "base_success_probability": explanation.get("base_success_probability"),
+            "personalization": explanation.get(
+                "personalization",
+                {
+                    "applied": False,
+                    "sample_count": 0,
+                    "confidence": 0.0,
+                    "history_success_rate": None,
+                    "factors": [],
+                },
+            ),
             "failure_reason_probabilities": (failure or {}).get("reason_probabilities", {}),
             "predicted_failure_reason": failure_snapshot.get("predicted_failure_reason"),
             "explanation": explanation,

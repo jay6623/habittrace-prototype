@@ -18,6 +18,7 @@ from ..schemas.ai_time_recommendation import (
 from ..utils.timezone import as_local
 from .ai_prediction_service import AIPredictionService
 from .ai_v2_ml_service import AIV2MLService
+from .personalization_service import PersonalizationService
 
 
 def _parse_datetime(value: object) -> datetime:
@@ -34,11 +35,13 @@ class AITimeRecommendationService:
         recommendations: AITimeRecommendationRepository,
         predictions: AIPredictionService,
         model_service: AIV2MLService,
+        personalization: PersonalizationService,
     ) -> None:
         self.plans = plans
         self.recommendations = recommendations
         self.predictions = predictions
         self.model_service = model_service
+        self.personalization = personalization
 
     def create(
         self,
@@ -133,6 +136,10 @@ class AITimeRecommendationService:
         rows = self.plans.list_schedule_rows(user_id)
         excluded_ids = self._revision_chain_ids(plan, rows)
         schedule = [row for row in rows if str(row.get("id")) not in excluded_ids]
+        profile = self.personalization.build_profile(
+            user_id,
+            exclude_plan_id=plan.get("id"),
+        )
         candidates: list[dict] = []
         current = body.earliest_start
         while current <= latest_start:
@@ -140,7 +147,8 @@ class AITimeRecommendationService:
             if not self._conflicts(current, end, schedule, body.minimum_buffer_minutes):
                 context = self._schedule_context(current, plan, schedule)
                 scored_plan = {**plan, "planned_start": current.isoformat(), **context}
-                result = self.model_service.predict(scored_plan)
+                base_result = self.model_service.predict(scored_plan)
+                result = self.personalization.apply(base_result, scored_plan, profile)
                 daily_planned_minutes = int(context["daily_planned_minutes"] or 0)
                 overload_penalty = min(
                     1.0,
@@ -163,6 +171,7 @@ class AITimeRecommendationService:
                         "feature_snapshot": context,
                         "reason_snapshot": {
                             "predicted_failure_reason": result["predicted_failure_reason"],
+                            "personalization": result["personalization"],
                             "strategy": "existing_success_model_with_hard_constraints",
                         },
                     }

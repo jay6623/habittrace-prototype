@@ -24,12 +24,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Load the current session.
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setLoading(false);
-    });
+    let active = true;
+
+    // A refresh token can become invalid after changing Supabase projects,
+    // clearing server-side sessions, or leaving a development tab open for a
+    // long time. Recover by removing only the local session so the login page
+    // can be shown instead of surfacing the raw Supabase error.
+    void supabase.auth
+      .getSession()
+      .then(async ({ data: { session }, error }) => {
+        if (error) {
+          await supabase.auth.signOut({ scope: "local" });
+          if (!active) return;
+          setSession(null);
+          setUser(null);
+          return;
+        }
+        if (!active) return;
+        setSession(session);
+        setUser(session?.user ?? null);
+      })
+      .catch(async () => {
+        await supabase.auth.signOut({ scope: "local" });
+        if (!active) return;
+        setSession(null);
+        setUser(null);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
 
     // Watch for sign-in and sign-out changes.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -40,7 +63,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     );
 
-    return () => subscription.unsubscribe();
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   // Resolve the user's display name.

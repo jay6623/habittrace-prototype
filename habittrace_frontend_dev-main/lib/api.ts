@@ -75,6 +75,7 @@ interface AIOutcomeResponse {
 }
 
 const AI_PLAN_MAP_KEY = "habittrace_ai_plan_ids";
+const aiPlanRequests = new Map<string, Promise<string>>();
 
 function readAIPlanMap(): Record<string, string> {
   if (typeof window === "undefined") return {};
@@ -155,7 +156,9 @@ export interface PredictRequest {
 
 export interface Prediction {
   success_probability: number;
+  base_success_probability?: number | null;
   personalized: boolean;
+  personalization?: PersonalizationSummary;
   predicted_failure_reason: string | null;
   failure_probabilities: Record<string, number>;
   top_positive_factors: { feature: string; contribution: number; value: number }[];
@@ -165,6 +168,19 @@ export interface Prediction {
     factors?: { feature: string; direction: string; value: number; message: string }[];
   };
   recommended_actions?: { code: string; title: string; detail: string }[];
+}
+
+export interface PersonalizationSummary {
+  applied: boolean;
+  sample_count: number;
+  confidence: number;
+  history_success_rate: number | null;
+  factors: {
+    type: string;
+    direction: "positive" | "negative";
+    sample_count: number;
+    message: string;
+  }[];
 }
 
 export interface TimeCandidate {
@@ -178,7 +194,11 @@ export interface TimeCandidate {
   preference_penalty: number;
   final_score: number;
   rank: number;
-  reason_snapshot: { predicted_failure_reason?: string | null; strategy?: string };
+  reason_snapshot: {
+    predicted_failure_reason?: string | null;
+    strategy?: string;
+    personalization?: PersonalizationSummary;
+  };
 }
 
 export interface TimeRecommendation {
@@ -198,6 +218,8 @@ export interface TimeRecommendation {
 interface PersistedAIPredictionResponse {
   model_version: string;
   success_probability: number;
+  base_success_probability?: number | null;
+  personalization?: PersonalizationSummary;
   failure_reason_probabilities: Record<string, number>;
   predicted_failure_reason: string | null;
   explanation?: Prediction["explanation"];
@@ -419,6 +441,28 @@ export async function createTask(task: TaskCreate): Promise<Task> {
     console.warn("AI V2 plan snapshot was not created:", error);
     return created;
   }
+}
+
+/** Create the planning snapshot needed for recommendations on a legacy task. */
+export async function ensureAIPlan(task: Task): Promise<string> {
+  const existing = task.ai_plan_input_id ?? readAIPlanMap()[task.id];
+  if (existing) return existing;
+
+  const inFlight = aiPlanRequests.get(task.id);
+  if (inFlight) return inFlight;
+
+  const request = apiFetch<AIPlanInputResponse>("/api/v2/ai/plans", {
+    method: "POST",
+    body: JSON.stringify(toAIPlanInput(task)),
+  })
+    .then((plan) => {
+      rememberAIPlan(task.id, plan.id);
+      return plan.id;
+    })
+    .finally(() => aiPlanRequests.delete(task.id));
+
+  aiPlanRequests.set(task.id, request);
+  return request;
 }
 
 /** Create the immutable AI revision corresponding to an edited task. */
@@ -686,7 +730,9 @@ export async function predictAIPlan(planInputId: string): Promise<Prediction> {
   );
   return {
     success_probability: result.success_probability,
-    personalized: false,
+    base_success_probability: result.base_success_probability,
+    personalized: result.personalization?.applied ?? false,
+    personalization: result.personalization,
     predicted_failure_reason: result.predicted_failure_reason,
     failure_probabilities: result.failure_reason_probabilities,
     top_positive_factors: [],
@@ -741,7 +787,9 @@ export async function getAIPlanPrediction(planInputId: string): Promise<Predicti
   if (!response.prediction) return null;
   return {
     success_probability: response.prediction.success_probability,
-    personalized: false,
+    base_success_probability: response.prediction.base_success_probability,
+    personalized: response.prediction.personalization?.applied ?? false,
+    personalization: response.prediction.personalization,
     predicted_failure_reason: response.prediction.predicted_failure_reason,
     failure_probabilities: response.prediction.failure_reason_probabilities,
     top_positive_factors: [],

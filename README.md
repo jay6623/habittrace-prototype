@@ -65,9 +65,9 @@ User-owned API routes validate the Supabase access token. The backend derives `u
 ### AI responsibilities
 
 - **Scheduling rules** remove time conflicts and enforce saved planning hours and buffers.
-- **HabitTrace AI V2** is the local custom scoring model. It evaluates plan inputs, produces experimental completion/failure guidance, and ranks conflict-free time candidates. The desktop Daily Brief and Scheduler identify it explicitly; its current artifacts are synthetic and are not presented as validated personal probabilities.
+- **HabitTrace AI V2** is the local custom scoring model. It evaluates plan inputs, produces experimental completion/failure guidance, and ranks conflict-free time candidates. Runtime scores are conservatively adjusted with the authenticated user's completed-task history (category, time of day, weekday, duration, and recency); the shared artifacts remain synthetic and the adjusted values are not presented as validated personal probabilities.
 - **Gemini** is the conversational layer. It parses planning requests and explains database-backed user patterns, but it does not replace or train the AI V2 scoring model.
-- **Outcome records** supply a future retraining dataset. Saving an outcome does not update a model online; promotion still requires an offline export, validation, retraining, and artifact release.
+- **Outcome records** immediately update the history-based personalization layer, but they do not retrain the shared model online. Model promotion still requires an offline export, validation, retraining, and artifact release.
 
 ## Requirements
 
@@ -200,7 +200,7 @@ Use separate terminals:
 ```powershell
 # Terminal 1
 cd backend
-uvicorn app.main:app --reload --port 8000
+.venv/bin/python -m uvicorn app.main:app --reload --port 8000
 
 # Terminal 2
 cd habittrace_frontend_dev-main

@@ -15,6 +15,8 @@ This directory contains the HabitTrace web application and installable mobile PW
 
 The same Next.js project serves desktop and mobile with shared Today, Plans, Groups, Insights, and Settings navigation. Plans includes list, calendar, and scheduler views; the coach opens in a dialog without leaving the current screen.
 
+Dashboard and Scheduler success estimates use the shared planning model plus a conservative adjustment from the signed-in user's completed plans. The UI shows the number of prior plans used when personalization is active. New outcomes affect subsequent estimates without retraining the shared model.
+
 ### Desktop
 
 Desktop routes retain the full planning and analysis tools:
