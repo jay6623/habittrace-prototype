@@ -14,10 +14,10 @@ import {
 
 // ── Suggestion chips shown at start ──────────────────────────────────────────
 const SUGGESTIONS = [
-  "Why do my Study tasks keep failing?",
-  "What's my best time to schedule deep work?",
-  "How can I reduce interruptions?",
-  "Give me a tip based on my patterns",
+  "Review my last 30 days. What is the clearest pattern, and what should I try next?",
+  "When do I complete focused work most reliably? Include the sample size.",
+  "Why might my Study plans be failing? Use my duration and interruption history.",
+  "Help me choose one realistic planning experiment for this week.",
 ];
 
 // ── Category options ──────────────────────────────────────────────────────────
