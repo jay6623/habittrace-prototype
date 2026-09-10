@@ -477,7 +477,7 @@ export default function DesktopCommandCenter() {
             )}
             <div className="mt-6 flex gap-2">
               <Link href="/dashboard/scheduler" className="rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-800">Review schedule</Link>
-              <button onClick={() => window.dispatchEvent(new Event("habittrace:open-coach"))} className="rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-emerald-900 ring-1 ring-emerald-200">Discuss with Gemini</button>
+              <button onClick={() => window.dispatchEvent(new Event("habittrace:open-coach"))} className="rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-emerald-900 ring-1 ring-emerald-200">Ask coach</button>
             </div>
           </section>
 

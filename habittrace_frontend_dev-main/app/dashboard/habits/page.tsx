@@ -33,6 +33,24 @@ import OutcomeSheet, {
 import Dialog from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
 
+const CATEGORY_STYLES: Record<string, string> = {
+  Work: "bg-sky-50 text-sky-700 ring-sky-100",
+  Study: "bg-violet-50 text-violet-700 ring-violet-100",
+  Chores: "bg-amber-50 text-amber-700 ring-amber-100",
+  "Fitness/Health": "bg-emerald-50 text-emerald-700 ring-emerald-100",
+  "Errands/Admin": "bg-orange-50 text-orange-700 ring-orange-100",
+  "Hobbies/Leisure": "bg-fuchsia-50 text-fuchsia-700 ring-fuchsia-100",
+  Social: "bg-cyan-50 text-cyan-700 ring-cyan-100",
+  Other: "bg-slate-100 text-slate-600 ring-slate-200",
+};
+
+function formatPlannedMinutes(minutes: number) {
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return remainder ? `${hours}h ${remainder}m` : `${hours}h`;
+}
+
 export default function PlansPage() {
   return (
     <Suspense fallback={<p role="status">Loading plans…</p>}>
@@ -211,61 +229,88 @@ function Plans() {
   const visible = tasks.filter(
     (t) => filter === "all" || t.task_status === filter || t.id === selected,
   );
+  const completedCount = tasks.filter((task) => task.task_status === "success").length;
+  const remainingCount = tasks.filter((task) => task.task_status === "pending").length;
+  const plannedMinutes = tasks.reduce(
+    (total, task) => total + task.planned_duration_min,
+    0,
+  );
   return (
-    <div className="space-y-6">
-      <header className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Your plans</h1>
-          <p className="mt-2 text-sm text-slate-500">
-            Make a little room for what matters today.
-          </p>
+    <div className="space-y-4 pb-6">
+      <header className="overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-lime-50 shadow-sm">
+        <div className="flex flex-wrap items-center gap-3 px-4 py-4 sm:px-5">
+          <div className="mr-auto min-w-48">
+            <h1 className="text-2xl font-bold tracking-tight text-slate-950">Your plans</h1>
+            <p className="mt-0.5 text-sm text-emerald-900/65">
+              Make room for what matters today.
+            </p>
+          </div>
+          <div className="flex items-center rounded-xl border border-emerald-100 bg-white p-1 shadow-sm">
+            <button
+              className="grid min-h-9 min-w-9 place-items-center rounded-lg text-slate-500 transition hover:bg-emerald-50 hover:text-emerald-800"
+              aria-label="Previous day"
+              onClick={() => offset(-1)}
+            >
+              ←
+            </button>
+            <input
+              aria-label="Plan date"
+              className="min-h-9 w-[8.8rem] border-0 bg-transparent px-2 text-sm font-semibold text-slate-800 outline-none"
+              type="date"
+              value={date}
+              onChange={(e) => {
+                if (e.target.value) setDate(e.target.value);
+              }}
+            />
+            <button
+              className="grid min-h-9 min-w-9 place-items-center rounded-lg text-slate-500 transition hover:bg-emerald-50 hover:text-emerald-800"
+              aria-label="Next day"
+              onClick={() => offset(1)}
+            >
+              →
+            </button>
+          </div>
+          <button
+            className="min-h-11 rounded-xl border border-emerald-200 bg-white px-4 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-50"
+            onClick={() => setDate(localDateString())}
+          >
+            Today
+          </button>
+          <select
+            aria-label="Filter plans by status"
+            className="min-h-11 rounded-xl border border-emerald-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none focus:border-emerald-500"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          >
+            <option value="all">All plans</option>
+            <option value="pending">Planned</option>
+            <option value="success">Completed</option>
+            <option value="failed">Not completed</option>
+          </select>
+          <button
+            className="inline-flex min-h-11 items-center justify-center rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-700"
+            onClick={() => setEditing("new")}
+          >
+            + Add plan
+          </button>
         </div>
-        <button className="btn-primary" onClick={() => setEditing("new")}>
-          + Add plan
-        </button>
+        <div className="grid grid-cols-3 divide-x divide-emerald-100 border-t border-emerald-100 bg-white/65">
+          <div className="px-4 py-2.5 sm:px-5">
+            <p className="text-lg font-bold text-slate-950">{tasks.length}</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Plans</p>
+          </div>
+          <div className="px-4 py-2.5 sm:px-5">
+            <p className="text-lg font-bold text-slate-950">{formatPlannedMinutes(plannedMinutes)}</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Planned</p>
+          </div>
+          <div className="px-4 py-2.5 sm:px-5">
+            <p className="text-lg font-bold text-emerald-700">{completedCount}/{tasks.length}</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              Completed · {remainingCount} left
+            </p>
+          </div>
+        </div>
       </header>
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          className="btn-secondary"
-          aria-label="Previous day"
-          onClick={() => offset(-1)}
-        >
-          ←
-        </button>
-        <input
-          aria-label="Plan date"
-          className="field !w-auto"
-          type="date"
-          value={date}
-          onChange={(e) => {
-            if (e.target.value) setDate(e.target.value);
-          }}
-        />
-        <button
-          className="btn-secondary"
-          aria-label="Next day"
-          onClick={() => offset(1)}
-        >
-          →
-        </button>
-        <button
-          className="btn-secondary"
-          onClick={() => setDate(localDateString())}
-        >
-          Today
-        </button>
-        <select
-          aria-label="Filter plans by status"
-          className="field !w-auto sm:ml-auto"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-        >
-          <option value="all">All plans</option>
-          <option value="pending">Planned</option>
-          <option value="success">Completed</option>
-          <option value="failed">Not completed</option>
-        </select>
-      </div>
       {loading ? (
         <p role="status" className="panel">
           Loading plans…
@@ -278,7 +323,7 @@ function Plans() {
           </button>
         </div>
       ) : visible.length === 0 ? (
-        <div className="panel py-12 text-center">
+        <div className="rounded-2xl border border-dashed border-emerald-200 bg-emerald-50/50 py-10 text-center">
           <h2 className="text-xl font-semibold">
             {tasks.length ? "No plans match this filter" : "A fresh start"}
           </h2>
@@ -292,77 +337,124 @@ function Plans() {
           </button>
         </div>
       ) : (
-        <ul className="space-y-4">
+        <ul className="divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white shadow-sm">
           {visible.map((task) => (
             <li
               id={`plan-${task.id}`}
               key={task.id}
-              className={`panel scroll-mt-28 ${selected === task.id ? "ring-2 ring-sky-500" : ""}`}
+              className={`group relative scroll-mt-28 px-4 py-3.5 transition sm:px-5 ${
+                selected === task.id
+                  ? "bg-emerald-50/80 ring-2 ring-inset ring-emerald-400"
+                  : "hover:bg-slate-50/80"
+              }`}
             >
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="mb-1 text-sm text-slate-500">
-                    {task.planned_start_time} · {task.planned_duration_min} min
-                    · {task.task_category}
+              <div className="grid gap-3 sm:grid-cols-[5.5rem_minmax(0,1fr)_auto] sm:items-center">
+                <div className="flex items-center gap-3 sm:block">
+                  <p className="text-sm font-bold tabular-nums text-slate-700">
+                    {task.planned_start_time}
                   </p>
-                  <h2 className="break-words text-xl font-semibold">
-                    {task.title}
-                  </h2>
+                  <span
+                    aria-hidden="true"
+                    className={`mt-1 block h-2.5 w-2.5 rounded-full ring-4 ring-white ${
+                      active[task.id]
+                        ? "animate-pulse bg-emerald-500"
+                        : task.task_status === "success"
+                          ? "bg-emerald-400"
+                          : task.task_status === "failed"
+                            ? "bg-rose-300"
+                            : "bg-slate-300"
+                    }`}
+                  />
                 </div>
-                <span
-                  className={`rounded-full px-3 py-1 text-xs font-semibold ${task.task_status === "success" ? "bg-emerald-50 text-emerald-800" : "bg-slate-100 text-slate-600"}`}
-                >
-                  {active[task.id]
-                    ? "In progress"
-                    : task.task_status === "success"
-                      ? "Completed"
-                      : task.task_status === "failed"
-                        ? "Not completed"
-                        : "Planned"}
-                </span>
-              </div>
-              <div className="mt-5 flex flex-wrap gap-2">
-                {task.task_status === "pending" && (
-                  <>
-                    <button
-                      disabled={busy || !!active[task.id]}
-                      className="btn-primary"
-                      onClick={() => void begin(task)}
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="break-words text-base font-bold text-slate-950 sm:text-lg">
+                      {task.title}
+                    </h2>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${
+                        CATEGORY_STYLES[task.task_category] ?? CATEGORY_STYLES.Other
+                      }`}
                     >
-                      {active[task.id] ? "In progress" : "Start"}
-                    </button>
-                    <button
-                      disabled={busy}
-                      className="btn-secondary"
-                      onClick={() => {
-                        setOutcome(task);
-                        setOutcomeError(null);
-                      }}
+                      {task.task_category}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs font-medium text-slate-500">
+                    {task.planned_duration_min} min
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                  <span
+                    className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                      active[task.id]
+                        ? "bg-emerald-600 text-white"
+                        : task.task_status === "success"
+                          ? "bg-emerald-100 text-emerald-800"
+                          : task.task_status === "failed"
+                            ? "bg-rose-50 text-rose-700"
+                            : "bg-slate-100 text-slate-600"
+                    }`}
+                  >
+                    {active[task.id]
+                      ? "In progress"
+                      : task.task_status === "success"
+                        ? "Completed"
+                        : task.task_status === "failed"
+                          ? "Not completed"
+                          : "Planned"}
+                  </span>
+                  {task.task_status === "pending" && (
+                    <>
+                      <button
+                        disabled={busy || !!active[task.id]}
+                        className="inline-flex min-h-9 items-center justify-center rounded-lg bg-emerald-600 px-3 text-xs font-bold text-white transition hover:bg-emerald-700 disabled:bg-slate-300"
+                        onClick={() => void begin(task)}
+                      >
+                        {active[task.id] ? "In progress" : "Start"}
+                      </button>
+                      <button
+                        disabled={busy}
+                        className="inline-flex min-h-9 items-center justify-center rounded-lg bg-emerald-50 px-3 text-xs font-bold text-emerald-800 transition hover:bg-emerald-100"
+                        onClick={() => {
+                          setOutcome(task);
+                          setOutcomeError(null);
+                        }}
+                      >
+                        Log outcome
+                      </button>
+                    </>
+                  )}
+                  <Link
+                    className="inline-flex min-h-9 items-center justify-center rounded-lg bg-slate-100 px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-200"
+                    href={`/dashboard/scheduler?date=${date}&task=${task.id}`}
+                  >
+                    Find time
+                  </Link>
+                  <details className="relative">
+                    <summary
+                      aria-label={`More actions for ${task.title}`}
+                      className="grid min-h-9 min-w-9 list-none place-items-center rounded-lg text-lg font-bold text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 [&::-webkit-details-marker]:hidden"
                     >
-                      Log outcome
-                    </button>
-                  </>
-                )}
-                <button
-                  className="btn-secondary"
-                  disabled={busy}
-                  onClick={() => setEditing(task)}
-                >
-                  Edit
-                </button>
-                <Link
-                  className="btn-secondary"
-                  href={`/dashboard/scheduler?date=${date}&task=${task.id}`}
-                >
-                  Find a time
-                </Link>
-                <button
-                  className="btn-secondary !text-rose-700 sm:ml-auto"
-                  disabled={busy}
-                  onClick={() => setRemoving(task)}
-                >
-                  Delete
-                </button>
+                      ···
+                    </summary>
+                    <div className="absolute right-0 top-10 z-20 min-w-32 overflow-hidden rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
+                      <button
+                        className="block w-full rounded-lg px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                        disabled={busy}
+                        onClick={() => setEditing(task)}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        className="block w-full rounded-lg px-3 py-2 text-left text-sm font-semibold text-rose-700 hover:bg-rose-50"
+                        disabled={busy}
+                        onClick={() => setRemoving(task)}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </details>
+                </div>
               </div>
             </li>
           ))}
