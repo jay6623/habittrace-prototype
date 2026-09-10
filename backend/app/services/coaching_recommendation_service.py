@@ -103,7 +103,7 @@ class CoachingRecommendationService:
                 hour_rate = float(hour_pattern["success_rate"]) / 100
                 score = score * 0.55 + hour_rate * 0.45
                 reasons.append(
-                    f"Your recorded success rate around {current.strftime('%-I %p')} is "
+                    f"Your recorded success rate around {current.strftime('%I %p').lstrip('0')} is "
                     f"{hour_pattern['success_rate']}% across {hour_pattern['sample_size']} tasks."
                 )
             category_pattern = category_lookup.get(category.lower())

@@ -9,6 +9,7 @@ from app.schemas.coach_tools import ToolCall, ToolDecision
 from app.services.chat_service import ChatService
 from app.services.coach_tool_registry import CoachToolRegistry
 from app.services.coaching_context_service import CoachingContextService
+from app.services.llm_client import LLMProviderError
 
 
 class _Result:
@@ -117,7 +118,7 @@ class _PlanningLLM:
 
     async def select_tools(self, system_prompt, messages, tools):
         self.tool_selection_called = True
-        raise AssertionError("Phase 1 tool selection must not replace planning")
+        raise LLMProviderError("selector unavailable")
 
 
 class _PlanningContext:
@@ -171,7 +172,7 @@ def test_basic_conversation_can_select_zero_tools_and_keeps_sse_contract() -> No
 
     assert payloads == [{"token": "A compatible streamed response."}]
     assert events[-1] == "data: [DONE]\n\n"
-    assert len(llm.tools) == 4
+    assert len(llm.tools) == 5
     assert '"tool_results": []' in llm.final_messages[0]["content"]
 
 
@@ -295,6 +296,7 @@ def test_unknown_and_malformed_tool_calls_fail_safely() -> None:
         "get_failure_patterns",
         "get_schedule",
         "get_user_preferences",
+        "find_available_times",
     }
     assert db.reads == []
 
@@ -321,11 +323,12 @@ def test_phase_one_registry_has_no_mutating_tool_and_reads_do_not_write() -> Non
     )
 
 
-def test_existing_planning_proposal_flow_does_not_use_phase_one_tools() -> None:
+def test_existing_planning_parser_is_a_selector_failure_fallback() -> None:
     service = ChatService(None)
     service.llm = _PlanningLLM()
     service.context_service = _PlanningContext()
     service.repository = _ProposalRepository()
+    service.tool_registry = CoachToolRegistry(service.context_service)
     service._open_conversation = lambda _user, _conversation: (None, [])
 
     async def collect() -> list[str]:
@@ -342,7 +345,7 @@ def test_existing_planning_proposal_flow_does_not_use_phase_one_tools() -> None:
     events = asyncio.run(collect())
     payloads = _event_payloads(events)
 
-    assert service.llm.tool_selection_called is False
+    assert service.llm.tool_selection_called is True
     assert service.repository.proposals
     assert any(payload.get("proposal", {}).get("id") == "proposal-1" for payload in payloads)
     assert events[-1] == "data: [DONE]\n\n"

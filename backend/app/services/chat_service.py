@@ -16,6 +16,7 @@ from ..schemas.chat import AgentIntent, PlanDraft
 from .coach_repository import CoachRepository
 from .coach_tool_registry import CoachToolRegistry
 from .coaching_context_service import CoachingContextService
+from .coaching_planning_service import CoachingPlanningService
 from .coaching_recommendation_service import CoachingRecommendationService
 from .llm_client import LLMClientError, get_llm_client
 
@@ -32,11 +33,22 @@ class ChatService:
     def __init__(self, db: Client | None) -> None:
         self.db = db
         self.context_service = CoachingContextService(db) if db else None
-        self.tool_registry = (
-            CoachToolRegistry(self.context_service) if self.context_service else None
-        )
         self.repository = CoachRepository(db) if db else None
         self.recommender = CoachingRecommendationService()
+        self.planning_service = (
+            CoachingPlanningService(
+                self.context_service,
+                self.recommender,
+                self.repository,
+            )
+            if self.context_service
+            else None
+        )
+        self.tool_registry = (
+            CoachToolRegistry(self.context_service, self.planning_service)
+            if self.context_service
+            else None
+        )
         self.llm = get_llm_client()
 
     def latest_conversation(self, user_id: str) -> dict | None:
@@ -129,7 +141,7 @@ SELECTED_TOOL_RESULTS_JSON:
             today = datetime.now(ZoneInfo(timezone_name)).date().isoformat()
         except ZoneInfoNotFoundError:
             today = date.today().isoformat()
-        return f"""You select read-only HabitTrace data tools for one AI Coach turn.
+        return f"""You select HabitTrace tools for one AI Coach turn.
 
 Today is {today}; the user's IANA timezone is {timezone_name}. Interpret the user's natural
 language and recent conversation semantically. Do not depend on exact phrases or keywords.
@@ -137,9 +149,19 @@ Select only information that would materially improve the answer. Return an empt
 ordinary conversation that does not require personal HabitTrace records. Use category and/or
 title_query to keep task evidence scoped when the user refers to a particular kind of activity.
 Use compare_previous_period for comparisons over time. Resolve relative schedule dates using
-today and the timezone above. Never invent missing arguments. Never request a user_id: the server
-supplies authenticated identity. These tools are read-only and cannot create or change anything.
-Return only data matching the response schema."""
+today and the timezone above.
+
+Use find_available_times for natural planning and scheduling requests. Infer its arguments from
+the current message and recent conversation. Never invent a missing date or duration: omit it so
+the backend can report what needs clarification. Use mode=suggest_times for informational timing
+or availability advice. Use mode=create_task_proposal only when the user explicitly asks to add,
+schedule, or create a task. That mode creates only a pending proposal requiring user confirmation;
+it never creates a task. Multiple tools may be selected when performance or failure evidence would
+materially improve a time recommendation.
+
+Never request a user_id: the server supplies authenticated identity. No tool can directly create
+a task, change the schedule, or modify Google Calendar. Return only data matching the response
+schema."""
 
     async def _select_coaching_context(
         self,
@@ -147,12 +169,17 @@ Return only data matching the response schema."""
         message: str,
         history: list[dict],
         timezone_name: str,
-    ) -> dict:
+        conversation_id: str | None,
+    ) -> tuple[dict, list[dict], bool]:
         if not self.tool_registry:
-            return {
-                "tool_results": [],
-                "data_notes": ["HabitTrace data is unavailable for this response."],
-            }
+            return (
+                {
+                    "tool_results": [],
+                    "data_notes": ["HabitTrace data is unavailable for this response."],
+                },
+                [],
+                True,
+            )
         messages = [
             {"role": item["role"], "content": str(item["content"])}
             for item in history[-6:]
@@ -167,16 +194,23 @@ Return only data matching the response schema."""
             )
         except LLMClientError as exc:
             logger.warning("Coach tool selection failed safely; using no user data: %s", exc)
-            return {
-                "tool_results": [],
-                "data_notes": ["No HabitTrace data was loaded for this response."],
-            }
+            return (
+                {
+                    "tool_results": [],
+                    "data_notes": ["No HabitTrace data was loaded for this response."],
+                },
+                [],
+                True,
+            )
         results = self.tool_registry.execute_many(
             decision.calls,
             user_id=user_id,
             timezone_name=timezone_name,
+            conversation_id=conversation_id,
         )
-        return {"tool_results": [result.model_dump() for result in results]}
+        proposals = [result.proposal for result in results if result.proposal]
+        context_results = [result.model_dump(exclude={"proposal"}) for result in results]
+        return {"tool_results": context_results}, proposals, False
 
     def _open_conversation(
         self, user_id: str, requested_id: UUID | None
@@ -455,33 +489,46 @@ Return only data matching the response schema."""
             except Exception as exc:
                 logger.warning("Could not persist user coach message: %s", exc)
 
-        intent = await self._classify_intent(message, timezone_name, usable_history)
-        if intent.intent == "save_preferences":
-            async for event in self._handle_preferences(
-                user_id, intent, conversation_id_str, timezone_name
-            ):
-                yield event
-            return
+        legacy_hint = self._fallback_intent(message, usable_history, timezone_name)
+        if legacy_hint.intent == "save_preferences":
+            preference_intent = await self._classify_intent(
+                message,
+                timezone_name,
+                usable_history,
+            )
+            if preference_intent.intent == "save_preferences":
+                async for event in self._handle_preferences(
+                    user_id,
+                    preference_intent,
+                    conversation_id_str,
+                    timezone_name,
+                ):
+                    yield event
+                return
 
-        if intent.intent == "plan":
-            through_date = intent.plan.planned_date if intent.plan else None
+        context, proposals, selection_failed = await self._select_coaching_context(
+            user_id,
+            message,
+            usable_history,
+            timezone_name,
+            conversation_id_str,
+        )
+        # Temporary compatibility fallback only when structured tool selection is unavailable.
+        if selection_failed and legacy_hint.intent == "plan":
+            through_date = legacy_hint.plan.planned_date if legacy_hint.plan else None
             context = (
                 self.context_service.build(user_id, timezone_name, through_date)
                 if self.context_service
                 else {"data_notes": ["The database is not configured."]}
             )
             async for event in self._handle_plan(
-                user_id, intent.plan, context, conversation_id_str
+                user_id,
+                legacy_hint.plan,
+                context,
+                conversation_id_str,
             ):
                 yield event
             return
-
-        context = await self._select_coaching_context(
-            user_id,
-            message,
-            usable_history,
-            timezone_name,
-        )
         system_prompt = self._coach_system_prompt(context, timezone_name)
         messages = [{"role": "system", "content": system_prompt}]
         for item in usable_history[-MAX_HISTORY:]:
@@ -506,6 +553,8 @@ Return only data matching the response schema."""
 
         if completed:
             self._persist_assistant(conversation_id_str, user_id, full_text)
+            for proposal in proposals:
+                yield _sse({"proposal": proposal})
         yield _sse("[DONE]")
 
     async def _handle_preferences(
