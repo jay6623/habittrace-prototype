@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class TrendPoint(BaseModel):
@@ -37,4 +37,55 @@ class PlanHealth(BaseModel):
     overall_success_probability: float  # average predicted P(success) for today's tasks
     task_count: int
     risks: list[dict[str, str]]  # [{"level": "high", "title": ..., "detail": ...}]
-    tasks: list[TaskSummary] = []  # today's tasks with per-task predictions
+    tasks: list[TaskSummary] = Field(default_factory=list)
+
+
+class OutlookTask(BaseModel):
+    id: str
+    title: str
+    success_probability: float
+    predicted_failure_reason: str | None = None
+
+
+class OutlookPersonalization(BaseModel):
+    applied: bool
+    sample_count: int
+    confidence: float
+    history_success_rate: float | None = None
+    factors: list[dict] = Field(default_factory=list)
+
+
+class PersonalizedOutlook(BaseModel):
+    available: bool
+    reason: str | None = None
+    date: str | None = None
+    task_count: int
+    predicted_success_probability: float | None = None
+    highest_potential: OutlookTask | None = None
+    needs_attention: OutlookTask | None = None
+    recommendation: dict | None = None
+    personalization: OutlookPersonalization
+
+
+class PersonalizedPattern(BaseModel):
+    type: str
+    label: str
+    direction: str
+    sample_count: int
+    success_rate: float
+    difference: float
+    message: str
+
+
+class PersonalizedInsights(BaseModel):
+    available: bool
+    reason: str | None = None
+    period: str
+    sample_count: int
+    confidence_label: str
+    success_rate: float | None = None
+    previous_success_rate: float | None = None
+    change_percentage_points: float | None = None
+    strongest_pattern: PersonalizedPattern | None = None
+    pattern_to_watch: PersonalizedPattern | None = None
+    recommended_experiment: dict[str, str]

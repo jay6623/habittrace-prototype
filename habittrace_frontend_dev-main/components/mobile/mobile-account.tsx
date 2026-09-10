@@ -5,6 +5,8 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/app/providers";
 import { supabase } from "@/lib/supabase";
+import { syncProfileDisplayName } from "@/lib/profile";
+import { notifyDataChanged } from "@/lib/refresh";
 
 export default function MobileAccount() {
   const { user, displayName } = useAuth();
@@ -36,6 +38,9 @@ export default function MobileAccount() {
         data: { first_name: nextName },
       });
       if (error) throw error;
+      if (!user) throw new Error("Your session has expired.");
+      await syncProfileDisplayName(user.id, nextName);
+      notifyDataChanged();
       setName(nextName);
       setMessage({ text: "Profile updated.", tone: "success" });
     } catch (caught) {

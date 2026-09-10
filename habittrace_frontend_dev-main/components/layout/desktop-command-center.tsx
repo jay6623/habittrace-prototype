@@ -31,6 +31,7 @@ import OutcomeSheet, {
   type OutcomeTimes,
 } from "@/components/mobile/outcome-sheet";
 import QuickAddForm from "@/components/mobile/quick-add-form";
+import PersonalizedOutlookCard from "@/components/personalized-outlook-card";
 
 function sortTasks(left: Task, right: Task) {
   return taskTimeInMinutes(left.planned_start_time) - taskTimeInMinutes(right.planned_start_time);
@@ -84,7 +85,6 @@ export default function DesktopCommandCenter() {
   const [savingOutcome, setSavingOutcome] = useState(false);
   const [outcomeError, setOutcomeError] = useState<string | null>(null);
   const [aiPredictions, setAiPredictions] = useState<Record<string, Prediction>>({});
-  const [aiLoading, setAiLoading] = useState(false);
   const today = localDateString();
 
   const load = useCallback(async () => {
@@ -141,10 +141,8 @@ export default function DesktopCommandCenter() {
     const eligible = todayTasks.filter((task) => task.task_status === "pending");
     if (!eligible.length) {
       setAiPredictions({});
-      setAiLoading(false);
       return;
     }
-    setAiLoading(true);
     void Promise.allSettled(
       eligible.map(async (task) => {
         const planId = task.ai_plan_input_id ?? (await ensureAIPlan(task));
@@ -176,72 +174,11 @@ export default function DesktopCommandCenter() {
           }),
         );
       }
-      setAiLoading(false);
     });
     return () => {
       cancelled = true;
     };
   }, [todayTasks]);
-
-  const aiAssessment = useMemo(() => {
-    const assessed = pending
-      .map((task) => ({ task, prediction: aiPredictions[task.id] }))
-      .filter(
-        (item): item is { task: Task; prediction: Prediction } =>
-          Boolean(item.prediction),
-      )
-      .sort(
-        (left, right) =>
-          left.prediction.success_probability - right.prediction.success_probability,
-      );
-    return assessed[0] ?? null;
-  }, [aiPredictions, pending]);
-
-  const brief = useMemo(() => {
-    if (todayTasks.length === 0) {
-      return {
-        eyebrow: "A clear page",
-        title: "Shape the day around one meaningful plan.",
-        detail: "Start with a focused block you can realistically finish. You can build from there.",
-      };
-    }
-    if (activeTask) {
-      return {
-        eyebrow: "Protect your focus",
-        title: `Stay with ${activeTask.title}.`,
-        detail: `You marked this plan in progress. Finish or record an outcome before switching context.`,
-      };
-    }
-    if (aiAssessment) {
-      const action = aiAssessment.prediction.recommended_actions?.[0];
-      return {
-        eyebrow: "Personalized recommendation",
-        title: `${aiAssessment.task.title} needs the most preparation.`,
-        detail:
-          action?.detail ??
-          "This plan may need more preparation than your other plans today. Review its scope and timing before you begin.",
-        actionTitle: action?.title,
-        source: "ai-v2" as const,
-      };
-    }
-    if (nextTask) {
-      const crowded = plannedMinutes > 360;
-      return {
-        eyebrow: crowded ? "An ambitious day" : "Your next best move",
-        title: `${nextTask.title} at ${formatTaskTime(nextTask.planned_start_time)}.`,
-        detail: crowded
-          ? `You planned ${formatMinutes(plannedMinutes)} today. Keep some buffer between demanding blocks.`
-          : `A ${nextTask.planned_duration_min}-minute block is next. Clear the first small step before it begins.`,
-        source: "rules" as const,
-      };
-    }
-    return {
-      eyebrow: "Day complete",
-      title: "Everything planned for today has an outcome.",
-      detail: "Take a moment to review what worked before planning tomorrow.",
-      source: "rules" as const,
-    };
-  }, [activeTask, aiAssessment, nextTask, plannedMinutes, todayTasks.length]);
 
   async function handleQuickAdd(draft: QuickAddDraft) {
     const count = tasks.filter((task) => task.planned_date === draft.plannedDate).length;
@@ -450,36 +387,7 @@ export default function DesktopCommandCenter() {
         </section>
 
         <div className="space-y-6">
-          <section className="overflow-hidden rounded-3xl bg-emerald-50 p-6 ring-1 ring-emerald-100" aria-labelledby="brief-title">
-            <div className="flex items-center justify-between">
-              <span className="grid h-10 w-10 place-items-center rounded-2xl bg-emerald-600 font-bold text-white">✦</span>
-              <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">
-                {brief.source === "ai-v2"
-                  ? "Personalized recommendation · Experimental"
-                  : aiLoading
-                    ? "Preparing personalized recommendations"
-                    : "Schedule-based guidance"}
-              </span>
-            </div>
-            <p className="mt-6 text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">{brief.eyebrow}</p>
-            <h2 id="brief-title" className="mt-2 text-2xl font-bold leading-tight tracking-tight text-slate-950">{brief.title}</h2>
-            <p className="mt-3 text-sm leading-relaxed text-slate-600">{brief.detail}</p>
-            {brief.actionTitle && (
-              <p className="mt-4 rounded-xl bg-white/70 px-3 py-2 text-sm font-semibold text-emerald-950 ring-1 ring-emerald-100">
-                Recommendation: {brief.actionTitle}
-              </p>
-            )}
-            {brief.source === "ai-v2" && (
-              <p className="mt-3 text-[11px] leading-relaxed text-emerald-900/65">
-                Estimates are experimental planning guidance and are not yet validated
-                as personal success probabilities.
-              </p>
-            )}
-            <div className="mt-6 flex gap-2">
-              <Link href="/dashboard/scheduler" className="rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-800">Review schedule</Link>
-              <button onClick={() => window.dispatchEvent(new Event("habittrace:open-coach"))} className="rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-emerald-900 ring-1 ring-emerald-200">Ask coach</button>
-            </div>
-          </section>
+          <PersonalizedOutlookCard />
 
           <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm" aria-labelledby="week-title">
             <div className="flex items-end justify-between gap-4">

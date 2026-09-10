@@ -3,6 +3,8 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import { syncProfileDisplayName } from "@/lib/profile";
+import { notifyDataChanged } from "@/lib/refresh";
 
 interface AuthContextType {
   user: User | null;
@@ -68,6 +70,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       subscription.unsubscribe();
     };
   }, []);
+
+  const authDisplayName = user?.user_metadata?.first_name;
+  useEffect(() => {
+    if (!user || typeof authDisplayName !== "string" || !authDisplayName.trim())
+      return;
+    let active = true;
+    void syncProfileDisplayName(user.id, authDisplayName)
+      .then(() => {
+        if (active) notifyDataChanged();
+      })
+      .catch((error) => {
+        console.warn("Could not synchronize the public profile name:", error);
+      });
+    return () => {
+      active = false;
+    };
+  }, [authDisplayName, user]);
 
   // Resolve the user's display name.
   const displayName =

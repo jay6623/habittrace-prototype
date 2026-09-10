@@ -28,14 +28,15 @@ BEGIN
     NEW.id,
     COALESCE(NEW.raw_user_meta_data->>'first_name', split_part(NEW.email, '@', 1))
   )
-  ON CONFLICT (id) DO NOTHING;
+  ON CONFLICT (id) DO UPDATE
+  SET display_name = EXCLUDED.display_name;
   RETURN NEW;
 END;
 $$;
 
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
+  AFTER INSERT OR UPDATE OF raw_user_meta_data ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
 -- ── Tasks ────────────────────────────────────────────────────────────────────

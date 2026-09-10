@@ -258,6 +258,49 @@ export interface PlanHealth {
   tasks: TaskSummary[];
 }
 
+export interface PersonalizedOutlookTask {
+  id: string;
+  title: string;
+  success_probability: number;
+  predicted_failure_reason: string | null;
+}
+
+export interface PersonalizedOutlook {
+  available: boolean;
+  reason: "no_pending_plans" | "model_unavailable" | null;
+  date: string | null;
+  task_count: number;
+  predicted_success_probability: number | null;
+  highest_potential: PersonalizedOutlookTask | null;
+  needs_attention: PersonalizedOutlookTask | null;
+  recommendation: { code: string; title: string; detail: string } | null;
+  personalization: PersonalizationSummary;
+}
+
+export interface PersonalizedPattern {
+  type: "category" | "time_of_day" | "weekday" | "duration";
+  label: string;
+  direction: "positive" | "negative";
+  sample_count: number;
+  success_rate: number;
+  difference: number;
+  message: string;
+}
+
+export interface PersonalizedInsights {
+  available: boolean;
+  reason: "insufficient_data" | null;
+  period: "week" | "month" | "3months";
+  sample_count: number;
+  confidence_label: "learning" | "early" | "moderate" | "strong";
+  success_rate: number | null;
+  previous_success_rate: number | null;
+  change_percentage_points: number | null;
+  strongest_pattern: PersonalizedPattern | null;
+  pattern_to_watch: PersonalizedPattern | null;
+  recommended_experiment: { title: string; detail: string };
+}
+
 // ── Auth headers ────────────────────────────────────────────────────────────
 
 async function buildHeaders(): Promise<HeadersInit> {
@@ -809,6 +852,25 @@ export async function getAnalyticsSummary(
 
 export async function getPlanHealth(): Promise<PlanHealth> {
   return apiFetch<PlanHealth>("/analytics/plan-health");
+}
+
+export async function getPersonalizedOutlook(): Promise<PersonalizedOutlook> {
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const params = new URLSearchParams({
+    date: localDateString(),
+    timezone_name: timezone,
+  });
+  return apiFetch<PersonalizedOutlook>(`/analytics/personalized-outlook?${params}`);
+}
+
+export async function getPersonalizedInsights(
+  period: "week" | "month" | "3months",
+): Promise<PersonalizedInsights> {
+  const params = new URLSearchParams({
+    period,
+    end_date: localDateString(),
+  });
+  return apiFetch<PersonalizedInsights>(`/analytics/personalized-insights?${params}`);
 }
 
 // ── Chat (streaming SSE) ─────────────────────────────────────────────────────

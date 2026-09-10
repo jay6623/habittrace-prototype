@@ -29,6 +29,7 @@ import OutcomeSheet, {
   type OutcomeTimes,
 } from "./outcome-sheet";
 import QuickAddForm from "./quick-add-form";
+import PersonalizedOutlookCard from "@/components/personalized-outlook-card";
 
 interface ToastState {
   message: string;
@@ -425,6 +426,9 @@ export default function MobileToday() {
                 <p className="mt-1 text-xs text-slate-500">{item.label}</p>
               </div>
             ))}
+          </div>
+          <div className="mt-5">
+            <PersonalizedOutlookCard />
           </div>
           <section className="mt-5" aria-labelledby="current-plan-title">
             <div className="mb-3 flex items-center justify-between">

@@ -1,12 +1,27 @@
 import logging
+from datetime import date
+from typing import Annotated
+from zoneinfo import ZoneInfoNotFoundError
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from supabase import Client
 
 from ..db.supabase_client import get_supabase, is_supabase_configured
 from ..dependencies.auth import CurrentUserId
-from ..schemas.analytics import AnalyticsSummary, PlanHealth
+from ..dependencies.database import get_primary_database
+from ..repositories.personalization_repository import PersonalizationRepository
+from ..schemas.analytics import (
+    AnalyticsSummary,
+    PersonalizedInsights,
+    PersonalizedOutlook,
+    PlanHealth,
+)
 from ..services.analytics_service import AnalyticsService
+from ..services.ai_v2_ml_service import get_ai_v2_ml_service
 from ..services.ml_service import get_ml_service
+from ..services.personalization_service import PersonalizationService
+from ..services.personalized_insights_service import PersonalizedInsightsService
+from ..services.personalized_outlook_service import PersonalizedOutlookService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -32,6 +47,35 @@ def analytics_summary(
     db = _require_db()
     svc = AnalyticsService(db)
     return svc.get_summary(str(user_id), period=period)
+
+
+@router.get("/personalized-outlook", response_model=PersonalizedOutlook)
+def personalized_outlook(
+    user_id: CurrentUserId,
+    db: Annotated[Client, Depends(get_primary_database)],
+    planned_date: date | None = Query(default=None, alias="date"),
+    timezone_name: str = Query(default="UTC", min_length=1, max_length=100),
+):
+    service = PersonalizedOutlookService(
+        db,
+        get_ai_v2_ml_service(),
+        PersonalizationService(PersonalizationRepository(db)),
+    )
+    try:
+        return service.get(user_id, planned_date or date.today(), timezone_name)
+    except ZoneInfoNotFoundError as exc:
+        raise HTTPException(status_code=422, detail="Unknown timezone_name.") from exc
+
+
+@router.get("/personalized-insights", response_model=PersonalizedInsights)
+def personalized_insights(
+    user_id: CurrentUserId,
+    db: Annotated[Client, Depends(get_primary_database)],
+    period: str = Query("week", pattern="^(week|month|3months)$"),
+    end_date: date | None = Query(default=None),
+):
+    service = PersonalizedInsightsService(PersonalizationRepository(db))
+    return service.get(user_id, period, end_date or date.today())
 
 
 # ── GET /analytics/plan-health ───────────────────────────────────────────────

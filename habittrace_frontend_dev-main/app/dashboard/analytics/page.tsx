@@ -17,7 +17,12 @@ import {
 import Link from "next/link";
 import { useDataRefresh } from "@/lib/refresh";
 import { Line, Bar, Doughnut } from "react-chartjs-2";
-import { getAnalyticsSummary, type AnalyticsSummary } from "@/lib/api";
+import {
+  getAnalyticsSummary,
+  getPersonalizedInsights,
+  type AnalyticsSummary,
+  type PersonalizedInsights,
+} from "@/lib/api";
 
 ChartJS.register(
   CategoryScale,
@@ -88,14 +93,21 @@ export default function AnalyticsPage() {
     "week",
   );
   const [data, setData] = useState<AnalyticsSummary>(FALLBACK);
+  const [personalized, setPersonalized] = useState<PersonalizedInsights | null>(null);
   const [loading, setLoading] = useState(true);
   const [apiError, setApiError] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
-    getAnalyticsSummary(timeRange)
-      .then((summary) => {
+    Promise.all([
+      getAnalyticsSummary(timeRange),
+      getPersonalizedInsights(timeRange).catch((error) => {
+        console.warn("Personalized insights API error:", error.message);
+        return null;
+      }),
+    ]).then(([summary, personalizedInsights]) => {
         setData(summary);
+        setPersonalized(personalizedInsights);
         setApiError(null);
       })
       .catch((err) => {
@@ -386,21 +398,87 @@ export default function AnalyticsPage() {
         </div>
       </div>
 
-      <div className="panel !bg-emerald-50">
-        <p className="font-semibold">One thing to try next</p>
-        <p className="mt-2 text-sm text-slate-700">
-          {data.best_time_of_day && data.best_time_of_day !== "—"
-            ? `Your recorded outcomes have been strongest around ${data.best_time_of_day}. Try one important plan in that window and see how it feels.`
-            : "Keep your next plan short and record how it went. A few outcomes are more useful than a packed schedule."}
-        </p>
-        <p className="mt-2 text-xs text-slate-600">
-          Based on your recorded history, not a guarantee. Small samples can be
-          misleading.
-        </p>
-        <Link href="/dashboard/scheduler" className="btn-secondary mt-3">
-          Find a time
-        </Link>
-      </div>
+      <section className="overflow-hidden rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-lime-50 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-emerald-100 px-4 py-4 sm:px-5">
+          <div>
+            <div className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-700">
+              Personalized patterns
+            </div>
+            <h2 className="mt-1 text-lg font-bold text-slate-950">
+              What AI learned from this {timeRange === "3months" ? "3-month period" : timeRange}
+            </h2>
+            <p className="mt-1 text-xs text-slate-600">
+              Completed outcomes are compared across category, time, weekday, and plan length.
+            </p>
+          </div>
+          <div className="rounded-xl bg-white px-4 py-2 text-right ring-1 ring-emerald-100">
+            <div className="text-sm font-bold capitalize text-emerald-800">
+              {personalized?.confidence_label ?? "learning"} signal
+            </div>
+            <div className="text-[11px] text-slate-500">
+              {personalized?.sample_count ?? 0} recorded outcomes
+            </div>
+          </div>
+        </div>
+
+        {personalized?.available ? (
+          <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-4 sm:p-5">
+            <div className="rounded-xl border border-emerald-100 bg-white/90 p-3">
+              <div className="text-[11px] font-bold uppercase tracking-wide text-emerald-700">
+                Strongest pattern
+              </div>
+              <p className="mt-2 text-sm font-semibold leading-5 text-slate-800">
+                {personalized.strongest_pattern?.message ??
+                  "No clear positive pattern yet in this period."}
+              </p>
+            </div>
+            <div className="rounded-xl border border-amber-100 bg-white/90 p-3">
+              <div className="text-[11px] font-bold uppercase tracking-wide text-amber-700">
+                Pattern to watch
+              </div>
+              <p className="mt-2 text-sm font-semibold leading-5 text-slate-800">
+                {personalized.pattern_to_watch?.message ??
+                  "No repeated friction pattern yet in this period."}
+              </p>
+            </div>
+            <div className="rounded-xl border border-sky-100 bg-white/90 p-3">
+              <div className="text-[11px] font-bold uppercase tracking-wide text-sky-700">
+                Change from before
+              </div>
+              <p className="mt-2 text-2xl font-black tabular-nums text-slate-950">
+                {personalized.change_percentage_points === null
+                  ? "—"
+                  : `${personalized.change_percentage_points > 0 ? "+" : ""}${personalized.change_percentage_points} pts`}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                {personalized.previous_success_rate === null
+                  ? "Not enough previous-period data"
+                  : `${personalized.success_rate}% now · ${personalized.previous_success_rate}% before`}
+              </p>
+            </div>
+            <div className="rounded-xl border border-lime-200 bg-white/90 p-3">
+              <div className="text-[11px] font-bold uppercase tracking-wide text-lime-700">
+                Next experiment
+              </div>
+              <p className="mt-2 text-sm font-bold text-slate-900">
+                {personalized.recommended_experiment.title}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-slate-600">
+                {personalized.recommended_experiment.detail}
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="p-5 text-sm text-slate-600">
+            Record outcomes in this period to reveal your personal patterns.
+          </div>
+        )}
+
+        <div className="border-t border-emerald-100 bg-white/60 px-4 py-2.5 text-xs text-slate-500 sm:px-5">
+          These are history-based tendencies, not predictions of past outcomes or guarantees.
+        </div>
+      </section>
+
       {/* Stats Row */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
         {stats.map((stat) => (

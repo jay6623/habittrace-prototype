@@ -6,12 +6,15 @@ import { supabase } from "@/lib/supabase";
 import { exportAccount } from "@/lib/api";
 import { readPreferences } from "@/lib/preferences";
 import { useToast } from "@/components/ui/toast";
+import { syncProfileDisplayName } from "@/lib/profile";
+import { notifyDataChanged } from "@/lib/refresh";
 export default function SettingsPage() {
   const { user, displayName } = useAuth();
   if (!user) return null;
   return (
     <Settings
       key={user.id}
+      userId={user.id}
       displayName={displayName}
       metadata={user.user_metadata}
       email={user.email ?? ""}
@@ -19,10 +22,12 @@ export default function SettingsPage() {
   );
 }
 function Settings({
+  userId,
   displayName,
   metadata,
   email,
 }: {
+  userId: string;
   displayName: string;
   metadata: Record<string, unknown>;
   email: string;
@@ -45,13 +50,16 @@ function Settings({
     setBusy(true);
     setError(null);
     try {
+      const nextName = name.trim();
       const { error } = await supabase.auth.updateUser({
-        data: { first_name: name.trim(), planning_preferences: preferences },
+        data: { first_name: nextName, planning_preferences: preferences },
       });
       if (error) throw error;
+      await syncProfileDisplayName(userId, nextName);
+      notifyDataChanged();
       toast.success(
         "Settings saved",
-        "Your preferences apply to new plans and available times.",
+        "Your name and planning preferences are updated.",
       );
     } catch {
       setError("Couldn’t save your settings. Your changes are still here.");

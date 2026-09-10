@@ -93,7 +93,7 @@ class AnalyticsService:
 
     def get_summary(self, user_id: str, period: str = "week") -> dict:
         days = _period_to_days(period)
-        since = (date.today() - timedelta(days=days)).isoformat()
+        since = (date.today() - timedelta(days=days - 1)).isoformat()
 
         # Fetch data
         tasks: list[dict] = (
