@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import AsyncGenerator
-from typing import NoReturn, Protocol
+from typing import Any, NoReturn, Protocol
 
 import httpx
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from ..config import settings
 from ..schemas.coach_tools import ToolDecision, ToolDefinition
@@ -21,6 +21,29 @@ GEMINI_TRANSIENT_ERROR_MESSAGE = "The AI coach is temporarily busy. Please try a
 GEMINI_QUOTA_ERROR_MESSAGE = "The AI coach usage limit has been reached. Please try again later."
 GEMINI_API_ERROR_MESSAGE = "Gemini API error. Please try again later."
 GEMINI_INCOMPLETE_RESPONSE_MESSAGE = "The AI coach response was incomplete. Please try again."
+OPENAI_TRANSIENT_ERROR_MESSAGE = "The AI coach is temporarily busy. Please try again in a minute."
+OPENAI_QUOTA_ERROR_MESSAGE = "The AI coach usage limit has been reached. Please try again later."
+OPENAI_API_ERROR_MESSAGE = "OpenAI API error. Please try again later."
+OPENAI_INCOMPLETE_RESPONSE_MESSAGE = "The AI coach response was incomplete. Please try again."
+
+
+class _OpenAIToolCall(BaseModel):
+    """OpenAI-compatible wire shape for one provider-neutral tool call."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=100)
+    arguments_json: str = Field(
+        description="A JSON-encoded object containing only the selected tool's arguments."
+    )
+
+
+class _OpenAIToolDecision(BaseModel):
+    """Strict structured-output envelope converted to ToolDecision after parsing."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    calls: list[_OpenAIToolCall] = Field(default_factory=list, max_length=4)
 
 
 class LLMClient(Protocol):
@@ -131,6 +154,176 @@ class OllamaLLMClient:
             raise LLMTimeoutError(
                 "Ollama timed out while loading or generating a response."
             ) from exc
+
+
+class OpenAILLMClient:
+    """OpenAI Responses API adapter for the provider-neutral coach contract."""
+
+    def _api_key(self) -> str:
+        api_key = (settings.openai_api_key or "").strip()
+        if not api_key:
+            raise LLMProviderError("OPENAI_API_KEY is required when LLM_PROVIDER=openai.")
+        return api_key
+
+    @staticmethod
+    def _sdk() -> Any:
+        try:
+            import openai
+        except ImportError as exc:
+            raise LLMProviderError(
+                "openai is not installed. Run `pip install -r requirements.txt`."
+            ) from exc
+        return openai
+
+    @staticmethod
+    def _client(sdk: Any, api_key: str) -> Any:
+        return sdk.AsyncOpenAI(
+            api_key=api_key,
+            timeout=90.0,
+            max_retries=2,
+        )
+
+    @staticmethod
+    async def _close_client(client: Any | None) -> None:
+        if client is None:
+            return
+        try:
+            await client.close()
+        except Exception:
+            logger.debug("Could not close OpenAI client cleanly")
+
+    @staticmethod
+    def _diagnostic_value(value: Any, api_key: str) -> str | None:
+        if value is None:
+            return None
+        sanitized = " ".join(str(value).split())[:1000]
+        if api_key:
+            sanitized = sanitized.replace(api_key, "[REDACTED]")
+        return sanitized
+
+    @classmethod
+    def _log_api_error(cls, exc: Exception, api_key: str) -> None:
+        body = getattr(exc, "body", None)
+        error = body.get("error", body) if isinstance(body, dict) else {}
+        if not isinstance(error, dict):
+            error = {}
+        logger.error(
+            "OpenAI API request failed: status=%s request_id=%s type=%s code=%s "
+            "param=%s message=%s",
+            getattr(exc, "status_code", None),
+            cls._diagnostic_value(getattr(exc, "request_id", None), api_key),
+            cls._diagnostic_value(error.get("type"), api_key),
+            cls._diagnostic_value(error.get("code"), api_key),
+            cls._diagnostic_value(error.get("param"), api_key),
+            cls._diagnostic_value(error.get("message") or str(exc), api_key),
+        )
+
+    @classmethod
+    def _raise_api_error(cls, sdk: Any, exc: Exception, api_key: str) -> NoReturn:
+        cls._log_api_error(exc, api_key)
+        if isinstance(exc, sdk.APITimeoutError):
+            raise LLMTimeoutError("The OpenAI API request timed out.") from exc
+        if isinstance(exc, sdk.APIConnectionError):
+            raise LLMConnectionError("Cannot connect to the OpenAI API.") from exc
+        if isinstance(exc, sdk.RateLimitError) or getattr(exc, "status_code", None) == 429:
+            raise LLMProviderError(OPENAI_QUOTA_ERROR_MESSAGE) from exc
+        if getattr(exc, "status_code", None) in {408, 409, 500, 502, 503, 504}:
+            raise LLMProviderError(OPENAI_TRANSIENT_ERROR_MESSAGE) from exc
+        raise LLMProviderError(OPENAI_API_ERROR_MESSAGE) from exc
+
+    @staticmethod
+    def _reasoning() -> dict[str, str]:
+        return {"effort": settings.openai_reasoning_effort}
+
+    @staticmethod
+    def _tool_decision(decision: _OpenAIToolDecision) -> ToolDecision:
+        calls = []
+        for call in decision.calls:
+            arguments = json.loads(call.arguments_json)
+            if not isinstance(arguments, dict):
+                raise ValueError("OpenAI tool arguments must decode to an object.")
+            calls.append({"name": call.name, "arguments": arguments})
+        return ToolDecision.model_validate({"calls": calls})
+
+    async def select_tools(
+        self,
+        system_prompt: str,
+        messages: list[ChatMessage],
+        tools: list[ToolDefinition],
+    ) -> ToolDecision:
+        api_key = self._api_key()
+        sdk = self._sdk()
+        client = None
+        tool_catalog = json.dumps([tool.model_dump() for tool in tools])
+        input_messages = [
+            {
+                "role": "system",
+                "content": f"{system_prompt}\n\nAVAILABLE_TOOLS_JSON:\n{tool_catalog}",
+            },
+            *messages,
+        ]
+        try:
+            client = self._client(sdk, api_key)
+            response = await client.responses.parse(
+                model=settings.openai_model,
+                input=input_messages,
+                text_format=_OpenAIToolDecision,
+                reasoning=self._reasoning(),
+                max_output_tokens=max(500, settings.openai_max_output_tokens),
+                store=False,
+            )
+            decision = getattr(response, "output_parsed", None)
+            if decision is None:
+                raise LLMProviderError("OpenAI returned no structured tool decision.")
+            return self._tool_decision(_OpenAIToolDecision.model_validate(decision))
+        except LLMClientError:
+            raise
+        except (ValidationError, ValueError, TypeError) as exc:
+            raise LLMProviderError("OpenAI returned malformed tool selection output.") from exc
+        except Exception as exc:
+            self._raise_api_error(sdk, exc, api_key)
+        finally:
+            await self._close_client(client)
+
+    async def stream_coaching_response(
+        self,
+        messages: list[ChatMessage],
+    ) -> AsyncGenerator[str, None]:
+        api_key = self._api_key()
+        sdk = self._sdk()
+        client = None
+        emitted_text = False
+        try:
+            client = self._client(sdk, api_key)
+            stream = await client.responses.create(
+                model=settings.openai_model,
+                input=messages,
+                reasoning=self._reasoning(),
+                max_output_tokens=max(500, settings.openai_max_output_tokens),
+                store=False,
+                stream=True,
+            )
+            async for event in stream:
+                event_type = getattr(event, "type", None)
+                if event_type == "response.output_text.delta":
+                    delta = getattr(event, "delta", None)
+                    if isinstance(delta, str) and delta:
+                        emitted_text = emitted_text or bool(delta.strip())
+                        yield delta
+                elif event_type == "response.incomplete":
+                    raise LLMProviderError(OPENAI_INCOMPLETE_RESPONSE_MESSAGE)
+                elif event_type in {"response.failed", "error"}:
+                    raise LLMProviderError(OPENAI_TRANSIENT_ERROR_MESSAGE)
+            if not emitted_text:
+                raise LLMProviderError(
+                    "The AI coach did not return a text response. Please try again."
+                )
+        except LLMClientError:
+            raise
+        except Exception as exc:
+            self._raise_api_error(sdk, exc, api_key)
+        finally:
+            await self._close_client(client)
 
 
 class GeminiLLMClient:
@@ -349,7 +542,7 @@ class UnsupportedLLMClient:
         tools: list[ToolDefinition],
     ) -> ToolDecision:
         raise LLMProviderError(
-            f"Unsupported LLM_PROVIDER={self.provider!r}. Use 'ollama' or 'gemini'."
+            f"Unsupported LLM_PROVIDER={self.provider!r}. Use 'ollama', 'gemini', or 'openai'."
         )
 
     async def stream_coaching_response(
@@ -357,7 +550,7 @@ class UnsupportedLLMClient:
         messages: list[ChatMessage],
     ) -> AsyncGenerator[str, None]:
         raise LLMProviderError(
-            f"Unsupported LLM_PROVIDER={self.provider!r}. Use 'ollama' or 'gemini'."
+            f"Unsupported LLM_PROVIDER={self.provider!r}. Use 'ollama', 'gemini', or 'openai'."
         )
         yield ""
 
@@ -368,5 +561,7 @@ def get_llm_client() -> LLMClient:
         return OllamaLLMClient()
     if provider == "gemini":
         return GeminiLLMClient()
+    if provider == "openai":
+        return OpenAILLMClient()
     logger.error("Unsupported LLM_PROVIDER configured: %s", settings.llm_provider)
     return UnsupportedLLMClient(settings.llm_provider)

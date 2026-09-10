@@ -79,7 +79,11 @@ class CoachToolRegistry:
                 "performance. Use mode=suggest_times for informational advice, which never "
                 "creates a proposal. Use mode=create_task_proposal only when the user explicitly "
                 "asks to add or schedule a task; this creates a pending confirmation request, "
-                "never a task.",
+                "never a task. For follow-ups, reconstruct the complete planning request from "
+                "recent user and assistant messages, retaining prior task, date, and duration "
+                "unless changed and mapping a selected recommended time to exact_time. Treat "
+                "requested periods and before/after/between times as hard earliest_time and/or "
+                "latest_time constraints; never broaden them implicitly.",
                 "proposal",
                 self._available_times,
             ),

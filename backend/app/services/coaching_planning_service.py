@@ -103,12 +103,17 @@ class CoachingPlanningService:
                 for option in options
                 if datetime.fromisoformat(str(option["start"])).astimezone(user_timezone) > now
             ]
+        requested_window = arguments.model_dump(
+            include={"exact_time", "earliest_time", "latest_time"},
+            exclude_none=True,
+        )
         if not options:
             return PlanningToolOutcome(
                 data={
                     "status": "no_availability",
                     "date": arguments.planned_date.isoformat(),
                     "duration_minutes": arguments.duration_minutes,
+                    "requested_window": requested_window,
                 }
             )
 
@@ -117,6 +122,7 @@ class CoachingPlanningService:
             "mode": arguments.mode,
             "date": arguments.planned_date.isoformat(),
             "duration_minutes": arguments.duration_minutes,
+            "requested_window": requested_window,
             "options": options,
         }
         if arguments.mode == "suggest_times":

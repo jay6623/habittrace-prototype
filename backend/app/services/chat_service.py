@@ -130,6 +130,12 @@ RESPONSE GUIDANCE
 - For reflection or emotional frustration, acknowledge the concern briefly before using data.
 - For comparisons, name the alternatives, supporting sample sizes, and uncertainty.
 - For requests without enough data, propose a small trackable experiment instead of guessing.
+- A no_availability result applies to the requested hard time window. Say that no matching slot
+  was found and optionally ask whether the user wants to broaden it; never substitute options
+  outside that window.
+- A proposal_created result means the pending confirmation workflow succeeded. Direct the user
+  to review and confirm the proposal below. Never ask whether you should confirm it and never say
+  that chat cannot save or complete the existing proposal workflow.
 - Use readable prose. Short bullets are fine when comparing options, but do not force a fixed
   template. Finish every sentence and never emit JSON, hidden reasoning, or action tags.
 - Respond in English unless the user explicitly asks for another language.
@@ -160,6 +166,24 @@ or availability advice. Use mode=create_task_proposal only when the user explici
 schedule, or create a task. That mode creates only a pending proposal requiring user confirmation;
 it never creates a task. Multiple tools may be selected when performance or failure evidence would
 materially improve a time recommendation.
+
+PLANNING FOLLOW-UPS
+- Treat the recent user/assistant messages as one continuing planning conversation. Before calling
+  find_available_times, reconstruct the active plan's title, category, date, duration, and time.
+- A follow-up may supply only one missing field, change one prior field, or select one of the times
+  the assistant just recommended. Retain every other relevant constraint from the active plan.
+- When the user accepts a recommended time and asks to schedule it, use that time as exact_time,
+  retain the earlier title/category/date/duration, and use mode=create_task_proposal.
+- Never use acknowledgement or follow-up wording as the task title. The title must describe the
+  activity from the active planning request.
+- If there is no active planning context, do not invent a title, date, duration, or selected time.
+- Relative dates in earlier planning messages remain anchored to today's date above unless the
+  user changes the date.
+- Treat every requested time period or boundary as a hard constraint and populate exact_time,
+  earliest_time, and/or latest_time. Use these local-time conventions: morning ends at 12:00;
+  afternoon is 12:00-17:00; evening starts at 17:00. For "after X", set only earliest_time; for
+  "before X", set only latest_time; for "between X and Y", set both. Never silently broaden a
+  requested window or substitute an option outside it.
 
 Use save_user_preferences only when the user explicitly asks you to remember, set, or change a
 lasting preference. A casual observation, complaint, or passing statement is not permission to
@@ -390,13 +414,18 @@ allowlisted schema fields. Return only data matching the response schema."""
                 maxsplit=1,
                 flags=re.IGNORECASE,
             )[0]
+            original_title = title.lstrip()
             title = re.sub(
                 r"^\s*(?:please\s+)?(?:i\s+(?:want|would like|'d like)\s+to\s+|"
-                r"schedule\s+|add\s+|plan\s+)",
+                r"schedule\s+|add\s+|plan\s+|find\s+me\s+)",
                 "",
                 title,
                 flags=re.IGNORECASE,
             )
+            # The provider-failure parser must not turn a conversational follow-up into a title.
+            # It only extracts titles when a planning request prefix was actually consumed.
+            if title.lstrip() == original_title:
+                return PlanDraft(**values)
             title = re.sub(r"^\s*(?:a|an)\s+", "", title, flags=re.IGNORECASE)
             title = re.sub(
                 r"^\s*(?:(?:\d+|one|two|three|four|five|six|seven|eight)"
@@ -480,6 +509,23 @@ allowlisted schema fields. Return only data matching the response schema."""
             ):
                 yield event
             return
+        if proposals:
+            text = self._proposal_confirmation_text(proposals[0])
+            yield _sse({"token": text})
+            self._persist_assistant(conversation_id_str, user_id, text)
+            for proposal in proposals:
+                yield _sse({"proposal": proposal})
+            yield _sse("[DONE]")
+            return
+        if self._planning_status(context, "no_availability"):
+            text = (
+                "I couldn't find a conflict-free time in the requested window. Would you like "
+                "to broaden the time range or try another date?"
+            )
+            yield _sse({"token": text})
+            self._persist_assistant(conversation_id_str, user_id, text)
+            yield _sse("[DONE]")
+            return
         system_prompt = self._coach_system_prompt(context, timezone_name)
         messages = [{"role": "system", "content": system_prompt}]
         for item in usable_history[-MAX_HISTORY:]:
@@ -507,6 +553,33 @@ allowlisted schema fields. Return only data matching the response schema."""
             for proposal in proposals:
                 yield _sse({"proposal": proposal})
         yield _sse("[DONE]")
+
+    @staticmethod
+    def _proposal_confirmation_text(proposal: dict) -> str:
+        options = proposal.get("options") or []
+        if not options:
+            return "Review and confirm the proposal below to add it to your schedule."
+        first = options[0]
+        try:
+            start = datetime.fromisoformat(str(first["start"]))
+            end = datetime.fromisoformat(str(first["end"]))
+            start_label = start.strftime("%I:%M %p").lstrip("0")
+            end_label = end.strftime("%I:%M %p").lstrip("0")
+            slot = f"{start_label}–{end_label}"
+        except (KeyError, TypeError, ValueError):
+            return "I found a valid slot. Review and confirm the proposal below to add it."
+        return (
+            f"I found a valid {slot} slot. Review and confirm the proposal below to add it "
+            "to your schedule."
+        )
+
+    @staticmethod
+    def _planning_status(context: dict, status: str) -> bool:
+        return any(
+            result.get("name") == "find_available_times"
+            and (result.get("data") or {}).get("status") == status
+            for result in context.get("tool_results") or []
+        )
 
     async def _handle_plan(
         self,

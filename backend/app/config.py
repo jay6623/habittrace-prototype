@@ -53,8 +53,7 @@ class Settings(BaseSettings):
     # If the API is mounted under a sub-path (e.g. https://domain.com/api), set this to /api
     api_root_path: str = ""
 
-    # AI Coach LLM provider. Use "ollama" for local development or "gemini"
-    # for the cloud-backed development path.
+    # AI Coach LLM provider. Use "ollama" locally or "gemini"/"openai" in the cloud.
     llm_provider: str = "ollama"
 
     # Ollama (AI Coach) — override when the LLM runs on another host in production
@@ -65,6 +64,12 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.8-flash"
     gemini_max_output_tokens: int = 1_200
+
+    # OpenAI (AI Coach) — backend-only. Never expose OPENAI_API_KEY to Next.js.
+    openai_api_key: str = ""
+    openai_model: str = "gpt-5.6-terra"
+    openai_reasoning_effort: str = "low"
+    openai_max_output_tokens: int = 1_200
 
     # Google Calendar (backend-only). The OAuth client must match the Google
     # provider configured in Supabase Auth. The encryption secret protects the
