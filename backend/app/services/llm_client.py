@@ -5,13 +5,14 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import AsyncGenerator
-from typing import Protocol
+from typing import NoReturn, Protocol
 
 import httpx
 from pydantic import ValidationError
 
 from ..config import settings
 from ..schemas.chat import AgentIntent
+from ..schemas.coach_tools import ToolDecision, ToolDefinition
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,14 @@ class LLMClient(Protocol):
         messages: list[ChatMessage],
     ) -> AgentIntent: ...
 
-    async def stream_coaching_response(
+    async def select_tools(
+        self,
+        system_prompt: str,
+        messages: list[ChatMessage],
+        tools: list[ToolDefinition],
+    ) -> ToolDecision: ...
+
+    def stream_coaching_response(
         self,
         messages: list[ChatMessage],
     ) -> AsyncGenerator[str, None]: ...
@@ -81,6 +89,41 @@ class OllamaLLMClient:
             ) from exc
         except (httpx.HTTPError, ValueError, ValidationError, TypeError) as exc:
             raise LLMProviderError("Structured intent parsing failed.") from exc
+
+    async def select_tools(
+        self,
+        system_prompt: str,
+        messages: list[ChatMessage],
+        tools: list[ToolDefinition],
+    ) -> ToolDecision:
+        tool_catalog = json.dumps([tool.model_dump() for tool in tools])
+        payload = {
+            "model": settings.ollama_model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": f"{system_prompt}\n\nAVAILABLE_TOOLS_JSON:\n{tool_catalog}",
+                },
+                *messages,
+            ],
+            "stream": False,
+            "format": ToolDecision.model_json_schema(),
+            "options": {"temperature": 0, "num_predict": 500},
+        }
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(settings.ollama_chat_url, json=payload)
+                response.raise_for_status()
+            content = response.json().get("message", {}).get("content", "{}")
+            return ToolDecision.model_validate_json(content)
+        except httpx.ConnectError as exc:
+            raise LLMConnectionError(
+                "Cannot connect to Ollama. Start it with `ollama serve`."
+            ) from exc
+        except httpx.TimeoutException as exc:
+            raise LLMTimeoutError("Ollama timed out while selecting coach tools.") from exc
+        except (httpx.HTTPError, ValueError, ValidationError, TypeError) as exc:
+            raise LLMProviderError("Coach tool selection failed.") from exc
 
     async def stream_coaching_response(
         self,
@@ -161,7 +204,7 @@ class GeminiLLMClient:
         ).aio
 
     @staticmethod
-    def _raise_api_error(exc: Exception) -> None:
+    def _raise_api_error(exc: Exception) -> NoReturn:
         code = getattr(exc, "code", None)
         if code == 429:
             raise LLMProviderError(GEMINI_QUOTA_ERROR_MESSAGE) from exc
@@ -279,6 +322,49 @@ class GeminiLLMClient:
             if client is not None:
                 await client.aclose()
 
+    async def select_tools(
+        self,
+        system_prompt: str,
+        messages: list[ChatMessage],
+        tools: list[ToolDefinition],
+    ) -> ToolDecision:
+        api_key = self._api_key()
+        genai, errors, types = self._sdk()
+        client = None
+        tool_catalog = json.dumps([tool.model_dump() for tool in tools])
+        try:
+            client = self._client(genai, types, api_key)
+            response = await client.models.generate_content(
+                model=settings.gemini_model,
+                contents=self._contents(messages, types),
+                config=types.GenerateContentConfig(
+                    system_instruction=(
+                        f"{system_prompt}\n\nAVAILABLE_TOOLS_JSON:\n{tool_catalog}"
+                    ),
+                    temperature=0,
+                    max_output_tokens=500,
+                    response_mime_type="application/json",
+                    response_json_schema=ToolDecision.model_json_schema(),
+                ),
+            )
+            content = getattr(response, "text", None)
+            if not content:
+                raise LLMProviderError("Gemini returned an empty tool decision.")
+            return ToolDecision.model_validate_json(content)
+        except errors.APIError as exc:
+            self._raise_api_error(exc)
+        except httpx.ConnectError as exc:
+            raise LLMConnectionError("Cannot connect to the Gemini API.") from exc
+        except httpx.TimeoutException as exc:
+            raise LLMTimeoutError("The Gemini API request timed out.") from exc
+        except LLMClientError:
+            raise
+        except (ValueError, ValidationError, TypeError) as exc:
+            raise LLMProviderError("Gemini returned malformed tool selection output.") from exc
+        finally:
+            if client is not None:
+                await client.aclose()
+
     async def stream_coaching_response(
         self,
         messages: list[ChatMessage],
@@ -336,6 +422,16 @@ class UnsupportedLLMClient:
         system_prompt: str,
         messages: list[ChatMessage],
     ) -> AgentIntent:
+        raise LLMProviderError(
+            f"Unsupported LLM_PROVIDER={self.provider!r}. Use 'ollama' or 'gemini'."
+        )
+
+    async def select_tools(
+        self,
+        system_prompt: str,
+        messages: list[ChatMessage],
+        tools: list[ToolDefinition],
+    ) -> ToolDecision:
         raise LLMProviderError(
             f"Unsupported LLM_PROVIDER={self.provider!r}. Use 'ollama' or 'gemini'."
         )
