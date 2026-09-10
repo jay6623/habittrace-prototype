@@ -8,6 +8,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ValidationError
 
+from ..schemas.chat import PreferenceUpdate
 from ..schemas.coach_tools import (
     FindAvailableTimesArgs,
     GetFailurePatternsArgs,
@@ -39,7 +40,7 @@ class CoachToolRegistry:
             tuple[
                 type[BaseModel],
                 str,
-                Literal["read", "proposal"],
+                Literal["read", "proposal", "mutation"],
                 Callable[[str, BaseModel, str, str | None], ToolResult],
             ],
         ] = {
@@ -81,6 +82,15 @@ class CoachToolRegistry:
                 "never a task.",
                 "proposal",
                 self._available_times,
+            ),
+            "save_user_preferences": (
+                PreferenceUpdate,
+                "Save one or more explicitly requested coaching or scheduling preference "
+                "changes. Use only when the user clearly asks to remember, set, or change a "
+                "preference. Never infer a permanent preference from casual conversation. "
+                "Only the schema's supported fields may be changed.",
+                "mutation",
+                self._save_preferences,
             ),
         }
 
@@ -252,4 +262,24 @@ class CoachToolRegistry:
             ok=True,
             data=outcome.data,
             proposal=outcome.proposal,
+        )
+
+    def _save_preferences(
+        self,
+        user_id: str,
+        arguments: BaseModel,
+        timezone_name: str,
+        _conversation_id: str | None,
+    ) -> ToolResult:
+        updates = PreferenceUpdate.model_validate(arguments).model_dump(exclude_none=True)
+        saved = self.context_service.save_preferences(user_id, updates, timezone_name)
+        # Identity and storage metadata stay server-side and out of the final prompt.
+        return ToolResult(
+            name="save_user_preferences",
+            ok=True,
+            data={
+                "saved_preferences": {
+                    key: saved.get(key, value) for key, value in updates.items()
+                }
+            },
         )

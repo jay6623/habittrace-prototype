@@ -14,7 +14,7 @@ class ToolDefinition(BaseModel):
     name: str
     description: str
     input_schema: dict[str, Any]
-    kind: Literal["read", "proposal"] = "read"
+    kind: Literal["read", "proposal", "mutation"] = "read"
 
 
 class ToolCall(BaseModel):

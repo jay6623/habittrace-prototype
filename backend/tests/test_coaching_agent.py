@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 from datetime import date, datetime, timezone
 
-from app.schemas.chat import AgentIntent
 from app.schemas.coach_tools import ToolDecision
 from app.services.chat_service import ChatService
 from app.services.coaching_context_service import CoachingContextService
@@ -11,49 +10,46 @@ from app.services.coaching_recommendation_service import CoachingRecommendationS
 from app.services.llm_client import GeminiLLMClient, LLMClientError, LLMProviderError
 
 
-def test_fallback_intent_extracts_a_safe_plan_draft() -> None:
-    intent = ChatService._fallback_intent(
+def test_fallback_plan_extracts_a_safe_plan_draft() -> None:
+    draft = ChatService._fallback_plan(
         "Schedule a study session on 2026-09-03 at 7 PM for 2 hours"
     )
 
-    assert intent.intent == "plan"
-    assert intent.plan is not None
-    assert intent.plan.category == "Study"
-    assert intent.plan.planned_date == "2026-09-03"
-    assert intent.plan.exact_time == "19:00"
-    assert intent.plan.duration_minutes == 120
+    assert draft is not None
+    assert draft.category == "Study"
+    assert draft.planned_date == "2026-09-03"
+    assert draft.exact_time == "19:00"
+    assert draft.duration_minutes == 120
 
 
 def test_fallback_extracts_recommended_window_and_title() -> None:
-    intent = ChatService._fallback_intent(
+    draft = ChatService._fallback_plan(
         "I want to study for 90 minutes tomorrow. Find the best time between 9 AM and 8 PM.",
         timezone_name="America/Denver",
     )
 
-    assert intent.intent == "plan"
-    assert intent.plan is not None
-    assert intent.plan.title == "Study"
-    assert intent.plan.duration_minutes == 90
-    assert intent.plan.earliest_time == "09:00"
-    assert intent.plan.latest_time == "20:00"
-    assert intent.plan.exact_time is None
+    assert draft is not None
+    assert draft.title == "Study"
+    assert draft.duration_minutes == 90
+    assert draft.earliest_time == "09:00"
+    assert draft.latest_time == "20:00"
+    assert draft.exact_time is None
 
 
 def test_fallback_extracts_word_duration_deep_work_request() -> None:
-    intent = ChatService._fallback_intent(
+    draft = ChatService._fallback_plan(
         "Plan a two-hour deep work session on 2026-08-30 and recommend the best conflict-free time."
     )
 
-    assert intent.intent == "plan"
-    assert intent.plan is not None
-    assert intent.plan.title == "Deep work session"
-    assert intent.plan.category == "Work"
-    assert intent.plan.duration_minutes == 120
-    assert intent.plan.planned_date == "2026-08-30"
+    assert draft is not None
+    assert draft.title == "Deep work session"
+    assert draft.category == "Work"
+    assert draft.duration_minutes == 120
+    assert draft.planned_date == "2026-08-30"
 
 
 def test_short_followup_completes_previous_plan() -> None:
-    intent = ChatService._fallback_intent(
+    draft = ChatService._fallback_plan(
         "Tomorrow",
         history=[
             {"role": "user", "content": "Schedule a reading session for 45 minutes."},
@@ -62,11 +58,10 @@ def test_short_followup_completes_previous_plan() -> None:
         timezone_name="America/Denver",
     )
 
-    assert intent.intent == "plan"
-    assert intent.plan is not None
-    assert intent.plan.title == "Reading session"
-    assert intent.plan.duration_minutes == 45
-    assert intent.plan.planned_date is not None
+    assert draft is not None
+    assert draft.title == "Reading session"
+    assert draft.duration_minutes == 45
+    assert draft.planned_date is not None
 
 
 def test_recommendations_filter_conflicts_and_use_user_history() -> None:
@@ -151,38 +146,12 @@ def test_gemini_rejects_incomplete_finish_reasons() -> None:
 
 
 class _IncompleteLLM:
-    async def classify_intent(self, system_prompt, messages):
-        return AgentIntent(intent="coach")
-
     async def select_tools(self, system_prompt, messages, tools):
         return ToolDecision()
 
     async def stream_coaching_response(self, messages):
         yield "This answer is incomplete"
         raise LLMClientError("The response stopped early.")
-
-
-class _ClassifyCounterLLM:
-    def __init__(self) -> None:
-        self.classify_calls = 0
-
-    async def classify_intent(self, system_prompt, messages):
-        self.classify_calls += 1
-        return AgentIntent(intent="coach")
-
-    async def stream_coaching_response(self, messages):
-        yield "Complete response."
-
-
-def test_regular_coaching_question_skips_extra_intent_api_call() -> None:
-    service = ChatService(None)
-    llm = _ClassifyCounterLLM()
-    service.llm = llm
-
-    intent = asyncio.run(service._classify_intent("Why do my Study tasks keep failing?", "UTC", []))
-
-    assert intent.intent == "coach"
-    assert llm.classify_calls == 0
 
 
 def test_coach_prompt_requests_grounded_conversational_analysis() -> None:

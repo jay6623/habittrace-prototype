@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from supabase import Client
 
-from ..schemas.chat import AgentIntent, PlanDraft
+from ..schemas.chat import PlanDraft
 from .coach_repository import CoachRepository
 from .coach_tool_registry import CoachToolRegistry
 from .coaching_context_service import CoachingContextService
@@ -111,6 +111,8 @@ USING THE USER'S DATA
 - If the requested evidence is absent, say what is missing and still offer a cautious next step.
 - When discussing a category, prefer that category's own success rate, duration, interruptions,
   and failure reasons over unrelated overall statistics.
+- When save_user_preferences succeeds, acknowledge only the returned saved fields naturally.
+  When it fails, clearly say the preference was not saved.
 
 COACHING QUALITY
 - Be warm, specific, practical, curious, and nonjudgmental.
@@ -159,9 +161,16 @@ schedule, or create a task. That mode creates only a pending proposal requiring 
 it never creates a task. Multiple tools may be selected when performance or failure evidence would
 materially improve a time recommendation.
 
+Use save_user_preferences only when the user explicitly asks you to remember, set, or change a
+lasting preference. A casual observation, complaint, or passing statement is not permission to
+write. Map a request only to fields present in that tool's schema; if the requested preference is
+not supported, do not substitute a different field or call the mutation. Preference changes do
+not create task proposals. You may combine this mutation with relevant read or planning tools
+when the user clearly requests multiple capabilities.
+
 Never request a user_id: the server supplies authenticated identity. No tool can directly create
-a task, change the schedule, or modify Google Calendar. Return only data matching the response
-schema."""
+a task, change the schedule, or modify Google Calendar. Mutation tools may only receive their
+allowlisted schema fields. Return only data matching the response schema."""
 
     async def _select_coaching_context(
         self,
@@ -234,62 +243,18 @@ schema."""
             )
             return None, []
 
-    async def _classify_intent(
-        self, message: str, timezone_name: str, history: list[dict]
-    ) -> AgentIntent:
-        fallback = self._fallback_intent(message, history, timezone_name)
-        # Ordinary coaching questions do not need a separate structured-output
-        # request. Skipping it halves provider usage for the common chat path.
-        if fallback.intent == "coach":
-            return fallback
-        try:
-            today = datetime.now(ZoneInfo(timezone_name)).date().isoformat()
-        except ZoneInfoNotFoundError:
-            today = date.today().isoformat()
-        system = (
-            "You are the intent parser for an English-only planning assistant. "
-            "Return only JSON matching the supplied schema. Never answer the user. "
-            f"Today is {today}; the user's IANA timezone is {timezone_name}. "
-            "Use intent=plan when the user asks to add, schedule, plan, or find a time "
-            "for an activity. Resolve relative dates such as today and tomorrow to YYYY-MM-DD. "
-            "Use 24-hour HH:MM times. If the user requests a specific time, set exact_time. "
-            "If they want a recommended time, leave exact_time null and capture any time window. "
-            "Use intent=save_preferences only when they explicitly ask you to remember scheduling "
-            "or coaching preferences. Otherwise use intent=coach. "
-            "Do not invent a missing title or date."
-        )
-        messages = [
-            {"role": item["role"], "content": str(item["content"])}
-            for item in history[-4:]
-            if item.get("role") in {"user", "assistant"} and item.get("content")
-        ]
-        messages.append({"role": "user", "content": message})
-        try:
-            parsed = await self.llm.classify_intent(system, messages)
-            if parsed.intent == "plan":
-                return AgentIntent(
-                    intent="plan",
-                    plan=self._merge_plan_drafts(parsed.plan, fallback.plan),
-                )
-            if fallback.intent == "plan":
-                return fallback
-            return parsed
-        except LLMClientError as exc:
-            logger.warning("Structured intent parsing failed; using safe fallback: %s", exc)
-            return self._fallback_intent(message, history, timezone_name)
-
     @classmethod
-    def _fallback_intent(
+    def _fallback_plan(
         cls,
         message: str,
         history: list[dict] | None = None,
         timezone_name: str = "UTC",
-    ) -> AgentIntent:
-        lower = message.lower()
-        if "remember" in lower and any(
-            word in lower for word in ("prefer", "buffer", "coach", "schedule")
-        ):
-            return AgentIntent(intent="save_preferences")
+    ) -> PlanDraft | None:
+        """Parse planning only after semantic tool selection fails.
+
+        This compatibility path keeps task proposals available during provider failures. It is
+        never used for preference writes and is not the primary routing mechanism.
+        """
         try:
             reference_date = datetime.now(ZoneInfo(timezone_name)).date()
         except ZoneInfoNotFoundError:
@@ -305,14 +270,11 @@ schema."""
                 break
 
         if current is None and prior is None:
-            return AgentIntent(intent="coach")
+            return None
         if current is None and prior is not None:
             followup = cls._extract_plan_draft(message, reference_date, allow_followup=True)
-            return AgentIntent(
-                intent="plan",
-                plan=cls._merge_plan_drafts(prior, followup),
-            )
-        return AgentIntent(intent="plan", plan=cls._merge_plan_drafts(prior, current))
+            return cls._merge_plan_drafts(prior, followup)
+        return cls._merge_plan_drafts(prior, current)
 
     @staticmethod
     def _merge_plan_drafts(base: PlanDraft | None, updates: PlanDraft | None) -> PlanDraft | None:
@@ -489,23 +451,6 @@ schema."""
             except Exception as exc:
                 logger.warning("Could not persist user coach message: %s", exc)
 
-        legacy_hint = self._fallback_intent(message, usable_history, timezone_name)
-        if legacy_hint.intent == "save_preferences":
-            preference_intent = await self._classify_intent(
-                message,
-                timezone_name,
-                usable_history,
-            )
-            if preference_intent.intent == "save_preferences":
-                async for event in self._handle_preferences(
-                    user_id,
-                    preference_intent,
-                    conversation_id_str,
-                    timezone_name,
-                ):
-                    yield event
-                return
-
         context, proposals, selection_failed = await self._select_coaching_context(
             user_id,
             message,
@@ -513,9 +458,15 @@ schema."""
             timezone_name,
             conversation_id_str,
         )
-        # Temporary compatibility fallback only when structured tool selection is unavailable.
-        if selection_failed and legacy_hint.intent == "plan":
-            through_date = legacy_hint.plan.planned_date if legacy_hint.plan else None
+        # Temporary planning-only compatibility fallback when tool selection is unavailable.
+        # Preference mutations fail closed instead of entering this deterministic path.
+        fallback_plan = (
+            self._fallback_plan(message, usable_history, timezone_name)
+            if selection_failed
+            else None
+        )
+        if fallback_plan:
+            through_date = fallback_plan.planned_date
             context = (
                 self.context_service.build(user_id, timezone_name, through_date)
                 if self.context_service
@@ -523,7 +474,7 @@ schema."""
             )
             async for event in self._handle_plan(
                 user_id,
-                legacy_hint.plan,
+                fallback_plan,
                 context,
                 conversation_id_str,
             ):
@@ -555,48 +506,6 @@ schema."""
             self._persist_assistant(conversation_id_str, user_id, full_text)
             for proposal in proposals:
                 yield _sse({"proposal": proposal})
-        yield _sse("[DONE]")
-
-    async def _handle_preferences(
-        self,
-        user_id: str,
-        intent: AgentIntent,
-        conversation_id: str | None,
-        timezone_name: str,
-    ) -> AsyncGenerator[str, None]:
-        if not self.context_service or not intent.preferences:
-            text = (
-                "Tell me the exact preference you want me to remember, such as your "
-                "preferred planning hours or buffer time."
-            )
-        else:
-            try:
-                saved = self.context_service.save_preferences(
-                    user_id, intent.preferences.model_dump(exclude_none=True), timezone_name
-                )
-                details = ", ".join(
-                    f"{key.replace('_', ' ')}: {value}"
-                    for key, value in saved.items()
-                    if key
-                    in {
-                        "preferred_day_start",
-                        "preferred_day_end",
-                        "minimum_buffer_minutes",
-                        "coaching_style",
-                    }
-                )
-                text = (
-                    f"I saved your coaching preferences ({details}). "
-                    "I’ll use them for future recommendations."
-                )
-            except Exception:
-                logger.exception("Could not save coaching preferences")
-                text = (
-                    "I couldn't save that preference yet. Apply the coach agent database "
-                    "migration and try again."
-                )
-        yield _sse({"token": text})
-        self._persist_assistant(conversation_id, user_id, text)
         yield _sse("[DONE]")
 
     async def _handle_plan(

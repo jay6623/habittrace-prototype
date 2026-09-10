@@ -11,7 +11,6 @@ import httpx
 from pydantic import ValidationError
 
 from ..config import settings
-from ..schemas.chat import AgentIntent
 from ..schemas.coach_tools import ToolDecision, ToolDefinition
 
 logger = logging.getLogger(__name__)
@@ -25,12 +24,6 @@ GEMINI_INCOMPLETE_RESPONSE_MESSAGE = "The AI coach response was incomplete. Plea
 
 
 class LLMClient(Protocol):
-    async def classify_intent(
-        self,
-        system_prompt: str,
-        messages: list[ChatMessage],
-    ) -> AgentIntent: ...
-
     async def select_tools(
         self,
         system_prompt: str,
@@ -61,35 +54,6 @@ class LLMProviderError(LLMClientError):
 
 
 class OllamaLLMClient:
-    async def classify_intent(
-        self,
-        system_prompt: str,
-        messages: list[ChatMessage],
-    ) -> AgentIntent:
-        payload = {
-            "model": settings.ollama_model,
-            "messages": [{"role": "system", "content": system_prompt}, *messages],
-            "stream": False,
-            "format": AgentIntent.model_json_schema(),
-            "options": {"temperature": 0, "num_predict": 300},
-        }
-        try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(settings.ollama_chat_url, json=payload)
-                response.raise_for_status()
-            content = response.json().get("message", {}).get("content", "{}")
-            return AgentIntent.model_validate_json(content)
-        except httpx.ConnectError as exc:
-            raise LLMConnectionError(
-                "Cannot connect to Ollama. Start it with `ollama serve`."
-            ) from exc
-        except httpx.TimeoutException as exc:
-            raise LLMTimeoutError(
-                "Ollama timed out while loading or generating a response."
-            ) from exc
-        except (httpx.HTTPError, ValueError, ValidationError, TypeError) as exc:
-            raise LLMProviderError("Structured intent parsing failed.") from exc
-
     async def select_tools(
         self,
         system_prompt: str,
@@ -283,45 +247,6 @@ class GeminiLLMClient:
         ]
         return "\n\n".join(parts) if parts else None
 
-    async def classify_intent(
-        self,
-        system_prompt: str,
-        messages: list[ChatMessage],
-    ) -> AgentIntent:
-        api_key = self._api_key()
-        genai, errors, types = self._sdk()
-        client = None
-        try:
-            client = self._client(genai, types, api_key)
-            response = await client.models.generate_content(
-                model=settings.gemini_model,
-                contents=self._contents(messages, types),
-                config=types.GenerateContentConfig(
-                    system_instruction=system_prompt,
-                    temperature=0,
-                    max_output_tokens=300,
-                    response_mime_type="application/json",
-                    response_json_schema=AgentIntent.model_json_schema(),
-                ),
-            )
-            content = getattr(response, "text", None)
-            if not content:
-                raise LLMProviderError("Gemini returned an empty intent response.")
-            return AgentIntent.model_validate_json(content)
-        except errors.APIError as exc:
-            self._raise_api_error(exc)
-        except httpx.ConnectError as exc:
-            raise LLMConnectionError("Cannot connect to the Gemini API.") from exc
-        except httpx.TimeoutException as exc:
-            raise LLMTimeoutError("The Gemini API request timed out.") from exc
-        except LLMClientError:
-            raise
-        except (ValueError, ValidationError, TypeError) as exc:
-            raise LLMProviderError("Gemini returned malformed structured output.") from exc
-        finally:
-            if client is not None:
-                await client.aclose()
-
     async def select_tools(
         self,
         system_prompt: str,
@@ -416,15 +341,6 @@ class GeminiLLMClient:
 class UnsupportedLLMClient:
     def __init__(self, provider: str) -> None:
         self.provider = provider
-
-    async def classify_intent(
-        self,
-        system_prompt: str,
-        messages: list[ChatMessage],
-    ) -> AgentIntent:
-        raise LLMProviderError(
-            f"Unsupported LLM_PROVIDER={self.provider!r}. Use 'ollama' or 'gemini'."
-        )
 
     async def select_tools(
         self,

@@ -4,7 +4,6 @@ import asyncio
 import json
 from datetime import date, datetime, timezone
 
-from app.schemas.chat import AgentIntent, PlanDraft
 from app.schemas.coach_tools import ToolCall, ToolDecision
 from app.services.chat_service import ChatService
 from app.services.coach_tool_registry import CoachToolRegistry
@@ -78,6 +77,31 @@ class _ReadOnlyDB:
         return _ReadQuery(self, name)
 
 
+class _PreferenceQuery(_ReadQuery):
+    def __init__(self, db, table_name):
+        super().__init__(db, table_name)
+        self.payload = None
+
+    def upsert(self, payload, on_conflict):
+        self.payload = payload
+        self.db.writes.append((self.table_name, payload, on_conflict))
+        return self
+
+    def execute(self):
+        if self.payload is not None:
+            return _Result([self.payload])
+        return super().execute()
+
+
+class _PreferenceDB(_ReadOnlyDB):
+    def __init__(self):
+        super().__init__({"user_coaching_preferences": []})
+        self.writes = []
+
+    def table(self, name):
+        return _PreferenceQuery(self, name)
+
+
 class _ToolSelectingLLM:
     def __init__(self, decision):
         self.decision = decision
@@ -104,17 +128,6 @@ class _NeverReadContext:
 class _PlanningLLM:
     def __init__(self):
         self.tool_selection_called = False
-
-    async def classify_intent(self, system_prompt, messages):
-        return AgentIntent(
-            intent="plan",
-            plan=PlanDraft(
-                title="Review notes",
-                category="Study",
-                planned_date="2026-09-10",
-                exact_time="10:00",
-            ),
-        )
 
     async def select_tools(self, system_prompt, messages, tools):
         self.tool_selection_called = True
@@ -172,7 +185,7 @@ def test_basic_conversation_can_select_zero_tools_and_keeps_sse_contract() -> No
 
     assert payloads == [{"token": "A compatible streamed response."}]
     assert events[-1] == "data: [DONE]\n\n"
-    assert len(llm.tools) == 5
+    assert len(llm.tools) == 6
     assert '"tool_results": []' in llm.final_messages[0]["content"]
 
 
@@ -297,11 +310,12 @@ def test_unknown_and_malformed_tool_calls_fail_safely() -> None:
         "get_schedule",
         "get_user_preferences",
         "find_available_times",
+        "save_user_preferences",
     }
     assert db.reads == []
 
 
-def test_phase_one_registry_has_no_mutating_tool_and_reads_do_not_write() -> None:
+def test_read_tools_remain_non_mutating() -> None:
     db = _ReadOnlyDB({"tasks": [], "executions": [], "user_coaching_preferences": []})
     registry = CoachToolRegistry(CoachingContextService(db))
 
@@ -317,10 +331,9 @@ def test_phase_one_registry_has_no_mutating_tool_and_reads_do_not_write() -> Non
     results = registry.execute_many(calls, user_id="trusted-user", timezone_name="UTC")
 
     assert all(result.ok for result in results)
-    assert all(
-        not tool.name.startswith(("save_", "create_", "update_", "delete_"))
-        for tool in registry.definitions()
-    )
+    assert all(tool.kind == "read" for tool in registry.definitions() if tool.name in {
+        "get_task_performance", "get_failure_patterns", "get_schedule", "get_user_preferences"
+    })
 
 
 def test_existing_planning_parser_is_a_selector_failure_fallback() -> None:
@@ -349,3 +362,153 @@ def test_existing_planning_parser_is_a_selector_failure_fallback() -> None:
     assert service.repository.proposals
     assert any(payload.get("proposal", {}).get("id") == "proposal-1" for payload in payloads)
     assert events[-1] == "data: [DONE]\n\n"
+
+
+def test_preference_mutation_uses_validated_existing_storage_with_server_identity() -> None:
+    db = _PreferenceDB()
+    registry = CoachToolRegistry(CoachingContextService(db))
+
+    result = registry.execute(
+        ToolCall(
+            name="save_user_preferences",
+            arguments={"minimum_buffer_minutes": 15, "preferred_day_start": "09:00"},
+        ),
+        user_id="authenticated-user",
+        timezone_name="America/Denver",
+    )
+
+    assert result.ok is True
+    assert result.data == {
+        "saved_preferences": {
+            "preferred_day_start": "09:00",
+            "minimum_buffer_minutes": 15,
+        }
+    }
+    assert len(db.writes) == 1
+    table, payload, conflict = db.writes[0]
+    assert table == "user_coaching_preferences"
+    assert conflict == "user_id"
+    assert payload["user_id"] == "authenticated-user"
+    assert payload["timezone_name"] == "America/Denver"
+    assert "user_id" not in result.data["saved_preferences"]
+
+
+def test_unsafe_or_malformed_preference_mutations_fail_closed() -> None:
+    db = _PreferenceDB()
+    registry = CoachToolRegistry(CoachingContextService(db))
+
+    results = [
+        registry.execute(
+            ToolCall(name="save_user_preferences", arguments={}),
+            user_id="authenticated-user",
+            timezone_name="UTC",
+        ),
+        registry.execute(
+            ToolCall(name="save_user_preferences", arguments={"session_minutes": 25}),
+            user_id="authenticated-user",
+            timezone_name="UTC",
+        ),
+        registry.execute(
+            ToolCall(name="save_user_preferences", arguments={"preferred_day_start": "9 AM"}),
+            user_id="authenticated-user",
+            timezone_name="UTC",
+        ),
+        registry.execute(
+            ToolCall(name="save_user_preferences", arguments={"minimum_buffer_minutes": -1}),
+            user_id="authenticated-user",
+            timezone_name="UTC",
+        ),
+        registry.execute(
+            ToolCall(
+                name="save_user_preferences",
+                arguments={"minimum_buffer_minutes": 10, "user_id": "attacker"},
+            ),
+            user_id="authenticated-user",
+            timezone_name="UTC",
+        ),
+    ]
+
+    assert all(result.ok is False for result in results)
+    assert db.writes == []
+
+
+def test_explicit_preference_request_streams_natural_acknowledgement_without_proposal() -> None:
+    db = _PreferenceDB()
+    service = ChatService(None)
+    service.tool_registry = CoachToolRegistry(CoachingContextService(db))
+    service.llm = _ToolSelectingLLM(
+        ToolDecision(
+            calls=[
+                ToolCall(
+                    name="save_user_preferences",
+                    arguments={"minimum_buffer_minutes": 15},
+                )
+            ]
+        )
+    )
+
+    async def collect() -> list[str]:
+        return [
+            event
+            async for event in service.stream(
+                "authenticated-user",
+                "Please remember that I need a buffer between tasks.",
+                [],
+            )
+        ]
+
+    payloads = _event_payloads(asyncio.run(collect()))
+
+    assert db.writes
+    assert payloads == [{"token": "A compatible streamed response."}]
+    assert '"saved_preferences": {"minimum_buffer_minutes": 15}' in (
+        service.llm.final_messages[0]["content"]
+    )
+    assert all("proposal" not in payload for payload in payloads)
+
+
+def test_casual_preference_observation_selects_no_write() -> None:
+    db = _PreferenceDB()
+    service = ChatService(None)
+    service.tool_registry = CoachToolRegistry(CoachingContextService(db))
+    service.llm = _ToolSelectingLLM(ToolDecision())
+
+    async def collect() -> list[str]:
+        return [
+            event
+            async for event in service.stream(
+                "authenticated-user", "I hate waking up early.", []
+            )
+        ]
+
+    asyncio.run(collect())
+
+    assert db.writes == []
+    assert "casual observation" in service._tool_selection_prompt("UTC")
+
+
+def test_preference_mutation_can_coexist_with_a_read_capability() -> None:
+    db = _PreferenceDB()
+    registry = CoachToolRegistry(CoachingContextService(db))
+
+    results = registry.execute_many(
+        [
+            ToolCall(name="get_user_preferences", arguments={}),
+            ToolCall(
+                name="save_user_preferences",
+                arguments={"coaching_style": "direct"},
+            ),
+        ],
+        user_id="authenticated-user",
+        timezone_name="UTC",
+    )
+
+    assert [result.name for result in results] == [
+        "get_user_preferences",
+        "save_user_preferences",
+    ]
+    assert all(result.ok for result in results)
+    definition = next(
+        tool for tool in registry.definitions() if tool.name == "save_user_preferences"
+    )
+    assert definition.kind == "mutation"
