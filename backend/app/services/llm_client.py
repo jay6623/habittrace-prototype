@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from typing import Any, NoReturn, Protocol
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from ..config import settings
-from ..schemas.coach_tools import ToolDecision, ToolDefinition
+from ..schemas.coach_tools import ToolCall, ToolDecision, ToolDefinition, ToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -320,6 +320,127 @@ class OpenAILLMClient:
                 )
         except LLMClientError:
             raise
+        except Exception as exc:
+            self._raise_api_error(sdk, exc, api_key)
+        finally:
+            await self._close_client(client)
+
+    @staticmethod
+    def _native_tools(tools: list[ToolDefinition]) -> list[dict[str, Any]]:
+        """Convert the provider-neutral catalog to Responses API function tools."""
+        return [
+            {
+                "type": "function",
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": tool.input_schema,
+            }
+            for tool in tools
+        ]
+
+    @staticmethod
+    def _function_calls(response: Any) -> list[tuple[str, ToolCall]]:
+        calls: list[tuple[str, ToolCall]] = []
+        for item in getattr(response, "output", None) or []:
+            item_type = (
+                item.get("type") if isinstance(item, dict) else getattr(item, "type", None)
+            )
+            if item_type != "function_call":
+                continue
+            name = item.get("name") if isinstance(item, dict) else getattr(item, "name", None)
+            arguments_json = (
+                item.get("arguments")
+                if isinstance(item, dict)
+                else getattr(item, "arguments", None)
+            )
+            call_id = (
+                item.get("call_id")
+                if isinstance(item, dict)
+                else getattr(item, "call_id", None)
+            )
+            arguments = json.loads(arguments_json or "{}")
+            if not isinstance(arguments, dict) or not name or not call_id:
+                raise ValueError("OpenAI returned an invalid function call.")
+            calls.append((str(call_id), ToolCall(name=str(name), arguments=arguments)))
+        return calls
+
+    async def stream_coaching_response_with_tools(
+        self,
+        messages: list[ChatMessage],
+        tools: list[ToolDefinition],
+        execute_tools: Callable[[list[ToolCall]], list[ToolResult]],
+    ) -> AsyncGenerator[str, None]:
+        """Let one Responses API turn choose tools and produce the final answer."""
+        api_key = self._api_key()
+        sdk = self._sdk()
+        client = None
+        input_items: list[Any] = list(messages)
+        native_tools = self._native_tools(tools)
+        try:
+            client = self._client(sdk, api_key)
+            for _round in range(4):
+                stream = await client.responses.create(
+                    model=settings.openai_model,
+                    input=input_items,
+                    tools=native_tools,
+                    tool_choice="auto",
+                    parallel_tool_calls=True,
+                    reasoning=self._reasoning(),
+                    max_output_tokens=max(500, settings.openai_max_output_tokens),
+                    store=False,
+                    stream=True,
+                )
+                response = None
+                round_emitted_text = False
+                async for event in stream:
+                    event_type = getattr(event, "type", None)
+                    if event_type == "response.output_text.delta":
+                        delta = getattr(event, "delta", None)
+                        if isinstance(delta, str) and delta:
+                            round_emitted_text = round_emitted_text or bool(delta.strip())
+                            yield delta
+                    elif event_type == "response.completed":
+                        response = getattr(event, "response", None)
+                    elif event_type == "response.incomplete":
+                        raise LLMProviderError(OPENAI_INCOMPLETE_RESPONSE_MESSAGE)
+                    elif event_type in {"response.failed", "error"}:
+                        raise LLMProviderError(OPENAI_TRANSIENT_ERROR_MESSAGE)
+
+                if response is None:
+                    if round_emitted_text:
+                        return
+                    raise LLMProviderError("OpenAI did not complete the coach response.")
+
+                calls = self._function_calls(response)
+                if not calls:
+                    if round_emitted_text:
+                        return
+                    fallback_text = getattr(response, "output_text", None)
+                    if isinstance(fallback_text, str) and fallback_text.strip():
+                        yield fallback_text
+                        return
+                    raise LLMProviderError(
+                        "The AI coach did not return a text response. Please try again."
+                    )
+
+                requested_calls = [call for _call_id, call in calls]
+                results = execute_tools(requested_calls)
+                input_items.extend(getattr(response, "output", None) or [])
+                for (call_id, _call), result in zip(calls, results, strict=True):
+                    input_items.append(
+                        {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": json.dumps(
+                                result.model_dump(exclude={"proposal"}), default=str
+                            ),
+                        }
+                    )
+            raise LLMProviderError("The AI coach requested too many consecutive tool calls.")
+        except LLMClientError:
+            raise
+        except (ValidationError, ValueError, TypeError) as exc:
+            raise LLMProviderError("OpenAI returned a malformed tool call.") from exc
         except Exception as exc:
             self._raise_api_error(sdk, exc, api_key)
         finally:

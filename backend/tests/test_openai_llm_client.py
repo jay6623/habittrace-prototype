@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.config import settings
-from app.schemas.coach_tools import ToolCall, ToolDecision
+from app.schemas.coach_tools import ToolCall, ToolDecision, ToolResult
 from app.services.chat_service import ChatService
 from app.services.coach_tool_registry import CoachToolRegistry
 from app.services.llm_client import (
@@ -77,6 +77,8 @@ class _Responses:
         self.error = error
         self.parse_kwargs = None
         self.create_kwargs = None
+        self.create_kwargs_history = []
+        self.create_count = 0
 
     async def parse(self, **kwargs):
         self.parse_kwargs = kwargs
@@ -97,8 +99,13 @@ class _Responses:
 
     async def create(self, **kwargs):
         self.create_kwargs = kwargs
+        self.create_kwargs_history.append(kwargs)
         if self.error:
             raise self.error
+        if self.events and isinstance(self.events[0], list):
+            events = self.events[self.create_count]
+            self.create_count += 1
+            return _Events(events)
         return _Events(self.events)
 
 
@@ -340,6 +347,117 @@ def test_openai_stream_yields_only_visible_text(monkeypatch) -> None:
     assert responses.create_kwargs["stream"] is True
     assert responses.create_kwargs["model"] == "gpt-5.6-terra"
     assert client.closed is True
+
+
+def test_openai_native_tool_loop_returns_only_selected_data(monkeypatch) -> None:
+    function_call = SimpleNamespace(
+        type="function_call",
+        name="get_task_performance",
+        arguments=json.dumps({"category": "Study"}),
+        call_id="call-1",
+    )
+    tool_response = SimpleNamespace(output=[function_call], output_text="")
+    final_response = SimpleNamespace(output=[], output_text="")
+    responses = _Responses(
+        events=[
+            [SimpleNamespace(type="response.completed", response=tool_response)],
+            [
+                SimpleNamespace(type="response.output_text.delta", delta="Study is improving."),
+                SimpleNamespace(type="response.completed", response=final_response),
+            ],
+        ]
+    )
+    client = _install_client(monkeypatch, responses)
+    executed = []
+
+    def execute_tools(calls):
+        executed.extend(calls)
+        return [
+            ToolResult(
+                name="get_task_performance",
+                ok=True,
+                data={"success_rate": 75.0, "sample_size": 8},
+            )
+        ]
+
+    tools = [
+        SimpleNamespace(
+            name="get_task_performance",
+            description="Get scoped performance.",
+            input_schema={"type": "object", "properties": {}},
+        )
+    ]
+
+    async def collect():
+        return [
+            token
+            async for token in OpenAILLMClient().stream_coaching_response_with_tools(
+                [{"role": "user", "content": "How is studying going?"}],
+                tools,
+                execute_tools,
+            )
+        ]
+
+    assert asyncio.run(collect()) == ["Study is improving."]
+    assert executed == [
+        ToolCall(name="get_task_performance", arguments={"category": "Study"})
+    ]
+    assert len(responses.create_kwargs_history) == 2
+    first_request = responses.create_kwargs_history[0]
+    assert first_request["tool_choice"] == "auto"
+    assert first_request["tools"][0]["name"] == "get_task_performance"
+    second_input = responses.create_kwargs_history[1]["input"]
+    tool_output = second_input[-1]
+    assert tool_output["type"] == "function_call_output"
+    assert json.loads(tool_output["output"])["data"] == {
+        "success_rate": 75.0,
+        "sample_size": 8,
+    }
+    assert client.closed is True
+
+
+def test_chat_service_uses_native_openai_turn_and_limits_history(monkeypatch) -> None:
+    final_response = SimpleNamespace(output=[], output_text="")
+    responses = _Responses(
+        events=[
+            SimpleNamespace(type="response.output_text.delta", delta="현재 질문에 답합니다."),
+            SimpleNamespace(type="response.completed", response=final_response),
+        ]
+    )
+    _install_client(monkeypatch, responses)
+    service = ChatService(None)
+    service.llm = OpenAILLMClient()
+    history = [
+        {"role": "user" if index % 2 == 0 else "assistant", "content": f"old-{index}"}
+        for index in range(12)
+    ]
+
+    async def collect():
+        return [
+            event
+            async for event in service.stream(
+                "user-1",
+                "지금 질문에 답해줘",
+                history,
+                timezone_name="Asia/Seoul",
+            )
+        ]
+
+    events = asyncio.run(collect())
+    sent = responses.create_kwargs["input"]
+
+    payloads = [
+        json.loads(event.removeprefix("data: ").strip())
+        for event in events
+        if "[DONE]" not in event
+    ]
+    assert {"token": "현재 질문에 답합니다."} in payloads
+    assert responses.parse_kwargs is None
+    assert len(sent) == 10  # system + eight recent messages + current user message
+    assert sent[1]["content"] == "old-4"
+    assert sent[-1] == {"role": "user", "content": "지금 질문에 답해줘"}
+    assert "Respond in the language the user is using" in sent[0]["content"]
+    assert responses.create_kwargs["tools"] == []
 
 
 @pytest.mark.parametrize(
