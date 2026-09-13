@@ -209,14 +209,6 @@ function Settings({
           Download records
         </button>
       </section>
-      <section className="panel">
-        <h2 className="text-lg font-semibold">Feature availability</h2>
-        <p className="mt-3 text-sm leading-relaxed text-slate-600">
-          Push reminders, dark mode and self-service account deletion are not
-          available yet. No notification or theme settings are applied in the
-          background.
-        </p>
-      </section>
       <button
         className="btn-secondary !text-rose-700"
         disabled={busy}

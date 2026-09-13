@@ -48,9 +48,9 @@ export default function DashboardLayout({
           id="main-content"
           className="mx-auto max-w-7xl px-4 pb-32 pt-6 sm:px-6 lg:pb-24"
         >
-          {/\/dashboard\/(habits|calendar|scheduler)$/.test(pathname) && (
-            <PlanTabs />
-          )}
+          {/\/dashboard\/(habits|calendar|scheduler)(\/unlogged)?$/.test(
+            pathname,
+          ) && <PlanTabs />}
           {children}
         </main>
       </div>

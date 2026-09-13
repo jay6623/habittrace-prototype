@@ -67,7 +67,7 @@ def update_task(
 ):
     db = _require_db()
     svc = TaskService(db)
-    updated = svc.update(str(user_id), task_id, body.model_dump(exclude_none=True))
+    updated = svc.update(str(user_id), task_id, body.model_dump(exclude_unset=True))
     if not updated:
         raise HTTPException(status_code=404, detail="Task not found")
     GoogleCalendarService(db).sync_task_safely(str(user_id), updated)

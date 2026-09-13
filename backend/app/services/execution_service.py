@@ -135,6 +135,69 @@ class ExecutionService:
         ).eq("user_id", user_id).execute()
         return result_rows[0]
 
+    def get_latest_finished(self, user_id: str, task_id: str) -> JsonRow | None:
+        result = (
+            self.db.table("executions")
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("task_id", task_id)
+            .not_.is_("actual_end_time", "null")
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        rows = _rows(result.data)
+        return rows[0] if rows else None
+
+    def revise(
+        self, user_id: str, execution_id: str, payload: Mapping[str, object]
+    ) -> JsonRow | None:
+        """Update an already-finished owned execution and sync the parent task."""
+        existing_result = (
+            self.db.table("executions")
+            .select("*")
+            .eq("id", execution_id)
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+        existing_rows = _rows(existing_result.data)
+        if not existing_rows:
+            return None
+
+        existing = existing_rows[0]
+        if existing.get("actual_end_time") is None:
+            return self.complete(user_id, execution_id, payload)
+
+        data = {
+            "interruption_count": payload.get("interruption_count", 0),
+            "stopped_early": payload.get("stopped_early", False),
+            "task_status": payload["task_status"],
+            "failure_reason": payload.get("failure_reason"),
+        }
+        manual_start, manual_end = payload.get("actual_start_time"), payload.get(
+            "actual_end_time"
+        )
+        if isinstance(manual_start, datetime) and isinstance(manual_end, datetime):
+            data["actual_start_time"] = manual_start.isoformat()
+            data["actual_end_time"] = manual_end.isoformat()
+
+        result = (
+            self.db.table("executions")
+            .update(data)
+            .eq("id", execution_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+        result_rows = _rows(result.data)
+        if not result_rows:
+            return None
+
+        self.db.table("tasks").update({"task_status": payload["task_status"]}).eq(
+            "id", existing["task_id"]
+        ).eq("user_id", user_id).execute()
+        return result_rows[0]
+
     def log(self, user_id: str, payload: Mapping[str, object]) -> JsonRow | None:
         """Complete an active row or insert one finished execution."""
         task_id = str(payload["task_id"])

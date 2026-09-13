@@ -28,6 +28,7 @@ export type FailureReasonCode = (typeof FAILURE_REASONS)[number]["code"];
 
 export interface QuickAddDraft {
   title: string;
+  notes: string;
   plannedDate: string;
   plannedTime: string;
   durationMinutes: number;
@@ -93,6 +94,7 @@ export function toQuickTaskCreate(
 ): TaskCreate {
   return {
     title: draft.title.trim(),
+    notes: draft.notes.trim() || null,
     task_category: draft.category,
     planned_start_time: toStoredTime(draft.plannedTime),
     planned_date: draft.plannedDate,

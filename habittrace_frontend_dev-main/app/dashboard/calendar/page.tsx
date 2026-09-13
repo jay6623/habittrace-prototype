@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import QuickAddForm from "@/components/mobile/quick-add-form";
+import Dialog from "@/components/ui/dialog";
 import { toQuickTaskCreate } from "@/lib/mobile-task";
 import { useDataRefresh } from "@/lib/refresh";
 import { createTask, getTasks, type Task } from "@/lib/api";
@@ -32,6 +33,7 @@ const MONTH_NAMES = [
   "November",
   "December",
 ];
+
 function localDateStr(date = new Date()): string {
   return [
     date.getFullYear(),
@@ -76,6 +78,12 @@ function timeToMinutes(timeStr: string): number {
   return hour * 60 + minute;
 }
 
+function statusLabel(task: Task) {
+  if (task.task_status === "success") return "Completed";
+  if (task.task_status === "failed") return "Not completed";
+  return "Planned";
+}
+
 export default function CalendarPage() {
   const today = new Date();
   const todayIso = localDateStr(today);
@@ -86,6 +94,8 @@ export default function CalendarPage() {
   const [loading, setLoading] = useState(true);
 
   const [error, setError] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [draft, setDraft] = useState<{ planned_date: string } | null>(null);
 
   const loadTasks = useCallback(() => {
@@ -120,8 +130,16 @@ export default function CalendarPage() {
   const remainingCells = totalCells % 7 === 0 ? 0 : 7 - (totalCells % 7);
   const leadingDays = Array.from({ length: remainingCells }, (_, i) => i + 1);
 
+  function openDay(date: string) {
+    setError(null);
+    setSelectedTask(null);
+    setSelectedDate(date);
+  }
+
   function openAddTask(date: string) {
     setError(null);
+    setSelectedTask(null);
+    setSelectedDate(null);
     setDraft({ planned_date: date });
   }
 
@@ -182,6 +200,8 @@ export default function CalendarPage() {
       return date;
     });
   }
+
+  const dayPlans = selectedDate ? tasksForDate(selectedDate) : [];
 
   return (
     <div className="space-y-5">
@@ -311,13 +331,13 @@ export default function CalendarPage() {
                 <button
                   key={`curr-${day}`}
                   type="button"
-                  onClick={() => openAddTask(date)}
+                  onClick={() => openDay(date)}
                   className={`flex min-h-[104px] flex-col items-start justify-start rounded-2xl border p-2 text-left transition-colors hover:border-slate-400 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-300 ${
                     isToday
                       ? "border-slate-900 bg-slate-50"
                       : "border-slate-200 bg-white"
                   }`}
-                  aria-label={`Add task on ${formatDateLabel(date)}`}
+                  aria-label={`View plans on ${formatDateLabel(date)}`}
                 >
                   <span
                     className={`text-sm font-medium ${
@@ -376,9 +396,9 @@ export default function CalendarPage() {
                 <button
                   key={date}
                   type="button"
-                  onClick={() => openAddTask(date)}
+                  onClick={() => openDay(date)}
                   className="flex min-h-[160px] flex-col gap-2 rounded-2xl border border-slate-100 p-2 text-left transition-colors hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-300"
-                  aria-label={`Add task on ${formatDateLabel(date)}`}
+                  aria-label={`View plans on ${formatDateLabel(date)}`}
                 >
                   <div className="text-center">
                     <div className="text-xs text-slate-500">
@@ -435,6 +455,146 @@ export default function CalendarPage() {
           Pending
         </div>
       </div>
+
+      {selectedDate && !selectedTask && (
+        <Dialog
+          title={formatDateLabel(selectedDate)}
+          onClose={() => setSelectedDate(null)}
+        >
+          <div className="space-y-4">
+            {dayPlans.length === 0 ? (
+              <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+                No plans on this day yet.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {dayPlans.map((task) => (
+                  <li key={task.id}>
+                    <button
+                      type="button"
+                      className="flex w-full items-start justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left transition hover:border-slate-300 hover:bg-slate-50"
+                      onClick={() => setSelectedTask(task)}
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold text-slate-950">
+                          {task.title}
+                        </p>
+                        <p className="mt-1 text-xs font-medium text-slate-500">
+                          {task.planned_start_time} · {task.planned_duration_min}{" "}
+                          min · {task.task_category}
+                        </p>
+                      </div>
+                      <span
+                        className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${taskChipColor(task)}`}
+                      >
+                        {statusLabel(task)}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <button
+              type="button"
+              className="btn-primary w-full"
+              onClick={() => {
+                const date = selectedDate;
+                setSelectedDate(null);
+                openAddTask(date);
+              }}
+            >
+              + Add plan
+            </button>
+          </div>
+        </Dialog>
+      )}
+
+      {selectedTask && (
+        <Dialog
+          title="Plan details"
+          onClose={() => setSelectedTask(null)}
+        >
+          <div className="space-y-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Name
+              </p>
+              <p className="mt-1 text-lg font-bold text-slate-950">
+                {selectedTask.title}
+              </p>
+            </div>
+            {selectedTask.notes?.trim() && (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Note
+                </p>
+                <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+                  {selectedTask.notes.trim()}
+                </p>
+              </div>
+            )}
+            <dl className="grid grid-cols-2 gap-3 rounded-2xl bg-slate-50 p-4 text-sm">
+              <div>
+                <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Category
+                </dt>
+                <dd className="mt-1 font-semibold text-slate-900">
+                  {selectedTask.task_category}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Priority
+                </dt>
+                <dd className="mt-1 font-semibold text-slate-900">
+                  {selectedTask.importance}
+                  {selectedTask.importance === 1
+                    ? " — Low"
+                    : selectedTask.importance === 5
+                      ? " — High"
+                      : ""}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Date
+                </dt>
+                <dd className="mt-1 font-semibold text-slate-900">
+                  {formatDateLabel(selectedTask.planned_date)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Time
+                </dt>
+                <dd className="mt-1 font-semibold text-slate-900">
+                  {selectedTask.planned_start_time} ·{" "}
+                  {selectedTask.planned_duration_min} min
+                </dd>
+              </div>
+              <div className="col-span-2">
+                <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Status
+                </dt>
+                <dd className="mt-1">
+                  <span
+                    className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${taskChipColor(selectedTask)}`}
+                  >
+                    {statusLabel(selectedTask)}
+                  </span>
+                </dd>
+              </div>
+            </dl>
+            <button
+              type="button"
+              className="btn-secondary w-full"
+              onClick={() => setSelectedTask(null)}
+            >
+              Back to day
+            </button>
+          </div>
+        </Dialog>
+      )}
 
       {draft && (
         <QuickAddForm

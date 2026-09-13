@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   id                  UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id             UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
   title               TEXT NOT NULL,
+  notes               TEXT,                     -- optional user note
   task_category       TEXT NOT NULL,
   planned_start_time  TEXT NOT NULL,           -- "2:00 PM"
   planned_date        DATE NOT NULL DEFAULT CURRENT_DATE,

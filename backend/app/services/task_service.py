@@ -16,6 +16,7 @@ class TaskService:
         data = {
             "user_id": user_id,
             "title": payload["title"],
+            "notes": payload.get("notes"),
             "task_category": payload["task_category"],
             "planned_start_time": payload["planned_start_time"],
             "planned_date": payload.get("planned_date") or date.today().isoformat(),
@@ -45,11 +46,10 @@ class TaskService:
 
     # ── Update ──────────────────────────────────────────────────────────
     def update(self, user_id: str, task_id: str, payload: dict) -> dict | None:
-        data = {k: v for k, v in payload.items() if v is not None}
-        if not data:
+        if not payload:
             return self.get(user_id, task_id)
         result = (
-            self.db.table("tasks").update(data).eq("id", task_id).eq("user_id", user_id).execute()
+            self.db.table("tasks").update(payload).eq("id", task_id).eq("user_id", user_id).execute()
         )
         return result.data[0] if result.data else None
 

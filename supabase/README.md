@@ -7,6 +7,7 @@ This directory contains SQL for two separate data boundaries.
 | File | Target | Purpose |
 |---|---|---|
 | `schema.sql` | Primary application project | Profiles, tasks, executions, prediction cache, RLS, signup trigger, and indexes |
+| `task_notes.sql` | Primary application project | Optional `tasks.notes` column for existing databases |
 | `google_calendar_schema.sql` | Primary application project | Encrypted Google connection records and task-to-event links |
 | `group_scheduling_schema.sql` | Primary application project | Groups, invite-code memberships, and shared group tasks |
 | `ai_schema.sql` | AI V2 project | AI plan inputs, outcomes, confirmed reasons, model versions, predictions, time recommendations, constraints, triggers, indexes, and RLS |

@@ -30,6 +30,7 @@ import OutcomeSheet, {
 } from "./outcome-sheet";
 import QuickAddForm from "./quick-add-form";
 import PersonalizedOutlookCard from "@/components/personalized-outlook-card";
+import { countUnloggedAttention } from "@/lib/unlogged";
 
 interface ToastState {
   message: string;
@@ -91,6 +92,7 @@ export default function MobileToday() {
   const [outcomeSaving, setOutcomeSaving] = useState(false);
   const [outcomeError, setOutcomeError] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
+  const [unloggedCount, setUnloggedCount] = useState(0);
 
   const today = localDateString();
 
@@ -98,9 +100,10 @@ export default function MobileToday() {
     setLoading(true);
     setLoadError(null);
     try {
-      const [todayTasks, active] = await Promise.all([
+      const [todayTasks, active, allTasks] = await Promise.all([
         getTasks(today),
         getActiveExecutions(),
+        getTasks(),
       ]);
       const knownTaskIds = new Set(todayTasks.map((task) => task.id));
       const missingTaskIds = Array.from(
@@ -114,6 +117,7 @@ export default function MobileToday() {
       );
 
       setTasks([...todayTasks, ...activeTasks].sort(taskSort));
+      setUnloggedCount(countUnloggedAttention(allTasks, today));
       setActiveExecutions(
         active.reduce<Record<string, Execution>>((byTask, execution) => {
           if (!byTask[execution.task_id]) byTask[execution.task_id] = execution;
@@ -398,7 +402,7 @@ export default function MobileToday() {
       ) : (
         <>
           <div
-            className="mt-5 grid grid-cols-3 gap-3"
+            className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4"
             aria-label="Today’s progress"
           >
             {[
@@ -426,6 +430,23 @@ export default function MobileToday() {
                 <p className="mt-1 text-xs text-slate-500">{item.label}</p>
               </div>
             ))}
+            <Link
+              href="/dashboard/habits/unlogged"
+              className={`rounded-2xl border p-4 transition ${
+                unloggedCount > 0
+                  ? "border-rose-200 bg-rose-50 hover:bg-rose-100"
+                  : "border-slate-200 bg-white hover:bg-slate-50"
+              }`}
+            >
+              <p className="text-2xl font-bold">{unloggedCount}</p>
+              <p
+                className={`mt-1 text-xs ${
+                  unloggedCount > 0 ? "font-semibold text-rose-700" : "text-slate-500"
+                }`}
+              >
+                Unlogged
+              </p>
+            </Link>
           </div>
           <div className="mt-5">
             <PersonalizedOutlookCard />
@@ -463,6 +484,11 @@ export default function MobileToday() {
                   {formatTaskTime(currentTask.planned_start_time)} ·{" "}
                   {currentTask.planned_duration_min} min
                 </p>
+                {currentTask.notes?.trim() && (
+                  <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-slate-300">
+                    {currentTask.notes.trim()}
+                  </p>
+                )}
                 <div className="mt-6 grid grid-cols-2 gap-3">
                   <button
                     className="min-h-14 rounded-2xl bg-white px-3 text-base font-bold text-slate-950 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300"
@@ -553,6 +579,11 @@ export default function MobileToday() {
                             {formatTaskTime(task.planned_start_time)} ·{" "}
                             {task.planned_duration_min} min
                           </p>
+                          {task.notes?.trim() && (
+                            <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-600">
+                              {task.notes.trim()}
+                            </p>
+                          )}
                         </div>
                         {active && (
                           <span className="shrink-0 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-800">

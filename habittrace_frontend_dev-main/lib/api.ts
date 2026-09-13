@@ -29,6 +29,7 @@ export interface Task {
   id: string;
   user_id: string;
   title: string;
+  notes?: string | null;
   task_category: string;
   planned_start_time: string;
   planned_date: string;
@@ -46,6 +47,7 @@ export interface Task {
 
 export interface TaskCreate {
   title: string;
+  notes?: string | null;
   task_category: string;
   planned_start_time: string;
   planned_date?: string;
@@ -666,7 +668,7 @@ function toAIPlanInput(task: TaskCreate): Record<string, unknown> {
   return {
     input_source: "user",
     title: task.title,
-    description: null,
+    description: task.notes?.trim() ? task.notes.trim() : null,
     category: task.task_category,
     planned_start: plannedStart,
     planned_duration_minutes: task.planned_duration_min,
@@ -706,6 +708,7 @@ function parsePlannedStart(time: string, date: string): string {
 
 export interface TaskUpdate {
   title?: string;
+  notes?: string | null;
   task_category?: string;
   planned_start_time?: string;
   planned_date?: string;
@@ -739,6 +742,22 @@ export async function getActiveExecutions(): Promise<Execution[]> {
   return apiFetch<Execution[]>("/executions?active=true");
 }
 
+export async function getExecutions(): Promise<Execution[]> {
+  return apiFetch<Execution[]>("/executions");
+}
+
+export async function getLatestFinishedExecution(
+  taskId: string,
+): Promise<Execution | null> {
+  const executions = await getExecutions();
+  return (
+    executions.find(
+      (execution) =>
+        execution.task_id === taskId && execution.actual_end_time != null,
+    ) ?? null
+  );
+}
+
 export async function startExecution(taskId: string): Promise<Execution> {
   return apiFetch<Execution>("/executions/start", {
     method: "POST",
@@ -751,6 +770,16 @@ export async function completeExecution(
   input: ExecutionCompleteInput,
 ): Promise<Execution> {
   return apiFetch<Execution>(`/executions/${executionId}/complete`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function reviseExecution(
+  executionId: string,
+  input: ExecutionCompleteInput,
+): Promise<Execution> {
+  return apiFetch<Execution>(`/executions/${executionId}`, {
     method: "PATCH",
     body: JSON.stringify(input),
   });

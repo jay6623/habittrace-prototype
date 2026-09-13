@@ -1,5 +1,6 @@
 import type { Task } from "./api";
-import { taskTimeInMinutes } from "./mobile-task";
+import { taskTimeInMinutes, type QuickAddDraft } from "./mobile-task";
+
 export function overlappingTasks(tasks: Task[]): Set<string> {
   const conflicts = new Set<string>();
   const pending = tasks.filter((t) => t.task_status === "pending");
@@ -11,8 +12,7 @@ export function overlappingTasks(tasks: Task[]): Set<string> {
         sb = taskTimeInMinutes(b.planned_start_time);
       if (
         a.planned_date === b.planned_date &&
-        sa < sb + b.planned_duration_min &&
-        sb < sa + a.planned_duration_min
+        rangesOverlap(sa, a.planned_duration_min, sb, b.planned_duration_min)
       ) {
         conflicts.add(a.id);
         conflicts.add(b.id);
@@ -20,6 +20,36 @@ export function overlappingTasks(tasks: Task[]): Set<string> {
     }
   return conflicts;
 }
+
+/** Half-open ranges [start, start+duration): touching end-to-start is not an overlap. */
+export function rangesOverlap(
+  startA: number,
+  durationA: number,
+  startB: number,
+  durationB: number,
+): boolean {
+  return startA < startB + durationB && startB < startA + durationA;
+}
+
+export function findOverlappingTasks(
+  draft: Pick<QuickAddDraft, "plannedDate" | "plannedTime" | "durationMinutes">,
+  tasks: Task[],
+  excludeTaskId?: string,
+): Task[] {
+  const start = taskTimeInMinutes(draft.plannedTime);
+  if (!Number.isFinite(start) || start === Number.MAX_SAFE_INTEGER) return [];
+  return tasks.filter((task) => {
+    if (excludeTaskId && task.id === excludeTaskId) return false;
+    if (task.planned_date !== draft.plannedDate) return false;
+    return rangesOverlap(
+      start,
+      draft.durationMinutes,
+      taskTimeInMinutes(task.planned_start_time),
+      task.planned_duration_min,
+    );
+  });
+}
+
 export function findFreeSlots(
   tasks: Task[],
   selected: Task,

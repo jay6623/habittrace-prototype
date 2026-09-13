@@ -66,6 +66,20 @@ def complete_execution(
     return result
 
 
+@router.patch("/{execution_id}", response_model=ExecutionResponse)
+def revise_execution(
+    execution_id: str,
+    body: ExecutionComplete,
+    user_id: CurrentUserId,
+):
+    """Revise a finished execution outcome (and sync the parent task status)."""
+    svc = ExecutionService(_require_db())
+    result = svc.revise(str(user_id), execution_id, body.model_dump())
+    if not result:
+        raise HTTPException(status_code=404, detail="Execution not found")
+    return result
+
+
 # ── GET /executions ─────────────────────────────────────────────────────────
 @router.get("", response_model=list[ExecutionResponse])
 def list_executions(

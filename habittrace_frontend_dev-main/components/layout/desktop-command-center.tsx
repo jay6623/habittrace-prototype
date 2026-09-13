@@ -32,6 +32,7 @@ import OutcomeSheet, {
 } from "@/components/mobile/outcome-sheet";
 import QuickAddForm from "@/components/mobile/quick-add-form";
 import PersonalizedOutlookCard from "@/components/personalized-outlook-card";
+import { countUnloggedAttention } from "@/lib/unlogged";
 
 function sortTasks(left: Task, right: Task) {
   return taskTimeInMinutes(left.planned_start_time) - taskTimeInMinutes(right.planned_start_time);
@@ -119,6 +120,7 @@ export default function DesktopCommandCenter() {
   const pending = todayTasks.filter((task) => task.task_status === "pending");
   const completed = todayTasks.filter((task) => task.task_status === "success").length;
   const plannedMinutes = todayTasks.reduce((sum, task) => sum + task.planned_duration_min, 0);
+  const unloggedCount = countUnloggedAttention(tasks);
   const activeTask = pending.find((task) => active[task.id]);
   const now = new Date();
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
@@ -295,7 +297,7 @@ export default function DesktopCommandCenter() {
             </button>
           </div>
         </div>
-        <div className="relative z-10 mt-9 grid max-w-2xl grid-cols-3 gap-3">
+        <div className="relative z-10 mt-9 grid max-w-3xl grid-cols-2 gap-3 sm:grid-cols-4">
           {[
             ["Completed", `${completed}/${todayTasks.length || 0}`],
             ["Remaining", String(pending.length)],
@@ -306,6 +308,19 @@ export default function DesktopCommandCenter() {
               <p className="mt-1 text-xs font-medium text-slate-400">{label}</p>
             </div>
           ))}
+          <Link
+            href="/dashboard/habits/unlogged"
+            className={`rounded-2xl border px-4 py-3 backdrop-blur-sm transition ${
+              unloggedCount > 0
+                ? "border-rose-300/40 bg-rose-500/20 hover:bg-rose-500/30"
+                : "border-white/10 bg-white/[0.07] hover:bg-white/[0.12]"
+            }`}
+          >
+            <p className="text-xl font-bold">{unloggedCount}</p>
+            <p className={`mt-1 text-xs font-medium ${unloggedCount > 0 ? "text-rose-200" : "text-slate-400"}`}>
+              Unlogged
+            </p>
+          </Link>
         </div>
       </section>
 
@@ -363,6 +378,11 @@ export default function DesktopCommandCenter() {
                             )}
                           </div>
                           <p className={`mt-1 text-xs ${isNext ? "text-slate-400" : "text-slate-500"}`}>{task.task_category} · {task.planned_duration_min} min · {taskStatusLabel(task, inProgress)}</p>
+                          {task.notes?.trim() && (
+                            <p className={`mt-2 whitespace-pre-wrap text-sm leading-relaxed ${isNext ? "text-slate-300" : "text-slate-600"}`}>
+                              {task.notes.trim()}
+                            </p>
+                          )}
                           {aiPredictions[task.id]?.personalization?.applied && (
                             <p className={`mt-1 text-[11px] ${isNext ? "text-emerald-300/80" : "text-emerald-700"}`}>
                               Personalized using {aiPredictions[task.id].personalization!.sample_count} previous plans

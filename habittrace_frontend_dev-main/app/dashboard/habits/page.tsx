@@ -26,6 +26,7 @@ import {
   type FailureReasonCode,
 } from "@/lib/mobile-task";
 import QuickAddForm from "@/components/mobile/quick-add-form";
+import LoggedPlanEditForm from "@/components/mobile/logged-plan-edit-form";
 import OutcomeSheet, {
   type MobileResult,
   type OutcomeTimes,
@@ -67,6 +68,7 @@ function Plans() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [editing, setEditing] = useState<Task | "new" | null>(null);
+  const [editingLogged, setEditingLogged] = useState<Task | null>(null);
   const [removing, setRemoving] = useState<Task | null>(null);
   const [outcome, setOutcome] = useState<Task | null>(null);
   const [outcomeError, setOutcomeError] = useState<string | null>(null);
@@ -215,6 +217,7 @@ function Plans() {
     editing && editing !== "new"
       ? {
           title: editing.title,
+          notes: editing.notes ?? "",
           plannedDate: editing.planned_date,
           plannedTime: `${String(Math.floor(taskTimeInMinutes(editing.planned_start_time) / 60)).padStart(2, "0")}:${String(taskTimeInMinutes(editing.planned_start_time) % 60).padStart(2, "0")}`,
           durationMinutes: editing.planned_duration_min,
@@ -382,6 +385,11 @@ function Plans() {
                   <p className="mt-1 text-xs font-medium text-slate-500">
                     {task.planned_duration_min} min
                   </p>
+                  {task.notes?.trim() && (
+                    <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-600">
+                      {task.notes.trim()}
+                    </p>
+                  )}
                 </div>
                 <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                   <span
@@ -430,28 +438,66 @@ function Plans() {
                   >
                     Find time
                   </Link>
-                  <details className="relative">
+                  <details
+                    className="relative"
+                    onMouseEnter={(event) => {
+                      const menu = event.currentTarget;
+                      const timer = Number(menu.dataset.closeTimer ?? "");
+                      if (timer) {
+                        window.clearTimeout(timer);
+                        delete menu.dataset.closeTimer;
+                      }
+                    }}
+                    onMouseLeave={(event) => {
+                      const menu = event.currentTarget;
+                      const timer = Number(menu.dataset.closeTimer ?? "");
+                      if (timer) window.clearTimeout(timer);
+                      menu.dataset.closeTimer = String(
+                        window.setTimeout(() => {
+                          menu.open = false;
+                          delete menu.dataset.closeTimer;
+                        }, 350),
+                      );
+                    }}
+                  >
                     <summary
                       aria-label={`More actions for ${task.title}`}
                       className="grid min-h-9 min-w-9 list-none place-items-center rounded-lg text-lg font-bold text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 [&::-webkit-details-marker]:hidden"
                     >
                       ···
                     </summary>
-                    <div className="absolute right-0 top-10 z-20 min-w-32 overflow-hidden rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
-                      <button
-                        className="block w-full rounded-lg px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                        disabled={busy}
-                        onClick={() => setEditing(task)}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        className="block w-full rounded-lg px-3 py-2 text-left text-sm font-semibold text-rose-700 hover:bg-rose-50"
-                        disabled={busy}
-                        onClick={() => setRemoving(task)}
-                      >
-                        Delete
-                      </button>
+                    <div className="absolute right-0 top-full z-20 pt-2">
+                      <div className="min-w-32 overflow-hidden rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
+                        <button
+                          className="block w-full rounded-lg px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                          disabled={busy}
+                          onClick={(event) => {
+                            const menu = event.currentTarget.closest("details");
+                            if (menu) menu.open = false;
+                            if (
+                              task.task_status === "success" ||
+                              task.task_status === "failed"
+                            ) {
+                              setEditingLogged(task);
+                            } else {
+                              setEditing(task);
+                            }
+                          }}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          className="block w-full rounded-lg px-3 py-2 text-left text-sm font-semibold text-rose-700 hover:bg-rose-50"
+                          disabled={busy}
+                          onClick={(event) => {
+                            const menu = event.currentTarget.closest("details");
+                            if (menu) menu.open = false;
+                            setRemoving(task);
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </div>
                   </details>
                 </div>
@@ -464,8 +510,21 @@ function Plans() {
         <QuickAddForm
           initialDate={date}
           initialDraft={draft}
+          excludeTaskId={editing !== "new" ? editing.id : undefined}
           onDismiss={() => setEditing(null)}
           onSubmit={save}
+        />
+      )}
+      {editingLogged && (
+        <LoggedPlanEditForm
+          task={editingLogged}
+          onDismiss={() => setEditingLogged(null)}
+          onWarn={(title, message) => toast.warn(title, message)}
+          onSaved={() => {
+            setEditingLogged(null);
+            toast.success("Logged plan updated");
+            void load();
+          }}
         />
       )}
       {outcome && (

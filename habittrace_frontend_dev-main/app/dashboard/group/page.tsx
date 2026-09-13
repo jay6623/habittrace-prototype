@@ -689,6 +689,7 @@ export default function GroupPage() {
                           onClick={() =>
                             setCopyDraft({
                               title: task.title,
+                              notes: "",
                               plannedDate: task.due_date ?? localDateString(),
                               plannedTime:
                                 task.due_time?.slice(0, 5) ??
