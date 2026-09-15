@@ -72,6 +72,10 @@ export default function SignupPage() {
         provider: "google",
         options: {
           redirectTo: `${getOAuthRedirectBaseUrl()}/onboarding/profile`,
+          // Match the login page: always show Google's account chooser.
+          queryParams: {
+            prompt: "select_account",
+          },
         },
       });
       if (authError) throw authError;

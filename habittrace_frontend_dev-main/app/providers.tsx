@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import { clearStoredAIPlanIds } from "@/lib/api";
 import { syncProfileDisplayName } from "@/lib/profile";
 import { notifyDataChanged } from "@/lib/refresh";
 
@@ -58,7 +59,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // Watch for sign-in and sign-out changes.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
+      (event, session) => {
+        // Only the AI plan map is cleared here: it is the one stored value
+        // that is not keyed by user id and would otherwise outlive the session.
+        if (event === "SIGNED_OUT") clearStoredAIPlanIds();
         setSession(session);
         setUser(session?.user ?? null);
         setLoading(false);

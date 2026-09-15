@@ -103,6 +103,19 @@ function forgetAIPlan(taskId: string): void {
   localStorage.setItem(AI_PLAN_MAP_KEY, JSON.stringify(plans));
 }
 
+/**
+ * Drop the task → AI plan map when the user signs out. The map is not scoped
+ * by user, so it must not outlive the session that created it.
+ */
+export function clearStoredAIPlanIds(): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(AI_PLAN_MAP_KEY);
+  } catch {
+    // Storage can be unavailable (private mode, blocked site data).
+  }
+}
+
 export interface ExecutionCreate {
   task_id: string;
   actual_start_time: string;

@@ -55,6 +55,11 @@ export default function LoginPage() {
         provider: "google",
         options: {
           redirectTo: `${getOAuthRedirectBaseUrl()}${getPostLoginDestination()}`,
+          // Signing out of HabitTrace does not end the Google browser session.
+          // Ask Google for the account chooser so a different account can be picked.
+          queryParams: {
+            prompt: "select_account",
+          },
         },
       });
       if (authError) throw authError;

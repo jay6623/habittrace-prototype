@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { useAuth } from "@/app/providers";
+import { useToast } from "@/components/ui/toast";
 import {
   connectGoogleCalendar,
   disconnectGoogleCalendar,
@@ -10,6 +12,32 @@ import {
 } from "@/lib/api";
 import { getOAuthRedirectBaseUrl } from "@/lib/site";
 import { supabase } from "@/lib/supabase";
+
+/**
+ * Calendar authorization reuses `signInWithOAuth`, which is a full sign-in:
+ * whatever Google account completes it becomes the active Supabase session.
+ * Remember who started the flow so a different Google account cannot silently
+ * replace the signed-in HabitTrace user when the browser comes back.
+ */
+const CALENDAR_EXPECTED_USER_KEY = "habittrace.calendar.expected_user";
+
+function rememberCalendarUser(userId: string): void {
+  try {
+    window.localStorage.setItem(CALENDAR_EXPECTED_USER_KEY, userId);
+  } catch {
+    // Storage unavailable: the callback will refuse to connect rather than guess.
+  }
+}
+
+function takeCalendarUser(): string | null {
+  try {
+    const value = window.localStorage.getItem(CALENDAR_EXPECTED_USER_KEY);
+    window.localStorage.removeItem(CALENDAR_EXPECTED_USER_KEY);
+    return value;
+  } catch {
+    return null;
+  }
+}
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface Integration {
@@ -123,6 +151,8 @@ export default function IntegrationsPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const initialized = useRef(false);
+  const { user } = useAuth();
+  const toast = useToast();
 
   function setGoogleConnected(connected: boolean) {
     setIntegrations((prev) =>
@@ -144,12 +174,35 @@ export default function IntegrationsPage() {
       try {
         const params = new URLSearchParams(window.location.search);
         if (params.get("google_calendar") === "callback") {
+          const expectedUserId = takeCalendarUser();
           const {
             data: { session },
             error: sessionError,
           } = await supabase.auth.getSession();
           if (sessionError) throw sessionError;
-          if (!session?.provider_token) {
+
+          if (!expectedUserId) {
+            window.history.replaceState({}, "", window.location.pathname);
+            throw new Error(
+              "We couldn't confirm which HabitTrace account started this connection. Please connect again.",
+            );
+          }
+          if (!session || session.user.id !== expectedUserId) {
+            // Google completed the flow as a different account, and Supabase
+            // has already swapped the active session to that user. Drop it
+            // locally so the original user is asked to sign in again rather
+            // than silently continuing as someone else. The dashboard layout
+            // redirects to the login page once the session is gone.
+            window.history.replaceState({}, "", window.location.pathname);
+            toast.error(
+              "Calendar not connected",
+              "That Google account belongs to a different HabitTrace user. Sign in again and choose the Google account that matches this one.",
+              10_000,
+            );
+            await supabase.auth.signOut({ scope: "local" });
+            return;
+          }
+          if (!session.provider_token) {
             throw new Error(
               "Google did not return Calendar access. Please connect again and approve Calendar permission.",
             );
@@ -183,7 +236,7 @@ export default function IntegrationsPage() {
     }
 
     void initializeCalendar();
-  }, []);
+  }, [toast]);
 
   const filtered =
     activeCategory === "All"
@@ -215,6 +268,9 @@ export default function IntegrationsPage() {
         );
       }
 
+      if (!user) throw new Error("You need to sign in.");
+      rememberCalendarUser(user.id);
+
       const redirectTo = `${getOAuthRedirectBaseUrl()}/dashboard/integrations?google_calendar=callback`;
       const { error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: "google",
@@ -225,6 +281,9 @@ export default function IntegrationsPage() {
             access_type: "offline",
             prompt: "consent",
             include_granted_scopes: "true",
+            // Pre-select the signed-in user's Google account. This is a hint
+            // only; the callback above verifies the identity that came back.
+            ...(user.email ? { login_hint: user.email } : {}),
           },
         },
       });
