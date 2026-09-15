@@ -11,6 +11,7 @@ import {
 } from "@/lib/mobile-task";
 import { findOverlappingTasks } from "@/lib/scheduling";
 import Dialog from "@/components/ui/dialog";
+import DatePicker from "@/components/ui/date-picker";
 
 const PRESET_DURATIONS = [15, 30, 45, 60, 90] as const;
 
@@ -245,12 +246,10 @@ export default function QuickAddForm({
           <div className="grid grid-cols-2 gap-3">
             <label className="space-y-2 text-sm font-semibold">
               Date
-              <input
+              <DatePicker
                 required
-                type="date"
-                className="field"
                 value={draft.plannedDate}
-                onChange={(e) => update("plannedDate", e.target.value)}
+                onChange={(value) => update("plannedDate", value)}
               />
             </label>
             <label className="space-y-2 text-sm font-semibold">

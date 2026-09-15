@@ -89,6 +89,7 @@ export default function CalendarPage() {
   const todayIso = localDateStr(today);
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
+  const [weekAnchor, setWeekAnchor] = useState(todayIso);
   const [view, setView] = useState<"month" | "week">("month");
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
@@ -164,6 +165,26 @@ export default function CalendarPage() {
   function goToToday() {
     setYear(today.getFullYear());
     setMonth(today.getMonth());
+    setWeekAnchor(todayIso);
+  }
+
+  function moveWeek(offset: number) {
+    const next = dateFromIso(weekAnchor);
+    next.setDate(next.getDate() + offset * 7);
+    setWeekAnchor(localDateStr(next));
+  }
+
+  function changeView(nextView: "month" | "week") {
+    if (nextView === view) return;
+    if (nextView === "week") {
+      const day = Math.min(today.getDate(), getDaysInMonth(year, month));
+      setWeekAnchor(dateFromParts(year, month, day));
+    } else {
+      const anchor = dateFromIso(weekAnchor);
+      setYear(anchor.getFullYear());
+      setMonth(anchor.getMonth());
+    }
+    setView(nextView);
   }
 
   function tasksForDate(date: string): Task[] {
@@ -186,12 +207,7 @@ export default function CalendarPage() {
   }
 
   function weekDays() {
-    const anchor = new Date(
-      year,
-      month,
-      Math.min(today.getDate(), getDaysInMonth(year, month)),
-      12,
-    );
+    const anchor = dateFromIso(weekAnchor);
     const sunday = new Date(anchor);
     sunday.setDate(anchor.getDate() - anchor.getDay());
     return Array.from({ length: 7 }, (_, index) => {
@@ -200,6 +216,14 @@ export default function CalendarPage() {
       return date;
     });
   }
+
+  const visibleWeek = weekDays();
+  const weekStart = visibleWeek[0];
+  const weekEnd = visibleWeek[6];
+  const weekLabel =
+    weekStart.getFullYear() === weekEnd.getFullYear()
+      ? `${weekStart.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${weekEnd.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`
+      : `${weekStart.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} – ${weekEnd.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
 
   const dayPlans = selectedDate ? tasksForDate(selectedDate) : [];
 
@@ -215,9 +239,9 @@ export default function CalendarPage() {
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={goToPrevMonth}
+              onClick={() => (view === "month" ? goToPrevMonth() : moveWeek(-1))}
               className="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 bg-white hover:bg-slate-50"
-              aria-label="Previous month"
+              aria-label={view === "month" ? "Previous month" : "Previous week"}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
                 <path
@@ -230,13 +254,13 @@ export default function CalendarPage() {
               </svg>
             </button>
             <span className="min-w-[140px] text-center text-sm font-semibold">
-              {MONTH_NAMES[month]} {year}
+              {view === "month" ? `${MONTH_NAMES[month]} ${year}` : weekLabel}
             </span>
             <button
               type="button"
-              onClick={goToNextMonth}
+              onClick={() => (view === "month" ? goToNextMonth() : moveWeek(1))}
               className="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 bg-white hover:bg-slate-50"
-              aria-label="Next month"
+              aria-label={view === "month" ? "Next month" : "Next week"}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
                 <path
@@ -271,7 +295,7 @@ export default function CalendarPage() {
               <button
                 key={nextView}
                 type="button"
-                onClick={() => setView(nextView)}
+                onClick={() => changeView(nextView)}
                 className={`px-4 py-2 text-sm font-medium capitalize transition-colors ${
                   view === nextView
                     ? "bg-white text-slate-900"
@@ -387,7 +411,7 @@ export default function CalendarPage() {
       {view === "week" && (
         <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white p-5">
           <div className="grid gap-3 md:grid-cols-7">
-            {weekDays().map((dateObject) => {
+            {visibleWeek.map((dateObject) => {
               const date = localDateStr(dateObject);
               const dayTasks = tasksForDate(date);
               const isToday = date === todayIso;
