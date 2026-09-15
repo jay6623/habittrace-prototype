@@ -9,8 +9,8 @@ import {
   createTask,
   ensureAIPlan,
   getActiveExecutions,
+  getOrCreateAIPlanPrediction,
   getTasks,
-  predictAIPlan,
   startExecution,
   type Execution,
   type Prediction,
@@ -148,7 +148,7 @@ export default function DesktopCommandCenter() {
     void Promise.allSettled(
       eligible.map(async (task) => {
         const planId = task.ai_plan_input_id ?? (await ensureAIPlan(task));
-        const prediction = await predictAIPlan(planId);
+        const prediction = await getOrCreateAIPlanPrediction(planId);
         return [task.id, planId, prediction] as const;
       }),
     ).then((results) => {

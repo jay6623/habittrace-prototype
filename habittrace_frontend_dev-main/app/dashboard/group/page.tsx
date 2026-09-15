@@ -13,6 +13,7 @@ import {
   getGroupDetail,
   getGroups,
   joinGroup,
+  leaveGroup,
   updateGroupTask,
   type Group,
   type GroupDetail,
@@ -82,6 +83,25 @@ function rateTone(rate: number): { text: string; bar: string } {
   return { text: "text-rose-500", bar: "bg-rose-400" };
 }
 
+function taskAssigneeIds(task: GroupTask): string[] {
+  return task.assigned_to_ids?.length
+    ? task.assigned_to_ids
+    : task.assigned_to
+      ? [task.assigned_to]
+      : [];
+}
+
+function taskAssigneeLabel(task: GroupTask, currentUserId: string | null): string {
+  const assignees = task.assignees?.length
+    ? task.assignees
+    : task.assigned_to
+      ? [{ user_id: task.assigned_to, display_name: task.assignee_name }]
+      : [];
+  return assignees.length
+    ? assignees.map((assignee) => memberName(assignee, currentUserId)).join(", ")
+    : "Unassigned";
+}
+
 const secondaryButton =
   "px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-sm font-medium transition-colors disabled:opacity-60";
 const primaryButton =
@@ -103,7 +123,7 @@ export default function GroupPage() {
   const [assignment, setAssignment] = useState("all");
   const [copyDraft, setCopyDraft] = useState<QuickAddDraft | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<
-    GroupTask | "group" | null
+    GroupTask | "group" | "leave" | null
   >(null);
   const [tab, setTab] = useState<Tab>("tasks");
   const [showInvite, setShowInvite] = useState(false);
@@ -208,14 +228,16 @@ export default function GroupPage() {
   const visibleTasks = tasks.filter(
     (task) =>
       assignment === "all" ||
-      (assignment === "mine" ? task.assigned_to === userId : !task.assigned_to),
+      (assignment === "mine"
+        ? !!userId && taskAssigneeIds(task).includes(userId)
+        : taskAssigneeIds(task).length === 0),
   );
   const done = tasks.filter((task) => task.status === "success").length;
   const failed = tasks.filter((task) => task.status === "failed").length;
   const pending = tasks.length - done - failed;
   const groupRate = tasks.length ? Math.round((done / tasks.length) * 100) : 0;
   const assignedToMe = tasks.filter(
-    (task) => task.assigned_to === userId && task.status === "pending",
+    (task) => !!userId && taskAssigneeIds(task).includes(userId) && task.status === "pending",
   ).length;
 
   const memberStats = useMemo(() => {
@@ -223,11 +245,12 @@ export default function GroupPage() {
     for (const member of members)
       stats.set(member.user_id, { assigned: 0, done: 0 });
     for (const task of tasks) {
-      if (!task.assigned_to) continue;
-      const entry = stats.get(task.assigned_to);
-      if (!entry) continue;
-      entry.assigned += 1;
-      if (task.status === "success") entry.done += 1;
+      for (const assigneeId of taskAssigneeIds(task)) {
+        const entry = stats.get(assigneeId);
+        if (!entry) continue;
+        entry.assigned += 1;
+        if (task.status === "success") entry.done += 1;
+      }
     }
     return stats;
   }, [members, tasks]);
@@ -339,6 +362,26 @@ export default function GroupPage() {
     } catch (caught) {
       setToast({
         message: describeApiError(caught, "We couldn't delete this group."),
+        tone: "error",
+      });
+    } finally {
+      setDeletingGroup(false);
+    }
+  }
+
+  async function handleLeaveGroup() {
+    if (!selectedGroup || deletingGroup) return;
+    setDeletingGroup(true);
+    try {
+      await leaveGroup(selectedGroup.id);
+      const remaining = groups.filter((group) => group.id !== selectedGroup.id);
+      setGroups(remaining);
+      setDetail(null);
+      selectGroup(remaining[0]?.id ?? null);
+      setToast({ message: `You left ${selectedGroup.name}.`, tone: "success" });
+    } catch (caught) {
+      setToast({
+        message: describeApiError(caught, "We couldn't leave this group."),
         tone: "error",
       });
     } finally {
@@ -629,15 +672,7 @@ export default function GroupPage() {
               {visibleTasks.map((task) => {
                 const busy = busyTaskId === task.id;
                 const due = formatDue(task);
-                const assignee = task.assigned_to
-                  ? memberName(
-                      {
-                        user_id: task.assigned_to,
-                        display_name: task.assignee_name,
-                      },
-                      userId,
-                    )
-                  : "Unassigned";
+                const assignee = taskAssigneeLabel(task, userId);
                 return (
                   <div
                     key={task.id}
@@ -892,15 +927,7 @@ export default function GroupPage() {
                           &quot;{task.title}&quot;
                         </span>
                         <span className="text-xs text-slate-400 ml-2">
-                          {task.assigned_to
-                            ? memberName(
-                                {
-                                  user_id: task.assigned_to,
-                                  display_name: task.assignee_name,
-                                },
-                                userId,
-                              )
-                            : "Unassigned"}
+                          {taskAssigneeLabel(task, userId)}
                           {" · "}
                           {task.status === "success"
                             ? "Done"
@@ -929,6 +956,22 @@ export default function GroupPage() {
                   type="button"
                 >
                   {deletingGroup ? "Deleting…" : "Delete this group"}
+                </button>
+              </div>
+            )}
+            {selectedGroup?.role === "member" && (
+              <div className="bg-white rounded-2xl border border-amber-100 p-5">
+                <div className="font-semibold mb-1">Leave group</div>
+                <div className="text-sm text-slate-500 mb-3">
+                  You will lose access to this group and its shared tasks.
+                </div>
+                <button
+                  className="px-4 py-2 rounded-xl border border-amber-200 text-amber-700 hover:bg-amber-50 text-sm font-medium transition-colors disabled:opacity-60"
+                  disabled={deletingGroup}
+                  onClick={() => setConfirmDelete("leave")}
+                  type="button"
+                >
+                  {deletingGroup ? "Leaving…" : "Leave this group"}
                 </button>
               </div>
             )}
@@ -972,15 +1015,14 @@ export default function GroupPage() {
       )}
       {confirmDelete && (
         <Dialog
-          title="Delete for everyone?"
+          title={confirmDelete === "leave" ? "Leave this group?" : "Delete for everyone?"}
           busy={!!busyTaskId || deletingGroup}
           onClose={() => setConfirmDelete(null)}
         >
           <p className="mb-5 text-sm">
-            {confirmDelete === "group"
-              ? "This group and its shared tasks"
-              : `“${confirmDelete.title}”`}{" "}
-            will be permanently removed for every member.
+            {confirmDelete === "leave"
+              ? "You will no longer be able to see this group or its tasks."
+              : `${confirmDelete === "group" ? "This group and its shared tasks" : `“${confirmDelete.title}”`} will be permanently removed for every member.`}
           </p>
           <div className="flex gap-3">
             <button
@@ -995,11 +1037,12 @@ export default function GroupPage() {
               disabled={!!busyTaskId || deletingGroup}
               onClick={async () => {
                 if (confirmDelete === "group") await handleDeleteGroup();
+                else if (confirmDelete === "leave") await handleLeaveGroup();
                 else await handleDeleteTask(confirmDelete);
                 setConfirmDelete(null);
               }}
             >
-              Delete
+              {confirmDelete === "leave" ? "Leave" : "Delete"}
             </button>
           </div>
         </Dialog>

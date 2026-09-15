@@ -41,11 +41,33 @@ create table if not exists public.group_tasks (
 create index if not exists idx_group_tasks_group_created
   on public.group_tasks(group_id, created_at desc);
 
+-- A task can be assigned to multiple current group members. Keep the legacy
+-- group_tasks.assigned_to column during migration for older clients.
+create table if not exists public.group_task_assignees (
+  group_id uuid not null,
+  task_id uuid not null references public.group_tasks(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  assigned_at timestamptz not null default now(),
+  primary key (task_id, user_id),
+  foreign key (group_id, user_id)
+    references public.group_members(group_id, user_id) on delete cascade
+);
+
+create index if not exists idx_group_task_assignees_group_user
+  on public.group_task_assignees(group_id, user_id);
+
+insert into public.group_task_assignees (group_id, task_id, user_id)
+select group_id, id, assigned_to
+from public.group_tasks
+where assigned_to is not null
+on conflict (task_id, user_id) do nothing;
+
 -- Backend-only tables. The FastAPI service-role client enforces group
 -- membership on every read and write, so RLS is enabled with no policies:
 -- direct anon/authenticated access is denied entirely.
 alter table public.groups enable row level security;
 alter table public.group_members enable row level security;
 alter table public.group_tasks enable row level security;
+alter table public.group_task_assignees enable row level security;
 
 commit;

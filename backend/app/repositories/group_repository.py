@@ -14,6 +14,7 @@ class GroupRepository(BaseRepository):
     groups_table = "groups"
     members_table = "group_members"
     tasks_table = "group_tasks"
+    assignees_table = "group_task_assignees"
     profiles_table = "profiles"
 
     # ── groups ──────────────────────────────────────────────────────────────
@@ -91,6 +92,15 @@ class GroupRepository(BaseRepository):
         )
         return list(response.data or [])
 
+    def remove_member(self, group_id: str, user_id: str) -> bool:
+        response = self._execute(
+            self.db.table(self.members_table)
+            .delete()
+            .eq("group_id", group_id)
+            .eq("user_id", user_id)
+        )
+        return bool(response.data)
+
     def get_display_names(self, user_ids: list[str]) -> dict[str, str | None]:
         """Return display names from `profiles`; only id and display_name are read."""
         unique_ids = sorted(set(user_ids))
@@ -146,3 +156,27 @@ class GroupRepository(BaseRepository):
             self.db.table(self.tasks_table).delete().eq("group_id", group_id).eq("id", task_id)
         )
         return bool(response.data)
+
+    def list_task_assignees(self, group_id: str) -> list[JsonRow]:
+        response = self._execute(
+            self.db.table(self.assignees_table).select("*").eq("group_id", group_id)
+        )
+        return list(response.data or [])
+
+    def replace_task_assignees(
+        self, group_id: str, task_id: str, user_ids: list[str]
+    ) -> None:
+        self._execute(
+            self.db.table(self.assignees_table)
+            .delete()
+            .eq("group_id", group_id)
+            .eq("task_id", task_id)
+        )
+        if user_ids:
+            for user_id in user_ids:
+                self._execute(
+                    self.db.table(self.assignees_table).insert(
+                        {"group_id": group_id, "task_id": task_id, "user_id": user_id}
+                    ),
+                    validation_detail="The task assignees violate a database constraint.",
+                )

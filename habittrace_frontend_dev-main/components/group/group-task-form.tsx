@@ -17,8 +17,7 @@ interface Draft {
   priority: GroupTaskPriority;
   dueDate: string;
   dueTime: string;
-  /** Empty string means unassigned. */
-  assignedTo: string;
+  assignedTo: string[];
 }
 
 interface GroupTaskFormProps {
@@ -44,7 +43,7 @@ export default function GroupTaskForm({
     priority: "medium",
     dueDate: "",
     dueTime: "",
-    assignedTo: "",
+    assignedTo: [],
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -82,7 +81,7 @@ export default function GroupTaskForm({
         priority: draft.priority,
         due_date: draft.dueDate || null,
         due_time: draft.dueTime || null,
-        assigned_to: draft.assignedTo || null,
+        assigned_to_ids: draft.assignedTo,
       });
     } catch (caught) {
       setError(describeApiError(caught, "We couldn't save the task. Try again."));
@@ -142,24 +141,29 @@ export default function GroupTaskForm({
             </div>
 
             <div>
-              <label className={labelClass} htmlFor="group-task-assignee">
+              <div className={labelClass}>
                 Assign to
-              </label>
-              <select
-                className={fieldClass}
-                id="group-task-assignee"
-                onChange={(event) =>
-                  setDraft((current) => ({ ...current, assignedTo: event.target.value }))
-                }
-                value={draft.assignedTo}
-              >
-                <option value="">Unassigned</option>
+              </div>
+              <div className="grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-2">
                 {members.map((member) => (
-                  <option key={member.user_id} value={member.user_id}>
+                  <label className="flex min-h-10 cursor-pointer items-center gap-2 rounded-lg bg-white px-3 text-sm" key={member.user_id}>
+                    <input
+                      checked={draft.assignedTo.includes(member.user_id)}
+                      onChange={(event) =>
+                        setDraft((current) => ({
+                          ...current,
+                          assignedTo: event.target.checked
+                            ? [...current.assignedTo, member.user_id]
+                            : current.assignedTo.filter((id) => id !== member.user_id),
+                        }))
+                      }
+                      type="checkbox"
+                    />
                     {memberName(member, currentUserId)}
-                  </option>
+                  </label>
                 ))}
-              </select>
+                {!members.length && <span className="text-sm text-slate-500">No members yet.</span>}
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">

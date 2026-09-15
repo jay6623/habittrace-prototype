@@ -62,6 +62,11 @@ def delete_group(group_id: UUID, user_id: CurrentUserId, service: GroupServiceDe
     service.delete_group(user_id, group_id)
 
 
+@router.post("/{group_id}/leave", status_code=status.HTTP_204_NO_CONTENT)
+def leave_group(group_id: UUID, user_id: CurrentUserId, service: GroupServiceDep):
+    service.leave_group(user_id, group_id)
+
+
 @router.post(
     "/{group_id}/tasks",
     response_model=GroupTaskResponse,

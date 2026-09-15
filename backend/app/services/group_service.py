@@ -78,14 +78,22 @@ class GroupService:
 
         members = self.groups.list_members(str(group_id))
         tasks = self.groups.list_tasks(str(group_id))
+        assignment_rows = self.groups.list_task_assignees(str(group_id))
+        assignee_ids = [str(row["user_id"]) for row in assignment_rows]
         names = self.groups.get_display_names(
             [str(row["user_id"]) for row in members]
-            + [str(task["assigned_to"]) for task in tasks if task.get("assigned_to")]
+            + assignee_ids
         )
+        assignments_by_task: dict[str, list[str]] = {}
+        for row in assignment_rows:
+            assignments_by_task.setdefault(str(row["task_id"]), []).append(str(row["user_id"]))
         return {
             "group": {**group, "role": membership["role"]},
             "members": [{**row, "display_name": names.get(str(row["user_id"]))} for row in members],
-            "tasks": [self._with_assignee_name(task, names) for task in tasks],
+            "tasks": [
+                self._with_assignees(task, assignments_by_task.get(str(task["id"]), []), names)
+                for task in tasks
+            ],
         }
 
     def join_group(self, user_id: UUID, body: GroupJoinRequest) -> JsonRow:
@@ -102,14 +110,25 @@ class GroupService:
         if not self.groups.delete_group(str(group_id), str(user_id)):
             raise ResourceNotFoundError("Group not found.")
 
+    def leave_group(self, user_id: UUID, group_id: UUID) -> None:
+        membership = self._require_member(group_id, user_id)
+        if membership["role"] == "owner":
+            raise PermissionDeniedError("The group owner must delete the group instead.")
+        if not self.groups.remove_member(str(group_id), str(user_id)):
+            raise ResourceNotFoundError("Group not found.")
+
     # ── group tasks ─────────────────────────────────────────────────────────
     def create_task(self, user_id: UUID, group_id: UUID, body: GroupTaskCreate) -> JsonRow:
         self._require_member(group_id, user_id)
         data = _serialize_task_fields(body.model_dump())
-        if data.get("assigned_to") is not None:
-            self._validate_assignee(group_id, str(data["assigned_to"]))
+        assignee_ids = self._assignee_ids(data)
+        self._validate_assignees(group_id, assignee_ids)
+        data.pop("assigned_to_ids", None)
+        data["assigned_to"] = assignee_ids[0] if assignee_ids else None
         data.update({"group_id": str(group_id), "created_by": str(user_id), "status": "pending"})
-        return self._with_assignee_name(self.groups.create_task(data))
+        task = self.groups.create_task(data)
+        self.groups.replace_task_assignees(str(group_id), str(task["id"]), assignee_ids)
+        return self._with_assignees(task, assignee_ids)
 
     def update_task(
         self, user_id: UUID, group_id: UUID, task_id: UUID, body: GroupTaskUpdate
@@ -120,15 +139,24 @@ class GroupService:
             existing = self.groups.get_task(str(group_id), str(task_id))
             if existing is None:
                 raise ResourceNotFoundError("Task not found.")
-            return self._with_assignee_name(existing)
+            assignee_ids = self._task_assignee_ids(str(group_id), str(task_id), existing)
+            return self._with_assignees(existing, assignee_ids)
 
-        if data.get("assigned_to") is not None:
-            self._validate_assignee(group_id, str(data["assigned_to"]))
+        assignments_changed = "assigned_to_ids" in data or "assigned_to" in data
+        assignee_ids = self._assignee_ids(data) if assignments_changed else []
+        if assignments_changed:
+            self._validate_assignees(group_id, assignee_ids)
+            data["assigned_to"] = assignee_ids[0] if assignee_ids else None
+        data.pop("assigned_to_ids", None)
         data["updated_at"] = datetime.now(timezone.utc).isoformat()
         updated = self.groups.update_task(str(group_id), str(task_id), data)
         if updated is None:
             raise ResourceNotFoundError("Task not found.")
-        return self._with_assignee_name(updated)
+        if assignments_changed:
+            self.groups.replace_task_assignees(str(group_id), str(task_id), assignee_ids)
+        else:
+            assignee_ids = self._task_assignee_ids(str(group_id), str(task_id), updated)
+        return self._with_assignees(updated, assignee_ids)
 
     def delete_task(self, user_id: UUID, group_id: UUID, task_id: UUID) -> None:
         self._require_member(group_id, user_id)
@@ -142,19 +170,46 @@ class GroupService:
             raise ResourceNotFoundError("Group not found.")
         return membership
 
-    def _validate_assignee(self, group_id: UUID, assignee_id: str) -> None:
-        if self.groups.get_membership(str(group_id), assignee_id) is None:
-            raise DomainValidationError("Assignee must be a member of this group.")
+    def _validate_assignees(self, group_id: UUID, assignee_ids: list[str]) -> None:
+        for assignee_id in assignee_ids:
+            if self.groups.get_membership(str(group_id), assignee_id) is None:
+                raise DomainValidationError("Every assignee must be a member of this group.")
 
-    def _with_assignee_name(
-        self, task: JsonRow, names: dict[str, str | None] | None = None
+    @staticmethod
+    def _assignee_ids(data: JsonRow) -> list[str]:
+        multiple = data.get("assigned_to_ids")
+        if multiple:
+            return [str(value) for value in multiple]
+        single = data.get("assigned_to")
+        return [str(single)] if single else []
+
+    def _task_assignee_ids(self, group_id: str, task_id: str, task: JsonRow) -> list[str]:
+        rows = self.groups.list_task_assignees(group_id)
+        result = [str(row["user_id"]) for row in rows if str(row["task_id"]) == task_id]
+        if not result and task.get("assigned_to"):
+            result = [str(task["assigned_to"])]
+        return result
+
+    def _with_assignees(
+        self,
+        task: JsonRow,
+        assignee_ids: list[str],
+        names: dict[str, str | None] | None = None,
     ) -> JsonRow:
-        assignee = task.get("assigned_to")
-        if not assignee:
-            return {**task, "assignee_name": None}
         if names is None:
-            names = self.groups.get_display_names([str(assignee)])
-        return {**task, "assignee_name": names.get(str(assignee))}
+            names = self.groups.get_display_names(assignee_ids)
+        assignees = [
+            {"user_id": assignee_id, "display_name": names.get(assignee_id)}
+            for assignee_id in assignee_ids
+        ]
+        first = assignee_ids[0] if assignee_ids else None
+        return {
+            **task,
+            "assigned_to": first,
+            "assignee_name": names.get(first) if first else None,
+            "assigned_to_ids": assignee_ids,
+            "assignees": assignees,
+        }
 
     def _create_group_with_unique_code(self, owner_id: str, name: str) -> JsonRow:
         for attempt in range(1, _INVITE_CODE_ATTEMPTS + 1):

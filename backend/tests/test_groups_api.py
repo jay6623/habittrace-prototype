@@ -103,6 +103,9 @@ def _seed_rows() -> dict[str, list[dict]]:
                 "updated_at": "2026-09-02T12:00:00+00:00",
             },
         ],
+        "group_task_assignees": [
+            {"group_id": OWN_GROUP_ID, "task_id": OWN_TASK_ID, "user_id": OTHER_ID}
+        ],
     }
 
 
@@ -112,6 +115,7 @@ def _use_memory_database() -> MemoryDatabase:
         unique_keys={
             "groups": [("invite_code",)],
             "group_members": [("group_id", "user_id")],
+            "group_task_assignees": [("task_id", "user_id")],
         },
         # Mirror the DEFAULT clauses in supabase/group_scheduling_schema.sql.
         column_defaults={
@@ -146,6 +150,7 @@ def _memberships(database: MemoryDatabase, group_id: str) -> list[dict]:
         ("post", "/groups"),
         ("post", "/groups/join"),
         ("get", f"/groups/{OWN_GROUP_ID}"),
+        ("post", f"/groups/{OWN_GROUP_ID}/leave"),
         ("post", f"/groups/{OWN_GROUP_ID}/tasks"),
     ],
 )
@@ -345,6 +350,26 @@ def test_create_task_defaults_and_unassigned(authenticated_client: TestClient) -
     assert body["due_time"] is None
 
 
+def test_create_task_can_assign_multiple_members(authenticated_client: TestClient) -> None:
+    database = _use_memory_database()
+
+    response = authenticated_client.post(
+        f"/groups/{OWN_GROUP_ID}/tasks",
+        json={"title": "Pair task", "assigned_to_ids": [str(USER_ID), OTHER_ID]},
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["assigned_to_ids"] == [str(USER_ID), OTHER_ID]
+    assert [row["user_id"] for row in body["assignees"]] == [str(USER_ID), OTHER_ID]
+    stored = [
+        row
+        for row in database.rows["group_task_assignees"]
+        if row["task_id"] == body["id"]
+    ]
+    assert [row["user_id"] for row in stored] == [str(USER_ID), OTHER_ID]
+
+
 def test_create_task_in_non_member_group_returns_404(
     authenticated_client: TestClient,
 ) -> None:
@@ -369,7 +394,7 @@ def test_create_task_assigned_to_non_member_returns_422(
     )
 
     assert response.status_code == 422
-    assert response.json()["detail"] == "Assignee must be a member of this group."
+    assert response.json()["detail"] == "Every assignee must be a member of this group."
     assert len(database.rows["group_tasks"]) == 2
 
 
@@ -427,6 +452,17 @@ def test_update_task_can_reassign_and_unassign(authenticated_client: TestClient)
     assert unassigned.status_code == 200
     assert unassigned.json()["assigned_to"] is None
     assert unassigned.json()["assignee_name"] is None
+
+
+def test_update_task_can_replace_multiple_assignees(authenticated_client: TestClient) -> None:
+    _use_memory_database()
+    response = authenticated_client.patch(
+        f"/groups/{OWN_GROUP_ID}/tasks/{OWN_TASK_ID}",
+        json={"assigned_to_ids": [str(USER_ID), OTHER_ID]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["assigned_to_ids"] == [str(USER_ID), OTHER_ID]
 
 
 def test_update_task_to_non_member_returns_422(authenticated_client: TestClient) -> None:
@@ -533,3 +569,24 @@ def test_delete_group_as_non_member_returns_404(authenticated_client: TestClient
 
     assert response.status_code == 404
     assert len(database.rows["groups"]) == 2
+
+
+def test_member_can_leave_group(authenticated_client: TestClient) -> None:
+    database = _use_memory_database()
+    authenticated_client.post("/groups/join", json={"invite_code": "WXYZ6789"})
+
+    response = authenticated_client.post(f"/groups/{FOREIGN_GROUP_ID}/leave")
+
+    assert response.status_code == 204
+    assert not any(
+        row["group_id"] == FOREIGN_GROUP_ID and row["user_id"] == str(USER_ID)
+        for row in database.rows["group_members"]
+    )
+
+
+def test_owner_cannot_leave_group(authenticated_client: TestClient) -> None:
+    _use_memory_database()
+
+    response = authenticated_client.post(f"/groups/{OWN_GROUP_ID}/leave")
+
+    assert response.status_code == 403

@@ -884,6 +884,12 @@ export async function getAIPlanPrediction(planInputId: string): Promise<Predicti
   };
 }
 
+/** Reuse a persisted prediction and create one only when this plan has none. */
+export async function getOrCreateAIPlanPrediction(planInputId: string): Promise<Prediction> {
+  const existing = await getAIPlanPrediction(planInputId);
+  return existing ?? predictAIPlan(planInputId);
+}
+
 // ── Analytics ────────────────────────────────────────────────────────────────
 
 export async function getAnalyticsSummary(
@@ -1069,6 +1075,8 @@ export interface GroupTask {
   created_by: string;
   assigned_to: string | null;
   assignee_name: string | null;
+  assigned_to_ids: string[];
+  assignees: { user_id: string; display_name: string | null }[];
   title: string;
   category: string;
   priority: GroupTaskPriority;
@@ -1096,9 +1104,10 @@ export interface GroupTaskCreate {
   /** "HH:MM" or "HH:MM:SS". */
   due_time?: string | null;
   assigned_to?: string | null;
+  assigned_to_ids?: string[];
 }
 
-/** Send only the fields to change; `assigned_to: null` unassigns. */
+/** Send only the fields to change; an empty `assigned_to_ids` list unassigns everyone. */
 export interface GroupTaskUpdate {
   title?: string;
   category?: string;
@@ -1107,6 +1116,7 @@ export interface GroupTaskUpdate {
   due_date?: string | null;
   due_time?: string | null;
   assigned_to?: string | null;
+  assigned_to_ids?: string[];
 }
 
 export async function getGroups(): Promise<Group[]> {
@@ -1133,6 +1143,10 @@ export async function getGroupDetail(groupId: string): Promise<GroupDetail> {
 
 export async function deleteGroup(groupId: string): Promise<void> {
   return apiFetch<void>(`/groups/${groupId}`, { method: "DELETE" });
+}
+
+export async function leaveGroup(groupId: string): Promise<void> {
+  return apiFetch<void>(`/groups/${groupId}/leave`, { method: "POST" });
 }
 
 export async function createGroupTask(

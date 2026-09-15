@@ -9,7 +9,7 @@ import {
   reviseAIPlan,
   clearAIPlan,
   ensureAIPlan,
-  predictAIPlan,
+  getOrCreateAIPlanPrediction,
   createTimeRecommendation,
   selectTimeCandidate,
   type Task,
@@ -119,7 +119,7 @@ function Scheduler() {
             ),
           );
         }
-        return predictAIPlan(planId);
+        return getOrCreateAIPlanPrediction(planId);
       })
       .then((p) => {
         if (!cancelled) setPrediction(p);

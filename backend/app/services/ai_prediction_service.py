@@ -52,10 +52,18 @@ class AIPredictionService:
         if not self.model_service.is_ready:
             raise RuntimeError("AI V2 model artifacts are not loaded")
 
-        result = self.score_plan(user_id, plan)
         version = self.model_service.model_version
         success_version = self._ensure_model_version("success", version)
         failure_version = self._ensure_model_version("failure_reason", version)
+        existing = self._latest_for_plan(plan_input_id)
+        if (
+            existing is not None
+            and existing["model_version_ids"]["success"] == success_version["id"]
+            and existing["model_version_ids"]["failure_reason"] == failure_version["id"]
+        ):
+            return existing
+
+        result = self.score_plan(user_id, plan)
         predicted_at = datetime.now(UTC).isoformat()
         success = self.predictions.create_success_prediction(
             {
@@ -94,6 +102,17 @@ class AIPredictionService:
         if plan is None:
             raise ResourceNotFoundError("Plan not found.")
 
+        existing = self._latest_for_plan(plan_input_id)
+        if (
+            existing is None
+            or existing["model_version"] != self.model_service.model_version
+            or existing["failure_prediction_id"] is None
+        ):
+            return None
+        return existing
+
+    def _latest_for_plan(self, plan_input_id: UUID) -> dict | None:
+        """Return the latest complete persisted prediction without checking ownership."""
         success = self.predictions.get_latest_success_prediction(str(plan_input_id))
         if success is None:
             return None

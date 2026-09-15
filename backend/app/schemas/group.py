@@ -64,6 +64,11 @@ class GroupMemberResponse(BaseModel):
     display_name: str | None = None
 
 
+class GroupTaskAssigneeResponse(BaseModel):
+    user_id: str
+    display_name: str | None = None
+
+
 class GroupTaskCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -73,6 +78,14 @@ class GroupTaskCreate(BaseModel):
     due_date: date | None = None
     due_time: time | None = None
     assigned_to: UUID | None = None
+    assigned_to_ids: list[UUID] = Field(default_factory=list, max_length=100)
+
+    @field_validator("assigned_to_ids")
+    @classmethod
+    def _unique_assignees(cls, value: list[UUID]) -> list[UUID]:
+        if len(value) != len(set(value)):
+            raise ValueError("assigned_to_ids must not contain duplicates")
+        return value
 
     @field_validator("title")
     @classmethod
@@ -95,6 +108,14 @@ class GroupTaskUpdate(BaseModel):
     due_date: date | None = None
     due_time: time | None = None
     assigned_to: UUID | None = None
+    assigned_to_ids: list[UUID] | None = Field(None, max_length=100)
+
+    @field_validator("assigned_to_ids")
+    @classmethod
+    def _unique_assignees(cls, value: list[UUID] | None) -> list[UUID] | None:
+        if value is not None and len(value) != len(set(value)):
+            raise ValueError("assigned_to_ids must not contain duplicates")
+        return value
 
     @field_validator("title")
     @classmethod
@@ -113,6 +134,8 @@ class GroupTaskResponse(BaseModel):
     created_by: str
     assigned_to: str | None = None
     assignee_name: str | None = None
+    assigned_to_ids: list[str] = Field(default_factory=list)
+    assignees: list[GroupTaskAssigneeResponse] = Field(default_factory=list)
     title: str
     category: str
     priority: GroupTaskPriority
