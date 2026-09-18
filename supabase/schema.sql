@@ -7,6 +7,7 @@
 CREATE TABLE IF NOT EXISTS profiles (
   id            UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
   display_name  TEXT,
+  avatar_url    TEXT,
   productivity_type TEXT,     -- 'student' | 'professional' | 'freelance' | etc.
   wake_time     TEXT,         -- e.g. "07:00"
   sleep_time    TEXT,         -- e.g. "23:00"

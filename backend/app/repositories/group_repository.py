@@ -101,18 +101,35 @@ class GroupRepository(BaseRepository):
         )
         return bool(response.data)
 
-    def get_display_names(self, user_ids: list[str]) -> dict[str, str | None]:
-        """Return display names from `profiles`; only id and display_name are read."""
+    def get_profiles(self, user_ids: list[str]) -> dict[str, JsonRow]:
+        """Return public profile fields from `profiles` keyed by user id."""
         unique_ids = sorted(set(user_ids))
         if not unique_ids:
             return {}
         response = self._execute(
-            self.db.table(self.profiles_table).select("id, display_name").in_("id", unique_ids)
+            self.db.table(self.profiles_table)
+            .select("id, display_name, avatar_url")
+            .in_("id", unique_ids)
         )
+        profiles: dict[str, JsonRow] = {}
+        for row in response.data or []:
+            user_id = row.get("id")
+            if user_id is None:
+                continue
+            avatar = row.get("avatar_url")
+            profiles[str(user_id)] = {
+                "display_name": row.get("display_name"),
+                "avatar_url": avatar if isinstance(avatar, str) and avatar.strip() else None,
+            }
+        return profiles
+
+    def get_display_names(self, user_ids: list[str]) -> dict[str, str | None]:
+        """Return display names from `profiles`; only id and display_name are read."""
         return {
-            str(row["id"]): row.get("display_name")
-            for row in response.data or []
-            if row.get("id") is not None
+            user_id: profile.get("display_name")
+            if isinstance(profile.get("display_name"), str)
+            else None
+            for user_id, profile in self.get_profiles(user_ids).items()
         }
 
     # ── group tasks ─────────────────────────────────────────────────────────

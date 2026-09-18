@@ -357,13 +357,6 @@ export default function MobileToday() {
             {displayName ? `Today, ${displayName}` : "Today"}
           </h1>
         </div>
-        <Link
-          aria-label="Open account settings"
-          className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-slate-950 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950"
-          href="/dashboard/settings"
-        >
-          HT
-        </Link>
       </header>
 
       {!online && (

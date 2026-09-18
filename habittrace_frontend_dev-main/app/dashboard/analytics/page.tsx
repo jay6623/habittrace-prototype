@@ -23,6 +23,7 @@ import {
   type AnalyticsSummary,
   type PersonalizedInsights,
 } from "@/lib/api";
+import ProfileAvatar from "@/components/profile/profile-avatar";
 
 ChartJS.register(
   CategoryScale,
@@ -366,9 +367,12 @@ export default function AnalyticsPage() {
     <div className="space-y-3">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <div className="text-xs text-slate-500">Analytics</div>
-          <h1 className="text-xl font-bold">What works for you</h1>
+        <div className="flex items-center gap-3">
+          <ProfileAvatar size="md" />
+          <div>
+            <div className="text-xs text-slate-500">Analytics</div>
+            <h1 className="text-xl font-bold">What works for you</h1>
+          </div>
         </div>
         <div className="flex items-center gap-3">
           {apiError && (

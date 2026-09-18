@@ -22,10 +22,15 @@ import {
   taskTimeInMinutes,
   toStoredTime,
 } from "@/lib/mobile-task";
-import { readPreferences } from "@/lib/preferences";
-import { useDataRefresh } from "@/lib/refresh";
+import {
+  formatPreferenceTime,
+  readPreferences,
+  type Preferences,
+} from "@/lib/preferences";
+import { notifyDataChanged, useDataRefresh } from "@/lib/refresh";
 import { useToast } from "@/components/ui/toast";
 import { findFreeSlots, overlappingTasks } from "@/lib/scheduling";
+import { supabase } from "@/lib/supabase";
 
 export default function SchedulerPage() {
   return (
@@ -37,8 +42,12 @@ export default function SchedulerPage() {
 function Scheduler() {
   const params = useSearchParams();
   const { user } = useAuth();
-  const preferences = readPreferences(user?.user_metadata);
   const toast = useToast();
+  const [preferences, setPreferences] = useState<Preferences>(() =>
+    readPreferences(user?.user_metadata),
+  );
+  const [savingAvailability, setSavingAvailability] = useState(false);
+  const [availabilityError, setAvailabilityError] = useState<string | null>(null);
   const [date, setDate] = useState(localDateString);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,6 +62,44 @@ function Scheduler() {
   const [recommendationError, setRecommendationError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const request = useRef(0);
+
+  useEffect(() => {
+    setPreferences(readPreferences(user?.user_metadata));
+  }, [user?.user_metadata]);
+
+  async function saveDailyAvailability() {
+    if (!user || savingAvailability) return;
+    if (preferences.workEnd <= preferences.workStart) {
+      setAvailabilityError("Daily availability must end after it starts.");
+      return;
+    }
+    setSavingAvailability(true);
+    setAvailabilityError(null);
+    try {
+      const current = readPreferences(user.user_metadata);
+      const next: Preferences = {
+        ...current,
+        workStart: preferences.workStart,
+        workEnd: preferences.workEnd,
+      };
+      const { error: updateError } = await supabase.auth.updateUser({
+        data: { planning_preferences: next },
+      });
+      if (updateError) throw updateError;
+      setPreferences(next);
+      notifyDataChanged();
+      toast.success(
+        "Daily availability saved",
+        `${formatPreferenceTime(next.workStart)} – ${formatPreferenceTime(next.workEnd)}`,
+      );
+    } catch {
+      setAvailabilityError(
+        "Couldn’t save daily availability. Your previous times are still active until this succeeds.",
+      );
+    } finally {
+      setSavingAvailability(false);
+    }
+  }
   const load = useCallback(async () => {
     const id = ++request.current;
     setLoading(true);
@@ -200,7 +247,9 @@ function Scheduler() {
         : startMinutes;
     if (earliest + task.planned_duration_min > endMinutes) {
       setRecommendation(null);
-      setRecommendationError("No remaining time inside your saved planning hours fits this plan.");
+      setRecommendationError(
+        "No remaining time inside your daily availability fits this plan.",
+      );
       return;
     }
     const clock = (minutes: number) =>
@@ -247,6 +296,59 @@ function Scheduler() {
           }}
         />
       </header>
+      <section className="panel space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold">Daily availability</h2>
+          <p className="mt-2 text-sm text-slate-600">
+            Your current daily availability is set from{" "}
+            <span className="font-semibold text-slate-900">
+              {formatPreferenceTime(preferences.workStart)}
+            </span>{" "}
+            to{" "}
+            <span className="font-semibold text-slate-900">
+              {formatPreferenceTime(preferences.workEnd)}
+            </span>
+            . Suggested times only use this window.
+          </p>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+          <label className="text-sm font-medium">
+            From
+            <input
+              type="time"
+              className="field mt-2"
+              value={preferences.workStart}
+              onChange={(e) =>
+                setPreferences((p) => ({ ...p, workStart: e.target.value }))
+              }
+            />
+          </label>
+          <label className="text-sm font-medium">
+            Until
+            <input
+              type="time"
+              className="field mt-2"
+              value={preferences.workEnd}
+              onChange={(e) =>
+                setPreferences((p) => ({ ...p, workEnd: e.target.value }))
+              }
+            />
+          </label>
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={savingAvailability || !user}
+            onClick={() => void saveDailyAvailability()}
+          >
+            {savingAvailability ? "Saving…" : "Save availability"}
+          </button>
+        </div>
+        {availabilityError && (
+          <p role="alert" className="text-sm text-rose-700">
+            {availabilityError}
+          </p>
+        )}
+      </section>
       {loading ? (
         <p role="status">Loading schedule…</p>
       ) : error ? (
@@ -335,11 +437,10 @@ function Scheduler() {
                   </div>
                 )}
                 <p className="mt-2 text-sm text-slate-500">
-                  {preferences.workStart}–{preferences.workEnd} ·{" "}
-                  {task.planned_duration_min} minutes.{" "}
-                  <Link className="underline" href="/dashboard/settings">
-                    Change planning hours
-                  </Link>
+                  {task.planned_duration_min} minutes · suggestions use your daily
+                  availability (
+                  {formatPreferenceTime(preferences.workStart)}–
+                  {formatPreferenceTime(preferences.workEnd)}).
                 </p>
                 {task.task_status !== "pending" ? (
                   <p className="mt-5 text-sm">
@@ -377,12 +478,12 @@ function Scheduler() {
                     ) : (
                       <p className="mt-3 text-sm text-amber-800">
                         No buffered slot fits. Try a shorter plan, another date,
-                        or wider planning hours.
+                        or a wider daily availability window.
                       </p>
                     )}
                     <p className="mt-3 text-xs text-slate-500">
-                      These options only check planning hours and schedule conflicts.
-                      Selecting one saves the change immediately.
+                      These options only check daily availability and schedule
+                      conflicts. Selecting one saves the change immediately.
                     </p>
 
                     <div className="mt-6 rounded-2xl border border-violet-200 bg-violet-50 p-4">
