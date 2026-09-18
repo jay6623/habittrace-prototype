@@ -62,11 +62,13 @@ class GroupMemberResponse(BaseModel):
     role: GroupRole
     joined_at: str
     display_name: str | None = None
+    avatar_url: str | None = None
 
 
 class GroupTaskAssigneeResponse(BaseModel):
     user_id: str
     display_name: str | None = None
+    avatar_url: str | None = None
 
 
 class GroupTaskCreate(BaseModel):

@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/app/providers";
 import { getTasks, type Task } from "@/lib/api";
 import { useDataRefresh } from "@/lib/refresh";
+import ProfileMenu from "@/components/profile/profile-menu";
 
 export default function TopBar() {
   const router = useRouter();
@@ -72,8 +73,9 @@ export default function TopBar() {
   return (
     <header className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur sm:px-6">
       <p className="font-semibold">{title}</p>
+      <div className="flex min-w-0 flex-1 items-center justify-end gap-3 sm:max-w-md">
       <div
-        className="relative min-w-0 flex-1 sm:max-w-sm"
+        className="relative min-w-0 flex-1"
         onBlur={(e) => {
           if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false);
         }}
@@ -153,6 +155,8 @@ export default function TopBar() {
             </ul>
           </div>
         )}
+      </div>
+      <ProfileMenu menuPlacement="down" size="md" tone="light" />
       </div>
     </header>
   );
