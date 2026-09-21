@@ -17,3 +17,21 @@ export async function syncProfileDisplayName(
   );
   if (error) throw error;
 }
+
+/** Keep Groups member avatars aligned with the signed-in user's photo. */
+export async function syncProfileAvatar(
+  userId: string,
+  avatarUrl: string | null,
+): Promise<void> {
+  const normalized =
+    typeof avatarUrl === "string" && avatarUrl.trim() ? avatarUrl.trim() : null;
+
+  const { error } = await supabase.from("profiles").upsert(
+    {
+      id: userId,
+      avatar_url: normalized,
+    },
+    { onConflict: "id" },
+  );
+  if (error) throw error;
+}

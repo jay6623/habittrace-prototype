@@ -21,3 +21,12 @@ export function readPreferences(
     workEnd: validTime(raw.workEnd) ? raw.workEnd : "22:00",
   };
 }
+
+/** Format stored HH:mm for friendly UI copy (e.g. "9:00 AM"). */
+export function formatPreferenceTime(hhmm: string): string {
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(hhmm);
+  if (!match) return hhmm;
+  const date = new Date();
+  date.setHours(Number(match[1]), Number(match[2]), 0, 0);
+  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}

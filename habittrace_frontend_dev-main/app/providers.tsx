@@ -4,7 +4,8 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { clearStoredAIPlanIds } from "@/lib/api";
-import { syncProfileDisplayName } from "@/lib/profile";
+import { readAvatarUrl } from "@/lib/avatar";
+import { syncProfileAvatar, syncProfileDisplayName } from "@/lib/profile";
 import { notifyDataChanged } from "@/lib/refresh";
 
 interface AuthContextType {
@@ -76,21 +77,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const authDisplayName = user?.user_metadata?.first_name;
+  const authAvatarUrl = readAvatarUrl(user);
   useEffect(() => {
-    if (!user || typeof authDisplayName !== "string" || !authDisplayName.trim())
-      return;
+    if (!user) return;
     let active = true;
-    void syncProfileDisplayName(user.id, authDisplayName)
+    const tasks: Promise<unknown>[] = [];
+    if (typeof authDisplayName === "string" && authDisplayName.trim()) {
+      tasks.push(syncProfileDisplayName(user.id, authDisplayName));
+    }
+    tasks.push(syncProfileAvatar(user.id, authAvatarUrl));
+    void Promise.all(tasks)
       .then(() => {
         if (active) notifyDataChanged();
       })
       .catch((error) => {
-        console.warn("Could not synchronize the public profile name:", error);
+        console.warn("Could not synchronize the public profile:", error);
       });
     return () => {
       active = false;
     };
-  }, [authDisplayName, user]);
+  }, [authAvatarUrl, authDisplayName, user]);
 
   // Resolve the user's display name.
   const displayName =

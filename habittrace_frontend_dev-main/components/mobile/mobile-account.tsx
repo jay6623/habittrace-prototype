@@ -63,7 +63,7 @@ export default function MobileAccount() {
     try {
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
-      router.replace("/login?next=/dashboard/today");
+      router.replace("/login");
     } catch (caught) {
       setMessage({
         text:

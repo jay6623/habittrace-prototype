@@ -80,7 +80,7 @@ class GroupService:
         tasks = self.groups.list_tasks(str(group_id))
         assignment_rows = self.groups.list_task_assignees(str(group_id))
         assignee_ids = [str(row["user_id"]) for row in assignment_rows]
-        names = self.groups.get_display_names(
+        profiles = self.groups.get_profiles(
             [str(row["user_id"]) for row in members]
             + assignee_ids
         )
@@ -89,9 +89,20 @@ class GroupService:
             assignments_by_task.setdefault(str(row["task_id"]), []).append(str(row["user_id"]))
         return {
             "group": {**group, "role": membership["role"]},
-            "members": [{**row, "display_name": names.get(str(row["user_id"]))} for row in members],
+            "members": [
+                {
+                    **row,
+                    "display_name": profiles.get(str(row["user_id"]), {}).get("display_name"),
+                    "avatar_url": profiles.get(str(row["user_id"]), {}).get("avatar_url"),
+                }
+                for row in members
+            ],
             "tasks": [
-                self._with_assignees(task, assignments_by_task.get(str(task["id"]), []), names)
+                self._with_assignees(
+                    task,
+                    assignments_by_task.get(str(task["id"]), []),
+                    profiles,
+                )
                 for task in tasks
             ],
         }
@@ -194,19 +205,23 @@ class GroupService:
         self,
         task: JsonRow,
         assignee_ids: list[str],
-        names: dict[str, str | None] | None = None,
+        profiles: dict[str, JsonRow] | None = None,
     ) -> JsonRow:
-        if names is None:
-            names = self.groups.get_display_names(assignee_ids)
+        if profiles is None:
+            profiles = self.groups.get_profiles(assignee_ids)
         assignees = [
-            {"user_id": assignee_id, "display_name": names.get(assignee_id)}
+            {
+                "user_id": assignee_id,
+                "display_name": profiles.get(assignee_id, {}).get("display_name"),
+                "avatar_url": profiles.get(assignee_id, {}).get("avatar_url"),
+            }
             for assignee_id in assignee_ids
         ]
         first = assignee_ids[0] if assignee_ids else None
         return {
             **task,
             "assigned_to": first,
-            "assignee_name": names.get(first) if first else None,
+            "assignee_name": profiles.get(first, {}).get("display_name") if first else None,
             "assigned_to_ids": assignee_ids,
             "assignees": assignees,
         }

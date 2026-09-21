@@ -24,13 +24,13 @@ import {
 import {
   describeApiError,
   formatDue,
-  memberInitial,
   memberName,
   readStoredGroupId,
   storeGroupId,
 } from "@/lib/group";
 import QuickAddForm from "@/components/mobile/quick-add-form";
 import Dialog from "@/components/ui/dialog";
+import MemberAvatar from "@/components/group/member-avatar";
 import {
   localDateString,
   createQuickAddDefaults,
@@ -413,45 +413,59 @@ export default function GroupPage() {
 
   const closeAddTask = useCallback(() => setShowAddTask(false), []);
 
+  const groupSidebar =
+    groups.length > 0 ? (
+      <aside className="rounded-2xl border border-slate-200 bg-white p-3 lg:sticky lg:top-20 lg:w-56 lg:shrink-0">
+        <div className="px-2 pb-2 pt-1 text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
+          Your groups
+        </div>
+        <nav aria-label="Your groups" className="flex flex-col gap-1">
+          {groups.map((group) => {
+            const active = group.id === selectedGroupId;
+            return (
+              <button
+                key={group.id}
+                className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition-colors ${
+                  active
+                    ? "bg-slate-900 text-white"
+                    : "text-slate-700 hover:bg-slate-100"
+                }`}
+                onClick={() => selectGroup(group.id)}
+                type="button"
+              >
+                <span className="truncate">{group.name}</span>
+                <span
+                  className={`shrink-0 text-[10px] font-semibold uppercase tracking-wide ${
+                    active ? "text-slate-300" : "text-slate-400"
+                  }`}
+                >
+                  {group.role}
+                </span>
+              </button>
+            );
+          })}
+        </nav>
+        <button
+          className={`${secondaryButton} mt-3 w-full`}
+          onClick={() => setShowSetup((open) => !open)}
+          type="button"
+        >
+          New / Join
+        </button>
+      </aside>
+    ) : null;
+
   // ── Render ──────────────────────────────────────────────────────────────
   const header = (
     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <div>
-        <div className="flex items-center gap-2">
-          <div className="text-sm text-slate-500">Group Scheduling</div>
-          <span className="text-xs px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 font-medium">
-            Beta
-          </span>
-        </div>
-        <div className="flex items-center gap-3 flex-wrap">
-          <h1 className="text-2xl font-bold">
-            {selectedGroup?.name ?? "Your groups"}
-          </h1>
-          {groups.length > 1 && (
-            <select
-              aria-label="Switch group"
-              className="text-sm rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-slate-700"
-              onChange={(event) => selectGroup(event.target.value)}
-              value={selectedGroupId ?? ""}
-            >
-              {groups.map((group) => (
-                <option key={group.id} value={group.id}>
-                  {group.name}
-                </option>
-              ))}
-            </select>
-          )}
-        </div>
+        <div className="text-sm text-slate-500">Group Scheduling</div>
+        <h1 className="text-2xl font-bold">
+          {selectedGroup?.name ?? "Your groups"}
+        </h1>
       </div>
       {groups.length > 0 && (
         <div className="flex gap-2 flex-wrap">
-          <button
-            className={secondaryButton}
-            onClick={() => setShowSetup((open) => !open)}
-            type="button"
-          >
-            New / Join
-          </button>
           <button
             className={secondaryButton}
             disabled={!selectedGroup}
@@ -511,15 +525,15 @@ export default function GroupPage() {
           onCreate={handleCreateGroup}
           onJoin={handleJoinGroup}
         />
-        <div className="text-xs text-slate-400 text-center py-2">
-          Group scheduling is in Beta — teammates see changes when they refresh.
-        </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-5">
+    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:gap-4">
+      {groupSidebar}
+
+      <div className="min-w-0 flex-1 space-y-5">
       {header}
 
       {showSetup && (
@@ -808,9 +822,7 @@ export default function GroupPage() {
                 className="bg-white rounded-2xl border border-slate-200 p-5"
               >
                 <div className="flex items-center gap-3 mb-3">
-                  <div className="h-11 w-11 rounded-full bg-slate-900 text-white grid place-items-center font-bold text-sm">
-                    {memberInitial(name)}
-                  </div>
+                  <MemberAvatar avatarUrl={member.avatar_url} name={name} />
                   <div className="min-w-0">
                     <div className="font-semibold text-sm truncate">{name}</div>
                     <div className="text-xs text-slate-500 capitalize">
@@ -979,10 +991,6 @@ export default function GroupPage() {
         </div>
       )}
 
-      <div className="text-xs text-slate-400 text-center py-2">
-        Group scheduling is in Beta — teammates see changes when they refresh.
-      </div>
-
       {toast && (
         <div
           aria-live="polite"
@@ -1055,6 +1063,7 @@ export default function GroupPage() {
           onSubmit={handleCreateTask}
         />
       )}
+      </div>
     </div>
   );
 }

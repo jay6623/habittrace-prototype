@@ -6,12 +6,9 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getOAuthRedirectBaseUrl } from "@/lib/site";
 
+/** Always land on Today after login (ignore any `?next=` bounce URL). */
 function getPostLoginDestination(): string {
   if (typeof window === "undefined") return "/dashboard";
-  const requested = new URLSearchParams(window.location.search).get("next");
-  if (requested && /^\/dashboard(?:\/|$)/.test(requested) && !requested.includes("\\")) {
-    return requested;
-  }
   const mobileOrInstalled =
     window.innerWidth < 768 || window.matchMedia("(display-mode: standalone)").matches;
   return mobileOrInstalled ? "/dashboard/today" : "/dashboard";

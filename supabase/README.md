@@ -10,6 +10,7 @@ This directory contains SQL for two separate data boundaries.
 | `task_notes.sql` | Primary application project | Optional `tasks.notes` column for existing databases |
 | `google_calendar_schema.sql` | Primary application project | Encrypted Google connection records and task-to-event links |
 | `group_scheduling_schema.sql` | Primary application project | Groups, invite-code memberships, and shared group tasks |
+| `profile_avatar.sql` | Primary application project | Optional `profiles.avatar_url` for Groups member photos |
 | `ai_schema.sql` | AI V2 project | AI plan inputs, outcomes, confirmed reasons, model versions, predictions, time recommendations, constraints, triggers, indexes, and RLS |
 | `verify_ai_schema.sql` | AI V2 project | Read-only post-deployment verification queries |
 

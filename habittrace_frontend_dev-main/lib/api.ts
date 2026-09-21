@@ -1067,6 +1067,7 @@ export interface GroupMember {
   role: GroupRole;
   joined_at: string;
   display_name: string | null;
+  avatar_url?: string | null;
 }
 
 export interface GroupTask {

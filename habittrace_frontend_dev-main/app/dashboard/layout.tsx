@@ -24,7 +24,7 @@ export default function DashboardLayout({
   }, []);
   useEffect(() => {
     if (!loading && !user)
-      router.replace(`/login?next=${encodeURIComponent(pathname)}`);
+      router.replace("/login");
   }, [user, loading, pathname, router]);
   if (loading)
     return (
@@ -46,7 +46,11 @@ export default function DashboardLayout({
         <TopBar />
         <main
           id="main-content"
-          className="mx-auto max-w-7xl px-4 pb-32 pt-6 sm:px-6 lg:pb-24"
+          className={
+            pathname.startsWith("/dashboard/group")
+              ? "w-full px-3 pb-32 pt-6 sm:px-4 lg:pb-24"
+              : "mx-auto max-w-7xl px-4 pb-32 pt-6 sm:px-6 lg:pb-24"
+          }
         >
           {/\/dashboard\/(habits|calendar|scheduler)(\/unlogged)?$/.test(
             pathname,
