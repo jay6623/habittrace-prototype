@@ -42,3 +42,7 @@ artifacts/
 # Private training snapshots and local TypeScript cache
 habittrace_ai_v2/data/
 *.tsbuildinfo
+
+# Xcode user-specific files
+**/xcuserdata/
+*.xcuserstate
