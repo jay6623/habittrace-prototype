@@ -8,6 +8,7 @@ from . import (
     ai_plans,
     ai_predict,
     ai_time_recommendations,
+    daily_schedules,
 )
 
 router = APIRouter(prefix="/api/v2/ai", tags=["ai-v2"])
@@ -16,3 +17,4 @@ router.include_router(ai_outcomes.router)
 router.include_router(ai_failure_reasons.router)
 router.include_router(ai_predict.router)
 router.include_router(ai_time_recommendations.router)
+router.include_router(daily_schedules.router)

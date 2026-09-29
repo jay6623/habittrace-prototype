@@ -286,15 +286,20 @@ function Scheduler() {
             Choose a plan to find a time with a 15-minute buffer.
           </p>
         </div>
-        <input
-          aria-label="Schedule date"
-          className="field !w-auto"
-          type="date"
-          value={date}
-          onChange={(e) => {
-            if (e.target.value) setDate(e.target.value);
-          }}
-        />
+        <div className="flex flex-wrap items-center gap-2">
+          <Link className="btn-primary" href={`/dashboard/scheduler/generate?date=${date}`}>
+            Generate today&apos;s plan
+          </Link>
+          <input
+            aria-label="Schedule date"
+            className="field !w-auto"
+            type="date"
+            value={date}
+            onChange={(e) => {
+              if (e.target.value) setDate(e.target.value);
+            }}
+          />
+        </div>
       </header>
       <section className="panel space-y-4">
         <div>

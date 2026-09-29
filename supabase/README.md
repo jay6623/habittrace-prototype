@@ -47,6 +47,7 @@ Run `ai_schema.sql` against the isolated AI project. It creates or aligns these 
 - `ai_failure_predictions`
 - `ai_time_recommendations`
 - `ai_time_candidates`
+- `ai_daily_schedules`
 
 The script enables RLS but intentionally creates no browser-access policies. AI V2 access goes through FastAPI and its backend-only service-role client.
 

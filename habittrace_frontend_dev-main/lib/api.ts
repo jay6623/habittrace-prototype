@@ -230,6 +230,64 @@ export interface TimeRecommendation {
   candidates: TimeCandidate[];
 }
 
+export interface DailyScheduleTaskDraft {
+  clientId: string;
+  title: string;
+  estimatedDurationMinutes: number;
+  deadlineAt?: string | null;
+  importance: number;
+  category: string;
+  difficulty?: number;
+  requiredEnergy?: number;
+  requiredFocus?: number;
+  isFixedTime?: boolean;
+  fixedStart?: string | null;
+}
+
+export interface DailyScheduledTask {
+  task_id: string;
+  title: string;
+  estimated_duration_minutes: number;
+  deadline_at: string | null;
+  importance: number;
+  category: string;
+  difficulty: number;
+  required_energy: number;
+  required_focus: number;
+  is_fixed_time: boolean;
+  scheduled_start: string;
+  scheduled_end: string;
+  predicted_success_probability: number;
+  final_score: number;
+  explanation: string;
+  created_task_id: string | null;
+  plan_input_id: string | null;
+}
+
+export interface DailySchedule {
+  id: string;
+  user_id: string;
+  selected_date: string;
+  timezone_name: string;
+  day_start: string;
+  day_end: string;
+  minimum_buffer_minutes: number;
+  slot_interval_minutes: number;
+  max_planned_minutes: number;
+  max_focus_block_minutes: number;
+  status: "draft" | "confirmed";
+  scheduled_tasks: DailyScheduledTask[];
+  unscheduled_tasks: {
+    task_id: string;
+    title: string;
+    estimated_duration_minutes: number;
+    reason: string;
+  }[];
+  warnings: string[];
+  created_at: string;
+  confirmed_at: string | null;
+}
+
 interface PersistedAIPredictionResponse {
   model_version: string;
   success_probability: number;
@@ -862,6 +920,78 @@ export async function selectTimeCandidate(
       body: JSON.stringify({ candidate_id: candidateId, status: "accepted" }),
     },
   );
+}
+
+export async function generateDailySchedule(input: {
+  selectedDate: string;
+  timezoneName: string;
+  dayStart: string;
+  dayEnd: string;
+  minimumBufferMinutes?: number;
+  slotIntervalMinutes?: number;
+  maxPlannedMinutes?: number;
+  maxFocusBlockMinutes?: number;
+  tasks: DailyScheduleTaskDraft[];
+}): Promise<DailySchedule> {
+  return apiFetch<DailySchedule>("/api/v2/ai/daily-schedules/generate", {
+    method: "POST",
+    body: JSON.stringify({
+      selected_date: input.selectedDate,
+      timezone_name: input.timezoneName,
+      day_start: input.dayStart,
+      day_end: input.dayEnd,
+      minimum_buffer_minutes: input.minimumBufferMinutes ?? 15,
+      slot_interval_minutes: input.slotIntervalMinutes ?? 15,
+      max_planned_minutes: input.maxPlannedMinutes ?? 480,
+      max_focus_block_minutes: input.maxFocusBlockMinutes ?? 120,
+      tasks: input.tasks.map((task) => ({
+        client_id: task.clientId,
+        title: task.title,
+        estimated_duration_minutes: task.estimatedDurationMinutes,
+        deadline_at: task.deadlineAt ?? null,
+        importance: task.importance,
+        category: task.category,
+        difficulty: task.difficulty ?? 3,
+        required_energy: task.requiredEnergy ?? 3,
+        required_focus: task.requiredFocus ?? 3,
+        is_fixed_time: task.isFixedTime ?? false,
+        fixed_start: task.isFixedTime ? (task.fixedStart ?? null) : null,
+      })),
+    }),
+  });
+}
+
+export async function getDailySchedule(scheduleId: string): Promise<DailySchedule> {
+  return apiFetch<DailySchedule>(`/api/v2/ai/daily-schedules/${scheduleId}`);
+}
+
+export async function updateDailySchedule(
+  scheduleId: string,
+  adjustments: { taskId: string; scheduledStart: string }[],
+): Promise<DailySchedule> {
+  return apiFetch<DailySchedule>(`/api/v2/ai/daily-schedules/${scheduleId}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      adjustments: adjustments.map((item) => ({
+        task_id: item.taskId,
+        scheduled_start: item.scheduledStart,
+      })),
+    }),
+  });
+}
+
+export async function confirmDailySchedule(scheduleId: string): Promise<DailySchedule> {
+  const result = await apiFetch<DailySchedule>(
+    `/api/v2/ai/daily-schedules/${scheduleId}/confirm`,
+    { method: "POST" },
+  );
+  for (const task of result.scheduled_tasks) {
+    if (task.created_task_id && task.plan_input_id) {
+      rememberAIPlan(task.created_task_id, task.plan_input_id);
+    }
+  }
+  notifyDataChanged();
+  return result;
 }
 
 /** Read the latest persisted prediction without creating another database row. */

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useAuth } from "@/app/providers";
 import { avatarInitials, readAvatarUrl } from "@/lib/avatar";
 
@@ -15,11 +15,7 @@ export default function ProfileAvatar({
   const { user, displayName } = useAuth();
   const avatarUrl = readAvatarUrl(user);
   const initials = avatarInitials(displayName, user?.email);
-  const [imageBroken, setImageBroken] = useState(false);
-
-  useEffect(() => {
-    setImageBroken(false);
-  }, [avatarUrl]);
+  const [brokenUrl, setBrokenUrl] = useState<string | null>(null);
 
   const dimension =
     size === "lg"
@@ -33,12 +29,12 @@ export default function ProfileAvatar({
       aria-hidden="true"
       className={`grid shrink-0 place-items-center overflow-hidden rounded-full bg-slate-950 font-bold text-white ring-2 ring-slate-200 ${dimension} ${className}`}
     >
-      {avatarUrl && !imageBroken ? (
+      {avatarUrl && avatarUrl !== brokenUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           alt=""
           className="h-full w-full object-cover"
-          onError={() => setImageBroken(true)}
+          onError={() => setBrokenUrl(avatarUrl)}
           src={avatarUrl}
         />
       ) : (

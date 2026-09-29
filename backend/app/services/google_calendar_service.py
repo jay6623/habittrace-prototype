@@ -6,7 +6,7 @@ import base64
 import hashlib
 import logging
 from datetime import datetime, timedelta, timezone
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
@@ -143,6 +143,77 @@ class GoogleCalendarService:
             message = str(exc) if isinstance(exc, GoogleCalendarError) else "Calendar sync failed."
             logger.warning("Google Calendar task sync failed for user %s: %s", user_id, exc)
             self._update_connection(user_id, last_error=message)
+
+    def list_busy_events(
+        self,
+        user_id: str,
+        window_start: datetime,
+        window_end: datetime,
+    ) -> list[dict]:
+        """Return external Google events that should block scheduling.
+
+        HabitTrace-created events are omitted because their source tasks are
+        already part of the schedule context.
+        """
+        if not self.configured:
+            return []
+        connection = self._get_connection(user_id)
+        if not connection:
+            return []
+        query = urlencode(
+            {
+                "timeMin": window_start.isoformat(),
+                "timeMax": window_end.isoformat(),
+                "singleEvents": "true",
+                "orderBy": "startTime",
+                "maxResults": "250",
+            }
+        )
+        response, _connection = self._calendar_request(
+            connection,
+            "GET",
+            f"/calendars/primary/events?{query}",
+        )
+        if response.status_code >= 400:
+            self._raise_google_error(response)
+
+        timezone_name = str(connection.get("timezone") or "UTC")
+        zone = ZoneInfo(timezone_name)
+        events: list[dict] = []
+        for event in response.json().get("items", []):
+            if event.get("status") == "cancelled" or event.get("transparency") == "transparent":
+                continue
+            private = event.get("extendedProperties", {}).get("private", {})
+            if private.get("habittraceTaskId"):
+                continue
+            try:
+                start_value = event["start"].get("dateTime")
+                end_value = event["end"].get("dateTime")
+                if start_value and end_value:
+                    start = datetime.fromisoformat(str(start_value).replace("Z", "+00:00"))
+                    end = datetime.fromisoformat(str(end_value).replace("Z", "+00:00"))
+                else:
+                    start = datetime.combine(
+                        datetime.strptime(event["start"]["date"], "%Y-%m-%d").date(),
+                        datetime.min.time(),
+                        tzinfo=zone,
+                    )
+                    end = datetime.combine(
+                        datetime.strptime(event["end"]["date"], "%Y-%m-%d").date(),
+                        datetime.min.time(),
+                        tzinfo=zone,
+                    )
+            except (KeyError, TypeError, ValueError):
+                continue
+            if end > start:
+                events.append(
+                    {
+                        "start": start.isoformat(),
+                        "end": end.isoformat(),
+                        "title": str(event.get("summary") or "Google Calendar event"),
+                    }
+                )
+        return events
 
     def delete_task_safely(self, user_id: str, task_id: str) -> None:
         if not self.configured:

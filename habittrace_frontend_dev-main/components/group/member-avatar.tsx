@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { memberInitial } from "@/lib/group";
 
 export default function MemberAvatar({
@@ -12,13 +12,8 @@ export default function MemberAvatar({
   avatarUrl?: string | null;
   className?: string;
 }) {
-  const [broken, setBroken] = useState(false);
-
-  useEffect(() => {
-    setBroken(false);
-  }, [avatarUrl]);
-
-  const showImage = Boolean(avatarUrl?.trim()) && !broken;
+  const [brokenUrl, setBrokenUrl] = useState<string | null>(null);
+  const showImage = Boolean(avatarUrl?.trim()) && avatarUrl !== brokenUrl;
 
   return (
     <div
@@ -30,7 +25,7 @@ export default function MemberAvatar({
         <img
           alt=""
           className="h-full w-full object-cover"
-          onError={() => setBroken(true)}
+          onError={() => setBrokenUrl(avatarUrl ?? null)}
           src={avatarUrl!}
         />
       ) : (

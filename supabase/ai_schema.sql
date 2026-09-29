@@ -567,7 +567,45 @@ alter table public.ai_time_recommendations
   deferrable initially deferred;
 
 -- -----------------------------------------------------------------------------
--- 8. Backend-only access boundary
+-- 8. Draft-first generated daily schedules
+-- -----------------------------------------------------------------------------
+
+create table if not exists public.ai_daily_schedules (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null,
+  selected_date date not null,
+  timezone_name text not null,
+  day_start time not null,
+  day_end time not null,
+  minimum_buffer_minutes integer not null default 15
+    check (minimum_buffer_minutes between 0 and 120),
+  slot_interval_minutes integer not null default 15
+    check (slot_interval_minutes between 5 and 60),
+  max_planned_minutes integer not null default 480
+    check (max_planned_minutes between 30 and 960),
+  max_focus_block_minutes integer not null default 120
+    check (max_focus_block_minutes between 30 and 480),
+  status text not null default 'draft'
+    check (status in ('draft', 'confirmed')),
+  request_snapshot jsonb not null default '{}'::jsonb,
+  blocked_intervals jsonb not null default '[]'::jsonb,
+  scheduled_tasks jsonb not null default '[]'::jsonb,
+  unscheduled_tasks jsonb not null default '[]'::jsonb,
+  warnings jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now(),
+  confirmed_at timestamptz,
+  check (day_start < day_end),
+  check (
+    (status = 'draft' and confirmed_at is null)
+    or (status = 'confirmed' and confirmed_at is not null)
+  )
+);
+
+create index if not exists idx_ai_daily_schedules_user_date
+  on public.ai_daily_schedules(user_id, selected_date desc, created_at desc);
+
+-- -----------------------------------------------------------------------------
+-- 9. Backend-only access boundary
 -- -----------------------------------------------------------------------------
 --
 -- These AI tables are accessed through FastAPI with the Supabase service_role
@@ -583,6 +621,7 @@ alter table public.ai_success_predictions enable row level security;
 alter table public.ai_failure_predictions enable row level security;
 alter table public.ai_time_recommendations enable row level security;
 alter table public.ai_time_candidates enable row level security;
+alter table public.ai_daily_schedules enable row level security;
 
 commit;
 

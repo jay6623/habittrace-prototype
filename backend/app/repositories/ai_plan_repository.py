@@ -46,7 +46,10 @@ class AIPlanRepository(BaseRepository):
         while True:
             response = self._execute(
                 self.db.table(self.table_name)
-                .select("id,parent_plan_input_id,planned_start,planned_duration_minutes")
+                .select(
+                    "id,parent_plan_input_id,title,category,planned_start,"
+                    "planned_duration_minutes,required_focus,is_fixed_time,timezone_name"
+                )
                 .eq("user_id", str(user_id))
                 .order("id")
                 .range(offset, offset + self.page_size - 1)

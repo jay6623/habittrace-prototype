@@ -76,6 +76,7 @@ export default function ProfileMenu({
   }, [open]);
 
   if (!user) return null;
+  const userId = user.id;
 
   const dimension =
     size === "lg" ? "h-14 w-14 text-base" : size === "sm" ? "h-9 w-9 text-xs" : "h-11 w-11 text-sm";
@@ -99,7 +100,7 @@ export default function ProfileMenu({
         data: { first_name: nextName },
       });
       if (updateError) throw updateError;
-      await syncProfileDisplayName(user.id, nextName);
+      await syncProfileDisplayName(userId, nextName);
       notifyDataChanged();
       setEditingName(false);
       toast.success("Display name updated", nextName);
@@ -115,7 +116,7 @@ export default function ProfileMenu({
     setUploading(true);
     setError(null);
     try {
-      await uploadUserAvatar(user.id, file);
+      await uploadUserAvatar(userId, file);
       notifyDataChanged();
       toast.success("Profile picture updated");
       setOpen(false);

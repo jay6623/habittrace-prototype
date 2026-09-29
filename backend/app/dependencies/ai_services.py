@@ -12,6 +12,7 @@ from ..repositories.ai_prediction_repository import AIPredictionRepository
 from ..repositories.ai_time_recommendation_repository import (
     AITimeRecommendationRepository,
 )
+from ..repositories.daily_schedule_repository import DailyScheduleRepository
 from ..repositories.personalization_repository import PersonalizationRepository
 from ..services.ai_failure_reason_service import AIFailureReasonService
 from ..services.ai_outcome_service import AIOutcomeService
@@ -19,7 +20,10 @@ from ..services.ai_plan_service import AIPlanService
 from ..services.ai_prediction_service import AIPredictionService
 from ..services.ai_time_recommendation_service import AITimeRecommendationService
 from ..services.ai_v2_ml_service import get_ai_v2_ml_service
+from ..services.daily_schedule_service import DailyScheduleService
+from ..services.google_calendar_service import GoogleCalendarService
 from ..services.personalization_service import PersonalizationService
+from ..services.task_service import TaskService
 from .database import get_ai_database, get_primary_database
 
 
@@ -72,4 +76,18 @@ def get_ai_time_recommendation_service(
         ),
         get_ai_v2_ml_service(),
         PersonalizationService(PersonalizationRepository(primary_db)),
+    )
+
+
+def get_daily_schedule_service(
+    db: Annotated[Client, Depends(get_ai_database)],
+    primary_db: Annotated[Client, Depends(get_primary_database)],
+) -> DailyScheduleService:
+    return DailyScheduleService(
+        AIPlanRepository(db),
+        DailyScheduleRepository(db),
+        TaskService(primary_db),
+        get_ai_v2_ml_service(),
+        PersonalizationService(PersonalizationRepository(primary_db)),
+        GoogleCalendarService(primary_db),
     )

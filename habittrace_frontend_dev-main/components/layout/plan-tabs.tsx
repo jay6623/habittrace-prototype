@@ -11,6 +11,7 @@ const MAIN_TABS = [
   ["/dashboard/habits", "List"],
   ["/dashboard/calendar", "Calendar"],
   ["/dashboard/scheduler", "Find a time"],
+  ["/dashboard/scheduler/generate", "Generate day"],
 ] as const;
 
 export default function PlanTabs() {
@@ -27,7 +28,8 @@ export default function PlanTabs() {
   }, []);
 
   useEffect(() => {
-    void loadCount();
+    const timeout = window.setTimeout(() => void loadCount(), 0);
+    return () => window.clearTimeout(timeout);
   }, [loadCount]);
   useDataRefresh(loadCount);
 

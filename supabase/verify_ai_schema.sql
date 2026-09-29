@@ -1,6 +1,6 @@
 -- Read-only checks to run after ai_schema.sql in the AI Supabase project.
 
--- All nine tables must exist and have RLS enabled.
+-- All ten tables must exist and have RLS enabled.
 with expected(table_name) as (
   values
     ('ai_plan_inputs'),
@@ -11,7 +11,8 @@ with expected(table_name) as (
     ('ai_success_predictions'),
     ('ai_failure_predictions'),
     ('ai_time_recommendations'),
-    ('ai_time_candidates')
+    ('ai_time_candidates'),
+    ('ai_daily_schedules')
 )
 select
   e.table_name,
