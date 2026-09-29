@@ -11,6 +11,7 @@ from pydantic import BaseModel, ValidationError
 from ..schemas.chat import PreferenceUpdate
 from ..schemas.coach_tools import (
     FindAvailableTimesArgs,
+    GenerateDailyScheduleArgs,
     GetFailurePatternsArgs,
     GetScheduleArgs,
     GetTaskPerformanceArgs,
@@ -20,6 +21,7 @@ from ..schemas.coach_tools import (
     ToolResult,
 )
 from .coaching_context_service import CoachingContextService
+from .coaching_daily_schedule_service import CoachingDailyScheduleService
 from .coaching_planning_service import CoachingPlanningService
 
 logger = logging.getLogger(__name__)
@@ -32,9 +34,11 @@ class CoachToolRegistry:
         self,
         context_service: CoachingContextService,
         planning_service: CoachingPlanningService | None = None,
+        daily_schedule_service: CoachingDailyScheduleService | None = None,
     ) -> None:
         self.context_service = context_service
         self.planning_service = planning_service
+        self.daily_schedule_service = daily_schedule_service
         self._tools: dict[
             str,
             tuple[
@@ -86,6 +90,17 @@ class CoachToolRegistry:
                 "latest_time constraints; never broaden them implicitly.",
                 "proposal",
                 self._available_times,
+            ),
+            "generate_daily_schedule": (
+                GenerateDailyScheduleArgs,
+                "Create an optimized daily schedule draft from multiple tasks the user says "
+                "they need to do. Use this when the user asks HabitTrace to plan, organize, or "
+                "schedule several tasks for a day without assigning each task a time. Infer a "
+                "reasonable category and conservative duration when omitted, using importance=3 "
+                "unless the user signals urgency. This creates only a reviewable draft and never "
+                "confirms actual tasks. Do not use it for a single task or general advice.",
+                "proposal",
+                self._daily_schedule,
             ),
             "save_user_preferences": (
                 PreferenceUpdate,
@@ -150,10 +165,12 @@ class CoachToolRegistry:
         results: list[ToolResult] = []
         proposal_created = False
         for call in calls[:4]:
-            if (
-                proposal_created
-                and call.name == "find_available_times"
-                and call.arguments.get("mode") == "create_task_proposal"
+            if proposal_created and (
+                (
+                    call.name == "find_available_times"
+                    and call.arguments.get("mode") == "create_task_proposal"
+                )
+                or call.name == "generate_daily_schedule"
             ):
                 results.append(
                     ToolResult(
@@ -282,8 +299,39 @@ class CoachToolRegistry:
             name="save_user_preferences",
             ok=True,
             data={
-                "saved_preferences": {
-                    key: saved.get(key, value) for key, value in updates.items()
-                }
+                "saved_preferences": {key: saved.get(key, value) for key, value in updates.items()}
             },
+        )
+
+    def _daily_schedule(
+        self,
+        user_id: str,
+        arguments: BaseModel,
+        timezone_name: str,
+        _conversation_id: str | None,
+    ) -> ToolResult:
+        if not self.daily_schedule_service:
+            return ToolResult(
+                name="generate_daily_schedule",
+                ok=False,
+                error="Daily schedule generation is temporarily unavailable.",
+            )
+        parsed = GenerateDailyScheduleArgs.model_validate(arguments)
+        draft = self.daily_schedule_service.generate(
+            user_id,
+            parsed,
+            timezone_name=timezone_name,
+        )
+        return ToolResult(
+            name="generate_daily_schedule",
+            ok=True,
+            data={
+                "status": "draft_created",
+                "schedule_id": draft["id"],
+                "selected_date": draft["selected_date"],
+                "scheduled_count": len(draft.get("scheduled_tasks") or []),
+                "unscheduled_count": len(draft.get("unscheduled_tasks") or []),
+                "confirmation_required": True,
+            },
+            proposal={"kind": "daily_schedule", "schedule": draft},
         )

@@ -5,17 +5,42 @@ from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 
 from ..config import settings
-from ..db.supabase_client import get_supabase, is_supabase_configured
+from ..db.supabase_client import (
+    get_ai_supabase,
+    get_supabase,
+    is_ai_supabase_configured,
+    is_supabase_configured,
+)
 from ..dependencies.auth import CurrentUserId
 from ..rate_limit import RateLimitSpec, get_request_identity, rate_limiter
+from ..repositories.ai_plan_repository import AIPlanRepository
+from ..repositories.daily_schedule_repository import DailyScheduleRepository
+from ..repositories.personalization_repository import PersonalizationRepository
 from ..schemas.chat import ChatRequest, ProposalConfirmRequest
 from ..schemas.task import TaskCreate, TaskResponse
+from ..services.ai_v2_ml_service import get_ai_v2_ml_service
 from ..services.chat_service import ChatService
 from ..services.coach_repository import CoachRepository
+from ..services.daily_schedule_service import DailyScheduleService
 from ..services.google_calendar_service import GoogleCalendarService
+from ..services.personalization_service import PersonalizationService
 from ..services.task_service import TaskService
 
 router = APIRouter()
+
+
+def _daily_schedule_service(db) -> DailyScheduleService | None:
+    if not is_ai_supabase_configured():
+        return None
+    ai_db = get_ai_supabase()
+    return DailyScheduleService(
+        AIPlanRepository(ai_db),
+        DailyScheduleRepository(ai_db),
+        TaskService(db),
+        get_ai_v2_ml_service(),
+        PersonalizationService(PersonalizationRepository(db)),
+        GoogleCalendarService(db),
+    )
 
 
 @router.post("")
@@ -38,7 +63,7 @@ async def chat(
     )
 
     db = get_supabase() if is_supabase_configured() else None
-    svc = ChatService(db)
+    svc = ChatService(db, _daily_schedule_service(db) if db else None)
 
     return StreamingResponse(
         svc.stream(

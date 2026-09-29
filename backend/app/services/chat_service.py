@@ -17,8 +17,10 @@ from ..schemas.coach_tools import ToolCall, ToolResult
 from .coach_repository import CoachRepository
 from .coach_tool_registry import CoachToolRegistry
 from .coaching_context_service import CoachingContextService
+from .coaching_daily_schedule_service import CoachingDailyScheduleService
 from .coaching_planning_service import CoachingPlanningService
 from .coaching_recommendation_service import CoachingRecommendationService
+from .daily_schedule_service import DailyScheduleService
 from .llm_client import LLMClientError, get_llm_client
 
 logger = logging.getLogger(__name__)
@@ -31,7 +33,11 @@ def _sse(payload: dict | str) -> str:
 
 
 class ChatService:
-    def __init__(self, db: Client | None) -> None:
+    def __init__(
+        self,
+        db: Client | None,
+        daily_schedule_service: DailyScheduleService | None = None,
+    ) -> None:
         self.db = db
         self.context_service = CoachingContextService(db) if db else None
         self.repository = CoachRepository(db) if db else None
@@ -45,8 +51,17 @@ class ChatService:
             if self.context_service
             else None
         )
+        self.coaching_daily_schedule_service = (
+            CoachingDailyScheduleService(self.context_service, daily_schedule_service)
+            if self.context_service and daily_schedule_service
+            else None
+        )
         self.tool_registry = (
-            CoachToolRegistry(self.context_service, self.planning_service)
+            CoachToolRegistry(
+                self.context_service,
+                self.planning_service,
+                self.coaching_daily_schedule_service,
+            )
             if self.context_service
             else None
         )
@@ -120,6 +135,14 @@ or availability advice. Use mode=create_task_proposal only when the user explici
 schedule, or create a task. That mode creates only a pending proposal requiring user confirmation;
 it never creates a task. Multiple tools may be selected when performance or failure evidence would
 materially improve a time recommendation.
+
+Use generate_daily_schedule when the user lists multiple things they need to do and asks you to
+organize, plan, or schedule the day. Extract every distinct task. Infer the closest supported
+category from the task meaning. If duration is omitted, use a conservative 30-minute estimate;
+if priority is not stated, use importance=3. Use today's date when the user says today or gives no
+other date. Preserve explicit deadlines and fixed event times. The tool creates a draft only, so
+tell the user the times and likelihoods are estimates and require review before confirmation. Do
+not call find_available_times once per task for this batch request.
 
 PLANNING FOLLOW-UPS
 - Treat the recent user/assistant messages as one continuing planning conversation. Before calling
@@ -486,10 +509,23 @@ allowlisted schema fields. Return only data matching the response schema."""
                     is_proposal_write = (
                         call.name == "find_available_times"
                         and call.arguments.get("mode") == "create_task_proposal"
-                    )
+                    ) or call.name == "generate_daily_schedule"
                     mutation_key = call.name if call.name == "save_user_preferences" else None
                     if is_proposal_write:
-                        mutation_key = "create_task_proposal"
+                        mutation_key = (
+                            "generate_daily_schedule"
+                            if call.name == "generate_daily_schedule"
+                            else "create_task_proposal"
+                        )
+                    if is_proposal_write and proposals:
+                        results.append(
+                            ToolResult(
+                                name=call.name,
+                                ok=False,
+                                error="Only one schedule proposal can be created per turn.",
+                            )
+                        )
+                        continue
                     if tool_calls_used >= 4:
                         results.append(
                             ToolResult(
@@ -619,6 +655,19 @@ allowlisted schema fields. Return only data matching the response schema."""
 
     @staticmethod
     def _proposal_confirmation_text(proposal: dict) -> str:
+        if proposal.get("kind") == "daily_schedule":
+            schedule = proposal.get("schedule") or {}
+            scheduled_count = len(schedule.get("scheduled_tasks") or [])
+            unscheduled_count = len(schedule.get("unscheduled_tasks") or [])
+            suffix = (
+                f" {unscheduled_count} task(s) could not fit and are explained below."
+                if unscheduled_count
+                else ""
+            )
+            return (
+                f"I created a draft with {scheduled_count} scheduled task(s). Review the "
+                f"estimated times and predicted likelihoods before confirming.{suffix}"
+            )
         options = proposal.get("options") or []
         if not options:
             return "Review and confirm the proposal below to add it to your schedule."

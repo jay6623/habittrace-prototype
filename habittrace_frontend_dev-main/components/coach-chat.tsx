@@ -4,16 +4,21 @@ import { useState, useRef, useEffect } from "react";
 import {
   archiveCoachConversation,
   confirmCoachProposal,
+  confirmDailySchedule,
   dismissCoachProposal,
   getLatestCoachConversation,
   streamChatEvents,
   type ChatMessage,
   type CoachProposal,
+  type CoachTaskProposal,
+  type CoachDailyScheduleProposal,
   type TaskCreate,
 } from "@/lib/api";
+import Link from "next/link";
 
 // ── Suggestion chips shown at start ──────────────────────────────────────────
 const SUGGESTIONS = [
+  "Plan my day: finish my report, go to the gym, and buy groceries.",
   "Review my last 30 days. What is the clearest pattern, and what should I try next?",
   "When do I complete focused work most reliably? Include the sample size.",
   "Why might my Study plans be failing? Use my duration and interruption history.",
@@ -44,7 +49,7 @@ function TaskConfirmCard({
   onConfirm,
   onCancel,
 }: {
-  proposal: CoachProposal;
+  proposal: CoachTaskProposal;
   onConfirm: (candidateStart: string, task: TaskCreate) => Promise<void>;
   onCancel: () => Promise<void>;
 }) {
@@ -189,6 +194,110 @@ function TaskConfirmCard({
   );
 }
 
+function DailyScheduleConfirmCard({
+  proposal,
+  onConfirm,
+  onCancel,
+}: {
+  proposal: CoachDailyScheduleProposal;
+  onConfirm: () => Promise<void>;
+  onCancel: () => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const schedule = proposal.schedule;
+
+  async function confirm() {
+    setLoading(true);
+    try {
+      await onConfirm();
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="mt-3 space-y-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">
+            Daily plan draft
+          </p>
+          <p className="mt-1 text-sm font-semibold text-slate-900">
+            {new Date(`${schedule.selected_date}T12:00:00`).toLocaleDateString([], {
+              weekday: "short",
+              month: "short",
+              day: "numeric",
+            })}
+          </p>
+        </div>
+        <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-amber-700">
+          Draft
+        </span>
+      </div>
+
+      <ol className="space-y-2">
+        {schedule.scheduled_tasks.map((task) => (
+          <li key={task.task_id} className="rounded-lg border border-emerald-100 bg-white p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">{task.title}</p>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  {new Date(task.scheduled_start).toLocaleTimeString([], {
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })} · {task.estimated_duration_minutes} min · {task.category}
+                </p>
+              </div>
+              <span className="shrink-0 text-xs font-bold text-emerald-700">
+                {Math.round(task.predicted_success_probability * 100)}% estimated
+              </span>
+            </div>
+          </li>
+        ))}
+      </ol>
+
+      {schedule.unscheduled_tasks.length > 0 && (
+        <div className="rounded-lg bg-amber-100 p-3 text-xs text-amber-900">
+          <p className="font-bold">Couldn&apos;t fit</p>
+          {schedule.unscheduled_tasks.map((task) => (
+            <p key={task.task_id} className="mt-1">
+              {task.title}: {task.reason}
+            </p>
+          ))}
+        </div>
+      )}
+
+      <p className="text-xs leading-relaxed text-slate-600">
+        Times and success likelihoods are estimates. Review before adding them to your schedule.
+      </p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Link
+          href={`/dashboard/scheduler/generate?draft=${schedule.id}`}
+          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-center text-sm font-semibold text-slate-700 hover:bg-slate-50"
+        >
+          Review & adjust
+        </Link>
+        <button
+          type="button"
+          disabled={loading || schedule.scheduled_tasks.length === 0}
+          onClick={() => void confirm()}
+          className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40"
+        >
+          {loading ? "Confirming…" : "Confirm all"}
+        </button>
+      </div>
+      <button
+        type="button"
+        disabled={loading}
+        onClick={onCancel}
+        className="w-full text-xs font-semibold text-slate-500 hover:text-slate-800"
+      >
+        Not now
+      </button>
+    </div>
+  );
+}
+
 // ── Extended message type ─────────────────────────────────────────────────────
 interface Message extends ChatMessage {
   proposal?: CoachProposal;
@@ -287,7 +396,7 @@ export default function CoachChat() {
     }
   }
 
-  function confirmTask(msgIdx: number, proposal: CoachProposal) {
+  function confirmTask(msgIdx: number, proposal: CoachTaskProposal) {
     return async (candidateStart: string, edited: TaskCreate) => {
       try {
         await confirmCoachProposal(proposal.id, candidateStart, edited);
@@ -314,7 +423,7 @@ export default function CoachChat() {
     };
   }
 
-  function cancelTask(msgIdx: number, proposal: CoachProposal) {
+  function cancelTask(msgIdx: number, proposal: CoachTaskProposal) {
     return async () => {
       try {
         await dismissCoachProposal(proposal.id);
@@ -324,6 +433,40 @@ export default function CoachChat() {
             i === msgIdx ? { ...m, taskStatus: "cancelled" } : m
           )
         );
+      }
+    };
+  }
+
+  function cancelDailyPlan(msgIdx: number) {
+    setMessages((prev) =>
+      prev.map((message, index) =>
+        index === msgIdx ? { ...message, taskStatus: "cancelled" } : message,
+      ),
+    );
+  }
+
+  function confirmDailyPlan(msgIdx: number, proposal: CoachDailyScheduleProposal) {
+    return async () => {
+      try {
+        const confirmed = await confirmDailySchedule(proposal.schedule.id);
+        setMessages((prev) =>
+          prev.map((message, index) =>
+            index === msgIdx ? { ...message, taskStatus: "confirmed" } : message,
+          ),
+        );
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: `${confirmed.scheduled_tasks.length} tasks have been added to your schedule. You can review them in Calendar or Plans.`,
+          },
+        ]);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "Failed to confirm daily plan";
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: `Sorry, couldn't confirm the daily plan: ${message}` },
+        ]);
       }
     };
   }
@@ -409,17 +552,27 @@ export default function CoachChat() {
                 {msg.role === "assistant" ? renderContent(msg.content) : msg.content}
               </div>
 
-              {/* Task confirmation card */}
-              {msg.role === "assistant" && msg.proposal && !msg.taskStatus && (
-                <TaskConfirmCard
-                  proposal={msg.proposal}
-                  onConfirm={confirmTask(i, msg.proposal)}
-                  onCancel={cancelTask(i, msg.proposal)}
-                />
-              )}
+              {/* Confirmation card */}
+              {msg.role === "assistant" && msg.proposal && !msg.taskStatus &&
+                (msg.proposal.kind === "daily_schedule" ? (
+                  <DailyScheduleConfirmCard
+                    proposal={msg.proposal}
+                    onConfirm={confirmDailyPlan(i, msg.proposal)}
+                    onCancel={() => cancelDailyPlan(i)}
+                  />
+                ) : (
+                  <TaskConfirmCard
+                    proposal={msg.proposal}
+                    onConfirm={confirmTask(i, msg.proposal)}
+                    onCancel={cancelTask(i, msg.proposal)}
+                  />
+                ))}
               {msg.role === "assistant" && msg.taskStatus === "confirmed" && (
                 <div className="mt-2 text-xs text-emerald-600 flex items-center gap-1">
-                  <span>✓</span> Task added to schedule
+                  <span>✓</span>{" "}
+                  {msg.proposal?.kind === "daily_schedule"
+                    ? "Daily plan added to schedule"
+                    : "Task added to schedule"}
                 </div>
               )}
               {msg.role === "assistant" && msg.taskStatus === "cancelled" && (

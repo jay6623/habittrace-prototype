@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/app/providers";
@@ -8,6 +8,7 @@ import {
   ApiError,
   confirmDailySchedule,
   generateDailySchedule,
+  getDailySchedule,
   updateDailySchedule,
   type DailySchedule,
   type DailyScheduleTaskDraft,
@@ -56,6 +57,7 @@ export default function DailyScheduleGeneratorPage() {
   const toast = useToast();
   const preferences = readPreferences(user?.user_metadata);
   const requestedDate = params.get("date");
+  const requestedDraft = params.get("draft");
   const [selectedDate, setSelectedDate] = useState(
     requestedDate && /^\d{4}-\d{2}-\d{2}$/.test(requestedDate)
       ? requestedDate
@@ -69,6 +71,31 @@ export default function DailyScheduleGeneratorPage() {
   const [busy, setBusy] = useState(false);
   const [savingTaskId, setSavingTaskId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!requestedDraft) return;
+    let active = true;
+    setBusy(true);
+    setError(null);
+    void getDailySchedule(requestedDraft)
+      .then((draft) => {
+        if (active) setSchedule(draft);
+      })
+      .catch((cause) => {
+        if (!active) return;
+        setError(
+          cause instanceof ApiError && cause.detail
+            ? cause.detail
+            : "We couldn’t load this daily plan draft.",
+        );
+      })
+      .finally(() => {
+        if (active) setBusy(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [requestedDraft]);
 
   function updateTask<K extends keyof TaskEditor>(
     id: string,

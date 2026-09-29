@@ -185,7 +185,7 @@ def test_basic_conversation_can_select_zero_tools_and_keeps_sse_contract() -> No
 
     assert payloads == [{"token": "A compatible streamed response."}]
     assert events[-1] == "data: [DONE]\n\n"
-    assert len(llm.tools) == 6
+    assert len(llm.tools) == 7
     assert '"tool_results": []' in llm.final_messages[0]["content"]
 
 
@@ -309,8 +309,9 @@ def test_unknown_and_malformed_tool_calls_fail_safely() -> None:
         "get_failure_patterns",
         "get_schedule",
         "get_user_preferences",
-        "find_available_times",
-        "save_user_preferences",
+            "find_available_times",
+            "generate_daily_schedule",
+            "save_user_preferences",
     }
     assert db.reads == []
 

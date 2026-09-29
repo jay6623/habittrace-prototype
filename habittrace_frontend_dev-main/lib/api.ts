@@ -1065,11 +1065,19 @@ export interface CoachTimeOption {
   reasons: string[];
 }
 
-export interface CoachProposal {
+export interface CoachTaskProposal {
+  kind?: "task";
   id: string;
   task: TaskCreate;
   options: CoachTimeOption[];
 }
+
+export interface CoachDailyScheduleProposal {
+  kind: "daily_schedule";
+  schedule: DailySchedule;
+}
+
+export type CoachProposal = CoachTaskProposal | CoachDailyScheduleProposal;
 
 export interface CoachConversation {
   id: string;

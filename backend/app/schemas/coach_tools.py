@@ -78,6 +78,51 @@ class GetUserPreferencesArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class DailyScheduleTaskArgs(BaseModel):
+    """One task extracted from a natural-language daily planning request."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=200)
+    estimated_duration_minutes: int = Field(default=30, ge=5, le=480)
+    category: Literal[
+        "Study",
+        "Work",
+        "Chores",
+        "Fitness/Health",
+        "Errands/Admin",
+        "Hobbies/Leisure",
+        "Social",
+        "Other",
+    ]
+    importance: int = Field(default=3, ge=1, le=5)
+    difficulty: int = Field(default=3, ge=1, le=5)
+    required_energy: int = Field(default=3, ge=1, le=5)
+    required_focus: int = Field(default=3, ge=1, le=5)
+    deadline_time: str | None = Field(
+        default=None,
+        pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$",
+        description="Optional local deadline time on the selected date.",
+    )
+    fixed_start_time: str | None = Field(
+        default=None,
+        pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$",
+        description="Local start time only when the user explicitly says the event is fixed.",
+    )
+
+
+class GenerateDailyScheduleArgs(BaseModel):
+    """Validated batch input for an AI Coach-generated daily schedule draft."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    selected_date: date | None = Field(
+        default=None,
+        description="Local planning date. Omit to use today in the authenticated user's timezone.",
+    )
+    tasks: list[DailyScheduleTaskArgs] = Field(min_length=1, max_length=20)
+
+
 class FindAvailableTimesArgs(BaseModel):
     """Validated inputs for information-only suggestions or a task proposal."""
 
