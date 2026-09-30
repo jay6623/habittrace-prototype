@@ -46,3 +46,6 @@ habittrace_ai_v2/data/
 # Xcode user-specific files
 **/xcuserdata/
 *.xcuserstate
+
+# Local Xcode scheme settings
+/ios/HabitTrace/HabitTrace.xcodeproj/xcshareddata/xcschemes/HabitTrace.xcscheme
