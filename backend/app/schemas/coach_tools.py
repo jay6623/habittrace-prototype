@@ -27,10 +27,12 @@ class ToolCall(BaseModel):
 
 
 class ToolDecision(BaseModel):
-    """Zero calls means the coach can answer without loading HabitTrace data."""
+    """Scope and tool selection for one coach turn."""
 
     model_config = ConfigDict(extra="forbid")
 
+    # Keep the default for Ollama/Gemini compatibility if an older provider response omits it.
+    scope: Literal["in_scope", "off_topic"] = "in_scope"
     calls: list[ToolCall] = Field(default_factory=list, max_length=4)
 
 

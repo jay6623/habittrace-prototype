@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import AsyncGenerator, Callable
-from typing import Any, NoReturn, Protocol
+from typing import Any, Literal, NoReturn, Protocol
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -43,6 +43,8 @@ class _OpenAIToolDecision(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    # Required here so the OpenAI strict schema has no optional top-level fields.
+    scope: Literal["in_scope", "off_topic"]
     calls: list[_OpenAIToolCall] = Field(default_factory=list, max_length=4)
 
 
@@ -243,7 +245,7 @@ class OpenAILLMClient:
             if not isinstance(arguments, dict):
                 raise ValueError("OpenAI tool arguments must decode to an object.")
             calls.append({"name": call.name, "arguments": arguments})
-        return ToolDecision.model_validate({"calls": calls})
+        return ToolDecision.model_validate({"scope": decision.scope, "calls": calls})
 
     async def select_tools(
         self,
