@@ -14,6 +14,8 @@ from ..schemas.group import (
     GroupCreate,
     GroupDetailResponse,
     GroupJoinRequest,
+    GroupMemberResponse,
+    GroupMemberRoleUpdate,
     GroupResponse,
     GroupTaskCreate,
     GroupTaskResponse,
@@ -65,6 +67,17 @@ def delete_group(group_id: UUID, user_id: CurrentUserId, service: GroupServiceDe
 @router.post("/{group_id}/leave", status_code=status.HTTP_204_NO_CONTENT)
 def leave_group(group_id: UUID, user_id: CurrentUserId, service: GroupServiceDep):
     service.leave_group(user_id, group_id)
+
+
+@router.patch("/{group_id}/members/{target_user_id}", response_model=GroupMemberResponse)
+def update_group_member_role(
+    group_id: UUID,
+    target_user_id: UUID,
+    body: GroupMemberRoleUpdate,
+    user_id: CurrentUserId,
+    service: GroupServiceDep,
+):
+    return service.set_member_role(user_id, group_id, target_user_id, body)
 
 
 @router.post(
