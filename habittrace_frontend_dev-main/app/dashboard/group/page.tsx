@@ -14,9 +14,11 @@ import {
   getGroups,
   joinGroup,
   leaveGroup,
+  updateGroupMemberRole,
   updateGroupTask,
   type Group,
   type GroupDetail,
+  type GroupMember,
   type GroupTask,
   type GroupTaskCreate,
   type GroupTaskStatus,
@@ -132,6 +134,7 @@ export default function GroupPage() {
   const [copied, setCopied] = useState(false);
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
   const [deletingGroup, setDeletingGroup] = useState(false);
+  const [updatingMemberId, setUpdatingMemberId] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
 
   // ── Loading ─────────────────────────────────────────────────────────────
@@ -386,6 +389,40 @@ export default function GroupPage() {
       });
     } finally {
       setDeletingGroup(false);
+    }
+  }
+
+  async function handleSetMemberRole(member: GroupMember, role: "admin" | "member") {
+    if (!selectedGroupId || updatingMemberId) return;
+    setUpdatingMemberId(member.user_id);
+    try {
+      const updated = await updateGroupMemberRole(selectedGroupId, member.user_id, role);
+      setDetail((current) =>
+        current && current.group.id === selectedGroupId
+          ? {
+              ...current,
+              members: current.members.map((existing) =>
+                existing.user_id === member.user_id
+                  ? { ...existing, role: updated.role }
+                  : existing,
+              ),
+            }
+          : current,
+      );
+      setToast({
+        message:
+          role === "admin"
+            ? `${memberName(member, userId)} is now an admin.`
+            : `${memberName(member, userId)} is now a member.`,
+        tone: "success",
+      });
+    } catch (caught) {
+      setToast({
+        message: describeApiError(caught, "We couldn't update this member's role."),
+        tone: "error",
+      });
+    } finally {
+      setUpdatingMemberId(null);
     }
   }
 
@@ -825,11 +862,38 @@ export default function GroupPage() {
                   <MemberAvatar avatarUrl={member.avatar_url} name={name} />
                   <div className="min-w-0">
                     <div className="font-semibold text-sm truncate">{name}</div>
-                    <div className="text-xs text-slate-500 capitalize">
+                    <span
+                      className={`inline-block mt-0.5 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full ${
+                        member.role === "owner"
+                          ? "bg-amber-100 text-amber-700"
+                          : member.role === "admin"
+                            ? "bg-sky-100 text-sky-700"
+                            : "bg-slate-100 text-slate-600"
+                      }`}
+                    >
                       {member.role}
-                    </div>
+                    </span>
                   </div>
                 </div>
+                {selectedGroup?.role === "owner" && member.role !== "owner" && (
+                  <button
+                    className="mb-3 text-xs font-medium text-slate-500 hover:text-slate-900 underline underline-offset-2 disabled:opacity-60"
+                    disabled={updatingMemberId === member.user_id}
+                    onClick={() =>
+                      handleSetMemberRole(
+                        member,
+                        member.role === "admin" ? "member" : "admin",
+                      )
+                    }
+                    type="button"
+                  >
+                    {updatingMemberId === member.user_id
+                      ? "Updating…"
+                      : member.role === "admin"
+                        ? "Demote to member"
+                        : "Promote to admin"}
+                  </button>
+                )}
                 <div className="space-y-2">
                   <div className="flex justify-between text-xs">
                     <span className="text-slate-500">Assigned tasks</span>
@@ -954,7 +1018,7 @@ export default function GroupPage() {
               )}
             </div>
 
-            {selectedGroup?.role === "owner" && (
+            {selectedGroup && selectedGroup.role !== "member" && (
               <div className="bg-white rounded-2xl border border-rose-100 p-5">
                 <div className="font-semibold mb-1">Delete group</div>
                 <div className="text-sm text-slate-500 mb-3">
@@ -971,7 +1035,7 @@ export default function GroupPage() {
                 </button>
               </div>
             )}
-            {selectedGroup?.role === "member" && (
+            {selectedGroup && selectedGroup.role !== "owner" && (
               <div className="bg-white rounded-2xl border border-amber-100 p-5">
                 <div className="font-semibold mb-1">Leave group</div>
                 <div className="text-sm text-slate-500 mb-3">

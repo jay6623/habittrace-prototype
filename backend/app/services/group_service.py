@@ -21,7 +21,13 @@ from ..core.errors import (
     ResourceNotFoundError,
 )
 from ..repositories.group_repository import GroupRepository, JsonRow
-from ..schemas.group import GroupCreate, GroupJoinRequest, GroupTaskCreate, GroupTaskUpdate
+from ..schemas.group import (
+    GroupCreate,
+    GroupJoinRequest,
+    GroupMemberRoleUpdate,
+    GroupTaskCreate,
+    GroupTaskUpdate,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -116,10 +122,29 @@ class GroupService:
 
     def delete_group(self, user_id: UUID, group_id: UUID) -> None:
         membership = self._require_member(group_id, user_id)
-        if membership["role"] != "owner":
-            raise PermissionDeniedError("Only the group owner can delete this group.")
-        if not self.groups.delete_group(str(group_id), str(user_id)):
+        if not self._is_admin_or_owner(membership["role"]):
+            raise PermissionDeniedError("Only the group owner or an admin can delete this group.")
+        group = self.groups.get_group(str(group_id))
+        owner_id = str(group["owner_id"]) if group else None
+        if not self.groups.delete_group(str(group_id), owner_id or str(user_id)):
             raise ResourceNotFoundError("Group not found.")
+
+    def set_member_role(
+        self, user_id: UUID, group_id: UUID, target_user_id: UUID, body: GroupMemberRoleUpdate
+    ) -> JsonRow:
+        """Promote a member to admin, or demote them back to member. Owner-only."""
+        membership = self._require_member(group_id, user_id)
+        if membership["role"] != "owner":
+            raise PermissionDeniedError("Only the group owner can change member roles.")
+        target_membership = self.groups.get_membership(str(group_id), str(target_user_id))
+        if target_membership is None:
+            raise ResourceNotFoundError("That person is not a member of this group.")
+        if target_membership["role"] == "owner":
+            raise DomainValidationError("The group owner's role cannot be changed.")
+        updated = self.groups.update_member_role(str(group_id), str(target_user_id), body.role)
+        if updated is None:
+            raise ResourceNotFoundError("That person is not a member of this group.")
+        return updated
 
     def leave_group(self, user_id: UUID, group_id: UUID) -> None:
         membership = self._require_member(group_id, user_id)
@@ -175,6 +200,10 @@ class GroupService:
             raise ResourceNotFoundError("Task not found.")
 
     # ── helpers ─────────────────────────────────────────────────────────────
+    @staticmethod
+    def _is_admin_or_owner(role: str) -> bool:
+        return role in ("owner", "admin")
+
     def _require_member(self, group_id: UUID, user_id: UUID) -> JsonRow:
         membership = self.groups.get_membership(str(group_id), str(user_id))
         if membership is None:
