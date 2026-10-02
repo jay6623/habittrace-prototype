@@ -87,6 +87,7 @@ class _Responses:
         parsed = self.parsed
         if isinstance(parsed, ToolDecision):
             parsed = _OpenAIToolDecision(
+                scope=parsed.scope,
                 calls=[
                     {
                         "name": call.name,
@@ -255,7 +256,12 @@ def test_openai_structured_tool_request_uses_api_compatible_strict_schema(
     assert text_format["type"] == "json_schema"
     assert text_format["strict"] is True
     assert schema["additionalProperties"] is False
-    assert set(schema["required"]) == {"calls"}
+    assert set(schema["required"]) == {"scope", "calls"}
+    assert schema["properties"]["scope"] == {
+        "type": "string",
+        "enum": ["in_scope", "off_topic"],
+        "title": "Scope",
+    }
     assert tool_call_schema["additionalProperties"] is False
     assert set(tool_call_schema["required"]) == {"name", "arguments_json"}
     assert tool_call_schema["properties"]["arguments_json"]["type"] == "string"
@@ -419,6 +425,7 @@ def test_openai_native_tool_loop_returns_only_selected_data(monkeypatch) -> None
 def test_chat_service_uses_native_openai_turn_and_limits_history(monkeypatch) -> None:
     final_response = SimpleNamespace(output=[], output_text="")
     responses = _Responses(
+        parsed=ToolDecision(),
         events=[
             SimpleNamespace(type="response.output_text.delta", delta="현재 질문에 답합니다."),
             SimpleNamespace(type="response.completed", response=final_response),
@@ -452,12 +459,41 @@ def test_chat_service_uses_native_openai_turn_and_limits_history(monkeypatch) ->
         if "[DONE]" not in event
     ]
     assert {"token": "현재 질문에 답합니다."} in payloads
-    assert responses.parse_kwargs is None
+    assert responses.parse_kwargs is not None
     assert len(sent) == 10  # system + eight recent messages + current user message
     assert sent[1]["content"] == "old-4"
     assert sent[-1] == {"role": "user", "content": "지금 질문에 답해줘"}
     assert "Respond in the language the user is using" in sent[0]["content"]
     assert responses.create_kwargs["tools"] == []
+
+
+def test_native_openai_turn_blocks_off_topic_before_calling_tools_or_generation(
+    monkeypatch,
+) -> None:
+    responses = _Responses(parsed=ToolDecision(scope="off_topic"))
+    _install_client(monkeypatch, responses)
+    service = ChatService(None)
+    service.llm = OpenAILLMClient()
+
+    async def collect():
+        return [event async for event in service.stream("user-1", "Write me Python code.", [])]
+
+    events = asyncio.run(collect())
+    payloads = [
+        json.loads(event.removeprefix("data: ").strip())
+        for event in events
+        if "[DONE]" not in event
+    ]
+
+    assert payloads == [
+        {
+            "token": (
+                "I'm focused on habits, planning, and productivity. I can help you work on "
+                "your goals, habits, or schedule."
+            )
+        }
+    ]
+    assert responses.create_kwargs is None
 
 
 @pytest.mark.parametrize(
