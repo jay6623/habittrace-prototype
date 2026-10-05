@@ -7,10 +7,17 @@ struct APIClient {
         self.session = session
     }
 
-    func fetchHealth() async throws -> HealthResponse {
-        let url = APIConfiguration.baseURL.appending(path: "health")
+    func fetchTasks(accessToken: String) async throws -> [HabitTraceTask] {
+        let url = APIConfiguration.baseURL.appending(path: "tasks")
 
-        let (data, response) = try await session.data(from: url)
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(
+            "Bearer \(accessToken)",
+            forHTTPHeaderField: "Authorization"
+        )
+
+        let (data, response) = try await session.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.invalidResponse
@@ -23,7 +30,11 @@ struct APIClient {
         do {
             let decoder = JSONDecoder()
             decoder.keyDecodingStrategy = .convertFromSnakeCase
-            return try decoder.decode(HealthResponse.self, from: data)
+
+            return try decoder.decode(
+                [HabitTraceTask].self,
+                from: data
+            )
         } catch {
             throw APIError.decoding(error)
         }

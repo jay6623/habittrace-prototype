@@ -28,6 +28,12 @@ final class AuthManager: ObservableObject {
         session?.accessToken
     }
     
+    func validAccessToken() async throws -> String {
+        let currentSession = try await client.auth.session
+        session = currentSession
+        return currentSession.accessToken
+    }
+
     var currentUserEmail: String? {
         session?.user.email
     }
