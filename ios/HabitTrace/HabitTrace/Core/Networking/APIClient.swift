@@ -40,6 +40,64 @@ struct APIClient {
         }
     }
 
+    func completeTask(
+        accessToken: String,
+        taskId: String
+    ) async throws -> HabitTraceExecution {
+        let url = APIConfiguration.baseURL.appending(path: "executions")
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+
+        request.setValue(
+            "Bearer \(accessToken)",
+            forHTTPHeaderField: "Authorization"
+        )
+
+        request.setValue(
+            "application/json",
+            forHTTPHeaderField: "Content-Type"
+        )
+
+        let now = ISO8601DateFormatter().string(from: Date())
+
+        let body = ExecutionCreateRequest(
+            taskId: taskId,
+            actualStartTime: now,
+            actualEndTime: now,
+            interruptionCount: 0,
+            stoppedEarly: false,
+            taskStatus: "success",
+            failureReason: nil
+        )
+
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        request.httpBody = try encoder.encode(body)
+
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+
+        guard 200..<300 ~= httpResponse.statusCode else {
+            throw APIError.httpStatus(httpResponse.statusCode)
+        }
+
+        do {
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+
+            return try decoder.decode(
+                HabitTraceExecution.self,
+                from: data
+            )
+        } catch {
+            throw APIError.decoding(error)
+        }
+    }
+
     func createTask(
         accessToken: String,
         title: String,
@@ -118,4 +176,14 @@ private struct TaskCreateRequest: Encodable {
     let energyLevel: Int
     let focusLevel: Int
     let totalTasksToday: Int
+}
+
+private struct ExecutionCreateRequest: Encodable {
+    let taskId: String
+    let actualStartTime: String
+    let actualEndTime: String
+    let interruptionCount: Int
+    let stoppedEarly: Bool
+    let taskStatus: String
+    let failureReason: String?
 }

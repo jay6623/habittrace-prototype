@@ -70,4 +70,24 @@ final class TaskService: ObservableObject {
             errorMessage = error.localizedDescription
         }
     }
+
+    func completeTask(
+        _ task: HabitTraceTask,
+        accessToken: String
+    ) async {
+        errorMessage = nil
+
+        do {
+            _ = try await apiClient.completeTask(
+                accessToken: accessToken,
+                taskId: task.id
+            )
+
+            tasks = try await apiClient.fetchTasks(
+                accessToken: accessToken
+            )
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
 }
