@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import type { Task } from "@/lib/api";
+import type { Task, OutcomeMeasurements } from "@/lib/api";
 import {
   FAILURE_REASONS,
   localDateString,
@@ -14,7 +14,7 @@ export interface OutcomeTimes {
   actual_end_time: string;
 }
 export type MobileResult =
-  "completed" | "partial" | "abandoned" | "in_progress";
+  "not_started" | "completed" | "partial" | "abandoned" | "in_progress";
 export default function OutcomeSheet({
   task,
   isActive,
@@ -32,6 +32,7 @@ export default function OutcomeSheet({
     result: MobileResult,
     reason?: FailureReasonCode,
     times?: OutcomeTimes,
+    measurements?: OutcomeMeasurements,
   ) => Promise<void>;
 }) {
   const [result, setResult] = useState<"partial" | "abandoned" | null>(null);
@@ -41,9 +42,29 @@ export default function OutcomeSheet({
     return `${localDateString(d)}T${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
   });
   const [timeError, setTimeError] = useState<string | null>(null);
+  const [progress, setProgress] = useState("");
+  const [interruptions, setInterruptions] = useState("0");
   async function handleSelect(value: MobileResult, reason?: FailureReasonCode) {
-    if (value === "in_progress" || isActive) {
+    if (value === "in_progress") {
       await onSelect(value, reason);
+      return;
+    }
+    const percent = Number(progress);
+    const count = Number(interruptions);
+    if (value !== "not_started" && (
+      interruptions.trim() === "" || !Number.isInteger(count) || count < 0 || count > 10000
+      || (value === "partial" && (progress.trim() === "" || !Number.isInteger(percent) || percent < 1 || percent > 99))
+    )) {
+      setTimeError("Enter an interruption count and, for partial progress, a completion percentage from 1 to 99.");
+      return;
+    }
+    const measurements = {
+      completion_ratio: value === "completed" ? 1 : value === "partial" ? percent / 100 : 0,
+      interruption_count: value === "not_started" ? 0 : count,
+    };
+    setTimeError(null);
+    if (value === "not_started" || isActive) {
+      await onSelect(value, reason, undefined, measurements);
       return;
     }
     const start = new Date(actualStart),
@@ -65,7 +86,7 @@ export default function OutcomeSheet({
     await onSelect(value, reason, {
       actual_start_time: start.toISOString(),
       actual_end_time: end.toISOString(),
-    });
+    }, measurements);
   }
   return (
     <Dialog title={task.title} onClose={onDismiss} busy={saving}>
@@ -74,6 +95,12 @@ export default function OutcomeSheet({
           ? "Your start time is recorded. How did it go?"
           : "How did it go? You can record progress even when the plan changed."}
       </p>
+      <label className="mb-4 block text-sm font-semibold">
+        Times interrupted
+        <input type="number" min="0" max="10000" step="1" inputMode="numeric"
+          className="field mt-1" value={interruptions}
+          onChange={(e) => setInterruptions(e.target.value)} disabled={saving} />
+      </label>
       {!isActive && (
         <fieldset className="mb-5 space-y-3 rounded-xl bg-slate-50 p-4">
           <legend className="text-sm font-semibold">
@@ -117,6 +144,14 @@ export default function OutcomeSheet({
           >
             ← Back
           </button>
+          {result === "partial" && (
+            <label className="mb-4 block text-sm font-semibold">
+              How much did you complete? (%)
+              <input type="number" min="1" max="99" step="1" inputMode="numeric"
+                className="field mt-1" value={progress} placeholder="Enter 1–99"
+                onChange={(e) => setProgress(e.target.value)} disabled={saving} />
+            </label>
+          )}
           <p className="mb-3 font-semibold">What got in the way?</p>
           <div className="grid grid-cols-2 gap-2">
             {FAILURE_REASONS.map((reason) => (
@@ -176,6 +211,12 @@ export default function OutcomeSheet({
             </button>
           ))}
         </div>
+      )}
+      {!isActive && !result && (
+        <button className="btn-secondary mt-3 w-full" disabled={saving}
+          onClick={() => void handleSelect("not_started")}>
+          I didn’t start this plan
+        </button>
       )}
       {saving && (
         <p role="status" className="mt-4 text-sm">

@@ -6,8 +6,6 @@ import { useAuth } from "@/app/providers";
 import {
   getTasks,
   updateTask,
-  reviseAIPlan,
-  clearAIPlan,
   ensureAIPlan,
   getOrCreateAIPlanPrediction,
   createTimeRecommendation,
@@ -203,17 +201,6 @@ function Scheduler() {
     );
     try {
       await updateTask(task.id, { planned_start_time: time });
-      if (task.ai_plan_input_id) {
-        try {
-          await reviseAIPlan(task.id, task.ai_plan_input_id, {
-            ...task,
-            planned_start_time: time,
-          });
-        } catch {
-          clearAIPlan(task.id);
-          toast.warn("Time saved", "AI advice could not be refreshed.");
-        }
-      }
       if (accepted) {
         try {
           await selectTimeCandidate(accepted.recommendationId, accepted.candidateId);

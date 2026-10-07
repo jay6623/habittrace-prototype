@@ -7,6 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 _PROJECT_ROOT = Path(__file__).parent.parent.parent
 
 
+# class for setting
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=str(Path(__file__).parent.parent / ".env"),

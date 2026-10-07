@@ -145,7 +145,7 @@ def confirm_proposal(
         task_data["planned_date"] = selected_start.date().isoformat()
         task_data["planned_start_time"] = selected_start.strftime("%H:%M")
     if body.task is not None:
-        task_data.update(body.task.model_dump())
+        task_data.update(body.task.model_dump(exclude_unset=True))
 
     validated = TaskCreate.model_validate(task_data)
     same_day = TaskService(db).list_for_user(str(user_id), validated.planned_date)

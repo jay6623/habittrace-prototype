@@ -41,7 +41,9 @@ export interface Task {
   task_status: "pending" | "success" | "failed";
   created_at: string;
   /** AI V2 immutable plan snapshot created for this task, when available. */
-  ai_plan_input_id?: string;
+  ai_plan_input_id?: string | null;
+  ai_sync_status?: "unlinked" | "pending" | "synced";
+  timezone_name?: string;
   prediction?: Prediction;
 }
 
@@ -56,57 +58,13 @@ export interface TaskCreate {
   energy_level: number;
   focus_level: number;
   total_tasks_today: number;
-}
-
-interface AIPlanInputResponse {
-  id: string;
-}
-
-export interface AIOutcomeInput {
-  task: Pick<Task, "ai_plan_input_id" | "planned_date">;
-  taskResult: "success" | "failed";
-  actualStartTime: string;
-  actualEndTime: string;
-  interruptionCount: number;
-  stoppedEarly: boolean;
-  failureReason?: string;
-}
-
-interface AIOutcomeResponse {
-  id: string;
+  timezone_name?: string;
 }
 
 const AI_PLAN_MAP_KEY = "habittrace_ai_plan_ids";
 const aiPlanRequests = new Map<string, Promise<string>>();
 
-function readAIPlanMap(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  try {
-    return JSON.parse(localStorage.getItem(AI_PLAN_MAP_KEY) ?? "{}") as Record<string, string>;
-  } catch {
-    return {};
-  }
-}
-
-function rememberAIPlan(taskId: string, planId: string): void {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(AI_PLAN_MAP_KEY, JSON.stringify({
-    ...readAIPlanMap(),
-    [taskId]: planId,
-  }));
-}
-
-function forgetAIPlan(taskId: string): void {
-  if (typeof window === "undefined") return;
-  const plans = readAIPlanMap();
-  delete plans[taskId];
-  localStorage.setItem(AI_PLAN_MAP_KEY, JSON.stringify(plans));
-}
-
-/**
- * Drop the task → AI plan map when the user signs out. The map is not scoped
- * by user, so it must not outlive the session that created it.
- */
+/** Remove the obsolete browser-only map on sign-out. Server links persist. */
 export function clearStoredAIPlanIds(): void {
   if (typeof window === "undefined") return;
   try {
@@ -118,25 +76,32 @@ export function clearStoredAIPlanIds(): void {
 
 export interface ExecutionCreate {
   task_id: string;
-  actual_start_time: string;
-  actual_end_time: string;
+  actual_start_time: string | null;
+  actual_end_time: string | null;
   interruption_count: number;
   stopped_early: boolean;
   task_status: "success" | "failed";
   failure_reason?: string;
+  outcome_status?: MobileOutcomeStatus;
+  completion_ratio?: number;
+  active_minutes?: number | null;
 }
 
 export interface Execution {
   id: string;
   task_id: string;
   user_id: string;
-  actual_start_time: string;
+  actual_start_time: string | null;
   actual_end_time: string | null;
   interruption_count: number;
   stopped_early: boolean;
   task_status: "success" | "failed" | null;
   failure_reason: string | null;
   created_at: string;
+  outcome_status?: MobileOutcomeStatus | null;
+  completion_ratio?: number | null;
+  active_minutes?: number | null;
+  ai_outcome_sync_status?: "unlinked" | "pending" | "synced" | "ineligible";
 }
 
 export interface ExecutionCompleteInput {
@@ -146,15 +111,44 @@ export interface ExecutionCompleteInput {
   stopped_early?: boolean;
   task_status: "success" | "failed";
   failure_reason?: string;
+  outcome_status?: MobileOutcomeStatus;
+  completion_ratio?: number;
+  active_minutes?: number | null;
 }
 
-export type MobileOutcomeStatus = "completed" | "partial" | "abandoned";
+export type MobileOutcomeStatus = "not_started" | "completed" | "partial" | "abandoned";
 
-export interface MobileAIOutcomeInput {
-  task: Pick<Task, "ai_plan_input_id" | "planned_date">;
-  execution: Pick<Execution, "actual_start_time" | "actual_end_time">;
-  outcomeStatus: MobileOutcomeStatus;
-  failureReason?: string;
+export interface OutcomeMeasurements {
+  completion_ratio: number;
+  interruption_count: number;
+}
+
+/** Save one primary result; the server durably delivers it and its reason to AI. */
+export async function savePlanOutcome(
+  taskId: string,
+  result: MobileOutcomeStatus,
+  measurements: OutcomeMeasurements,
+  reason?: string,
+  times?: { actual_start_time: string; actual_end_time: string },
+  activeExecutionId?: string,
+): Promise<Execution> {
+  const input: ExecutionCompleteInput = {
+    ...times,
+    ...measurements,
+    outcome_status: result,
+    task_status: result === "completed" ? "success" : "failed",
+    stopped_early: result === "partial" || result === "abandoned",
+    failure_reason: result === "completed" ? undefined : reason,
+  };
+  if (activeExecutionId) return completeExecution(activeExecutionId, input);
+  return logExecution({
+    ...input,
+    task_id: taskId,
+    actual_start_time: times?.actual_start_time ?? null,
+    actual_end_time: times?.actual_end_time ?? null,
+    interruption_count: measurements.interruption_count,
+    stopped_early: input.stopped_early ?? false,
+  });
 }
 
 export interface PredictRequest {
@@ -515,245 +509,42 @@ export async function disconnectGoogleCalendar(): Promise<void> {
 
 export async function getTasks(date?: string): Promise<Task[]> {
   const qs = date ? `?date=${date}` : "";
-  const tasks = await apiFetch<Task[]>(`/tasks${qs}`);
-  const aiPlanMap = readAIPlanMap();
-  return tasks.map((task) => ({
-    ...task,
-    ai_plan_input_id: task.ai_plan_input_id ?? aiPlanMap[task.id],
-  }));
+  return apiFetch<Task[]>(`/tasks${qs}`);
 }
 
 export async function getTask(taskId: string): Promise<Task> {
-  const task = await apiFetch<Task>(`/tasks/${taskId}`);
-  const aiPlanMap = readAIPlanMap();
-  return {
-    ...task,
-    ai_plan_input_id: task.ai_plan_input_id ?? aiPlanMap[task.id],
-  };
+  return apiFetch<Task>(`/tasks/${taskId}`);
 }
 
 export async function createTask(task: TaskCreate): Promise<Task> {
-  const created = await apiFetch<Task>("/tasks", {
-    method: "POST",
-    body: JSON.stringify(task),
-  });
-
-  // AI V2 requires a real Supabase user token. Keep legacy/demo task creation
-  // independent so an unavailable AI database never breaks the main app.
-  try {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    if (!session?.access_token) return created;
-
-    const aiPlan = await apiFetch<AIPlanInputResponse>("/api/v2/ai/plans", {
-      method: "POST",
-      body: JSON.stringify(toAIPlanInput(task)),
-    });
-    rememberAIPlan(created.id, aiPlan.id);
-    notifyDataChanged();
-    return { ...created, ai_plan_input_id: aiPlan.id };
-  } catch (error) {
-    console.warn("AI V2 plan snapshot was not created:", error);
-    return created;
-  }
-}
-
-/** Create the planning snapshot needed for recommendations on a legacy task. */
-export async function ensureAIPlan(task: Task): Promise<string> {
-  const existing = task.ai_plan_input_id ?? readAIPlanMap()[task.id];
-  if (existing) return existing;
-
-  const inFlight = aiPlanRequests.get(task.id);
-  if (inFlight) return inFlight;
-
-  const request = apiFetch<AIPlanInputResponse>("/api/v2/ai/plans", {
-    method: "POST",
-    body: JSON.stringify(toAIPlanInput(task)),
-  })
-    .then((plan) => {
-      rememberAIPlan(task.id, plan.id);
-      return plan.id;
-    })
-    .finally(() => aiPlanRequests.delete(task.id));
-
-  aiPlanRequests.set(task.id, request);
-  return request;
-}
-
-/** Create the immutable AI revision corresponding to an edited task. */
-export async function reviseAIPlan(
-  taskId: string,
-  parentPlanInputId: string,
-  task: TaskCreate,
-): Promise<string> {
-  const aiPlan = await apiFetch<AIPlanInputResponse>("/api/v2/ai/plans", {
+  return apiFetch<Task>("/tasks", {
     method: "POST",
     body: JSON.stringify({
-      ...toAIPlanInput(task),
-      parent_plan_input_id: parentPlanInputId,
-      input_source: "reschedule",
+      ...task,
+      planned_date: task.planned_date ?? localDateString(),
+      timezone_name: task.timezone_name ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC",
     }),
   });
-  rememberAIPlan(taskId, aiPlan.id);
-  return aiPlan.id;
 }
 
-export function clearAIPlan(taskId: string): void {
-  forgetAIPlan(taskId);
-}
-
-export async function createAIOutcome(input: AIOutcomeInput): Promise<AIOutcomeResponse | null> {
-  const planId = input.task.ai_plan_input_id;
-  if (!planId) return null;
-
-  const date = input.task.planned_date ?? localDateString();
-  const actualStart = normalizeActualTime(input.actualStartTime, date);
-  const actualEnd = normalizeActualTime(input.actualEndTime, date);
-  const isSuccess = input.taskResult === "success";
-
-  return persistAIOutcome({
-    planId,
-    outcomeStatus: isSuccess ? "completed" : "partial",
-    actualStart,
-    actualEnd,
-    completionRatio: isSuccess ? 1 : 0,
-    interruptionCount: input.interruptionCount,
-    stoppedEarly: input.stoppedEarly,
-    failureReason: input.failureReason,
-  });
-}
-
-export async function createMobileAIOutcome(
-  input: MobileAIOutcomeInput,
-): Promise<AIOutcomeResponse | null> {
-  const planId = input.task.ai_plan_input_id;
-  const actualEnd = input.execution.actual_end_time;
-  if (!planId || !actualEnd) return null;
-
-  return persistAIOutcome({
-    planId,
-    outcomeStatus: input.outcomeStatus,
-    actualStart: normalizeActualTime(
-      input.execution.actual_start_time,
-      input.task.planned_date,
-    ),
-    actualEnd: normalizeActualTime(actualEnd, input.task.planned_date),
-    completionRatio:
-      input.outcomeStatus === "completed"
-        ? 1
-        : input.outcomeStatus === "partial"
-          ? 0.5
-          : 0,
-    interruptionCount: 0,
-    stoppedEarly: input.outcomeStatus !== "completed",
-    failureReason: input.failureReason,
-  });
-}
-
-interface PersistAIOutcomeInput {
-  planId: string;
-  outcomeStatus: MobileOutcomeStatus;
-  actualStart: string;
-  actualEnd: string;
-  completionRatio: number;
-  interruptionCount: number;
-  stoppedEarly: boolean;
-  failureReason?: string;
-}
-
-async function persistAIOutcome(
-  input: PersistAIOutcomeInput,
-): Promise<AIOutcomeResponse> {
-  const startMs = Date.parse(input.actualStart);
-  const endMs = Date.parse(input.actualEnd);
-  const activeMinutes = Math.max(0, Math.round((endMs - startMs) / 60000));
-  const outcome = await apiFetch<AIOutcomeResponse>(
-    `/api/v2/ai/plans/${input.planId}/outcome`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        outcome_status: input.outcomeStatus,
-        actual_start: input.actualStart,
-        actual_end: input.actualEnd,
-        active_minutes: activeMinutes,
-        completion_ratio: input.completionRatio,
-        interruption_count: input.interruptionCount,
-        stopped_early: input.stoppedEarly,
-        user_note: null,
-      }),
-    },
-  );
-
-  if (input.outcomeStatus !== "completed" && input.failureReason) {
-    await apiFetch(`/api/v2/ai/outcomes/${outcome.id}/failure-reasons`, {
-      method: "POST",
-      body: JSON.stringify({
-        primary_reason_code: toAIReasonCode(input.failureReason),
-        secondary_reason_codes: [],
-      }),
-    });
-  }
-  return outcome;
-}
-
-function toAIReasonCode(reason: string): string {
-  const canonicalCodes = new Set([
-    "low_readiness",
-    "schedule_overload",
-    "underestimated_time",
-    "interruption",
-    "unexpected_event",
-    "unclear_plan",
-    "task_too_difficult",
-    "other",
-  ]);
-  if (canonicalCodes.has(reason)) return reason;
-
-  const mapping: Record<string, string> = {
-    low_energy: "low_readiness",
-    low_focus: "low_readiness",
-    start_delay: "unclear_plan",
-    interruptions: "interruption",
-    time_underestimate: "underestimated_time",
-    schedule_conflict: "schedule_overload",
-    unexpected_event: "unexpected_event",
-    other: "other",
-  };
-  return mapping[reason] ?? "other";
-}
-
-function normalizeActualTime(value: string, date: string): string {
-  if (value.includes("T")) {
-    const parsed = new Date(value);
-    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
-  }
-  return parsePlannedStart(value, date);
-}
-
-function toAIPlanInput(task: TaskCreate): Record<string, unknown> {
-  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  const plannedDate = task.planned_date ?? localDateString();
-  const plannedStart = parsePlannedStart(task.planned_start_time, plannedDate);
-
-  return {
-    input_source: "user",
-    title: task.title,
-    description: task.notes?.trim() ? task.notes.trim() : null,
-    category: task.task_category,
-    planned_start: plannedStart,
-    planned_duration_minutes: task.planned_duration_min,
-    importance: task.importance,
-    difficulty: 3,
-    required_energy: task.energy_level,
-    required_focus: task.focus_level,
-    current_energy: task.energy_level,
-    current_focus: task.focus_level,
-    sleep_hours: null,
-    stress_level: null,
-    timezone_name: timezone,
-    is_fixed_time: true,
-  };
+/** Retry the server-owned snapshot delivery, including on another device. */
+export async function ensureAIPlan(
+  task: Pick<Task, "id" | "ai_plan_input_id" | "timezone_name">,
+): Promise<string> {
+  if (task.ai_plan_input_id) return task.ai_plan_input_id;
+  const inFlight = aiPlanRequests.get(task.id);
+  if (inFlight) return inFlight;
+  const request = apiFetch<Task>(`/tasks/${task.id}/ai-plan`, {
+    method: "POST",
+    body: JSON.stringify({
+      timezone_name: task.timezone_name ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC",
+    }),
+  }).then((saved) => {
+    if (!saved.ai_plan_input_id) throw new Error("AI plan sync is pending.");
+    return saved.ai_plan_input_id;
+  }).finally(() => aiPlanRequests.delete(task.id));
+  aiPlanRequests.set(task.id, request);
+  return request;
 }
 
 function parsePlannedStart(time: string, date: string): string {
@@ -805,7 +596,7 @@ export async function deleteTask(taskId: string): Promise<void> {
 export async function logExecution(execution: ExecutionCreate): Promise<Execution> {
   return apiFetch<Execution>("/executions", {
     method: "POST",
-    body: JSON.stringify(execution),
+    body: JSON.stringify({ ...execution, idempotency_key: execution.task_id }),
   });
 }
 
@@ -824,7 +615,7 @@ export async function getLatestFinishedExecution(
   return (
     executions.find(
       (execution) =>
-        execution.task_id === taskId && execution.actual_end_time != null,
+        execution.task_id === taskId && execution.task_status != null,
     ) ?? null
   );
 }
@@ -985,11 +776,6 @@ export async function confirmDailySchedule(scheduleId: string): Promise<DailySch
     `/api/v2/ai/daily-schedules/${scheduleId}/confirm`,
     { method: "POST" },
   );
-  for (const task of result.scheduled_tasks) {
-    if (task.created_task_id && task.plan_input_id) {
-      rememberAIPlan(task.created_task_id, task.plan_input_id);
-    }
-  }
   notifyDataChanged();
   return result;
 }
@@ -1326,4 +1112,25 @@ export async function getHealth(): Promise<{
 
 export async function exportAccount(): Promise<{ exported_at: string; scope: string; tasks: Task[]; executions: Execution[] }> {
   return apiFetch("/account/export");
+}
+
+
+export interface DurationRecommendation {
+  available: boolean;
+  recommended_minutes: number | null;
+  sample_count: number;
+  basis: "same_title" | "similar_category" | "insufficient_history";
+  median_elapsed_minutes: number | null;
+  lookback_days: number;
+  reason: string | null;
+}
+
+export function getDurationRecommendation(
+  title: string, category: string, plannedMinutes: number, excludeTaskId?: string,
+): Promise<DurationRecommendation> {
+  const params = new URLSearchParams({
+    title: title.trim(), category, planned_minutes: String(plannedMinutes),
+  });
+  if (excludeTaskId) params.set("exclude_task_id", excludeTaskId);
+  return apiFetch<DurationRecommendation>(`/analytics/duration-recommendation?${params}`);
 }

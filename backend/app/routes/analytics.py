@@ -1,6 +1,7 @@
 import logging
 from datetime import date
 from typing import Annotated
+from uuid import UUID
 from zoneinfo import ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -9,6 +10,7 @@ from supabase import Client
 from ..db.supabase_client import get_supabase, is_supabase_configured
 from ..dependencies.auth import CurrentUserId
 from ..dependencies.database import get_primary_database
+from ..repositories.duration_repository import DurationRepository
 from ..repositories.personalization_repository import PersonalizationRepository
 from ..schemas.analytics import (
     AnalyticsSummary,
@@ -16,8 +18,9 @@ from ..schemas.analytics import (
     PersonalizedOutlook,
     PlanHealth,
 )
-from ..services.analytics_service import AnalyticsService
 from ..services.ai_v2_ml_service import get_ai_v2_ml_service
+from ..services.analytics_service import AnalyticsService
+from ..services.duration_service import DurationRecommendation, DurationService
 from ..services.ml_service import get_ml_service
 from ..services.personalization_service import PersonalizationService
 from ..services.personalized_insights_service import PersonalizedInsightsService
@@ -146,3 +149,17 @@ def plan_health(
             )
 
     return health
+
+
+@router.get("/duration-recommendation", response_model=DurationRecommendation)
+def duration_recommendation(
+    user_id: CurrentUserId,
+    db: Annotated[Client, Depends(get_primary_database)],
+    title: str = Query(min_length=1, max_length=200),
+    category: str = Query(min_length=1, max_length=100),
+    planned_minutes: int = Query(ge=5, le=480),
+    exclude_task_id: Annotated[UUID | None, Query()] = None,
+):
+    return DurationService(DurationRepository(db)).get(
+        user_id, title, category, planned_minutes, exclude_task_id
+    )

@@ -1,7 +1,7 @@
 "use client";
-import { FormEvent, useState } from "react";
+import { FormEvent, useRef, useState } from "react";
 import { useAuth } from "@/app/providers";
-import { getTasks, type Task } from "@/lib/api";
+import { getTasks, getDurationRecommendation, type DurationRecommendation, type Task } from "@/lib/api";
 import { readPreferences } from "@/lib/preferences";
 import {
   TASK_CATEGORIES,
@@ -35,7 +35,7 @@ function resolveDraft(
     return { error: "Enter how many minutes this plan should take." };
   }
   if (
-    !Number.isFinite(durationMinutes) ||
+    !Number.isInteger(durationMinutes) ||
     durationMinutes < 5 ||
     durationMinutes > 480
   ) {
@@ -87,12 +87,49 @@ export default function QuickAddForm({
   const [pendingDraft, setPendingDraft] = useState<QuickAddDraft | null>(null);
   const [overlaps, setOverlaps] = useState<Task[] | null>(null);
 
+  const requestVersion = useRef(0);
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestion, setSuggestion] = useState<DurationRecommendation | null>(null);
+  const [suggestionError, setSuggestionError] = useState<string | null>(null);
+
+  function clearSuggestion() {
+    requestVersion.current += 1;
+    setSuggesting(false);
+    setSuggestion(null);
+    setSuggestionError(null);
+  }
+
+  async function suggestDuration() {
+    const resolved = resolveDraft(draft, customDuration, customMinutesText);
+    if ("error" in resolved) {
+      setSuggestionError(resolved.error);
+      return;
+    }
+    const version = ++requestVersion.current;
+    setSuggesting(true);
+    setSuggestion(null);
+    setSuggestionError(null);
+    try {
+      const result = await getDurationRecommendation(
+        resolved.title, resolved.category, resolved.durationMinutes, excludeTaskId,
+      );
+      if (version === requestVersion.current) setSuggestion(result);
+    } catch {
+      if (version === requestVersion.current) {
+        setSuggestionError("Duration suggestions are unavailable. You can still save your plan.");
+      }
+    } finally {
+      if (version === requestVersion.current) setSuggesting(false);
+    }
+  }
+
   const confirmingOverlap = Boolean(overlaps && pendingDraft);
 
   function update<K extends keyof QuickAddDraft>(
     key: K,
     value: QuickAddDraft[K],
   ) {
+    if (["title", "category", "durationMinutes"].includes(key)) clearSuggestion();
     setDraft((d) => ({ ...d, [key]: value }));
   }
 
@@ -103,12 +140,14 @@ export default function QuickAddForm({
   }
 
   function selectCustom() {
+    clearSuggestion();
     setCustomDuration(true);
     setCustomMinutesText(String(draft.durationMinutes));
   }
 
   function onCustomMinutesChange(value: string) {
     if (value !== "" && !/^\d{0,3}$/.test(value)) return;
+    clearSuggestion();
     setCustomMinutesText(value);
     if (value === "") return;
     update("durationMinutes", Number(value));
@@ -306,6 +345,31 @@ export default function QuickAddForm({
                 />
               </label>
             )}
+            <div className="mt-3 space-y-2 text-sm" aria-live="polite">
+              <button type="button" className="btn-secondary"
+                disabled={suggesting || saving || !draft.title.trim()}
+                onClick={suggestDuration}>
+                {suggesting ? "Checking history…" : "Suggest from my history"}
+              </button>
+              {suggestion?.available && suggestion.recommended_minutes != null && (
+                <div>
+                  <p>Based on {suggestion.sample_count} completed plans in the last {suggestion.lookback_days} days
+                    {suggestion.basis === "same_title" ? " with the same name and category" : " in this category with a similar planned length"}.
+                    Median elapsed time: {suggestion.median_elapsed_minutes}m, including interruptions.
+                    Suggested changes are limited to 50%.</p>
+                  <button type="button" className="btn-secondary" onClick={() => {
+                    const minutes = suggestion.recommended_minutes!;
+                    setCustomDuration(!isPresetDuration(minutes));
+                    setCustomMinutesText(String(minutes));
+                    update("durationMinutes", minutes);
+                  }}>Use {suggestion.recommended_minutes}m</button>
+                </div>
+              )}
+              {suggestion && !suggestion.available && (
+                <p>Not enough comparable history yet. Keep your estimate; suggestions need 3 completions with the same name and category, or 5 similar plans.</p>
+              )}
+              {suggestionError && <p role="alert">{suggestionError}</p>}
+            </div>
           </fieldset>
           <div className="grid grid-cols-2 gap-3">
             <label className="space-y-2 text-sm font-semibold">

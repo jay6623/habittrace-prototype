@@ -6,6 +6,8 @@ from datetime import date
 
 from supabase import Client
 
+from .task_ai_sync_service import sync_task_ai_safely
+
 
 class TaskService:
     def __init__(self, db: Client) -> None:
@@ -26,9 +28,11 @@ class TaskService:
             "focus_level": payload["focus_level"],
             "total_tasks_today": payload["total_tasks_today"],
             "task_status": "pending",
+            "timezone_name": payload.get("timezone_name", "UTC"),
+            "ai_plan_details": payload.get("ai_plan_details", {}),
         }
         result = self.db.table("tasks").insert(data).execute()
-        return result.data[0]
+        return sync_task_ai_safely(self.db, result.data[0])
 
     # ── Read ────────────────────────────────────────────────────────────
     def list_for_user(self, user_id: str, date_filter: str | None = None) -> list[dict]:
@@ -42,16 +46,17 @@ class TaskService:
         result = (
             self.db.table("tasks").select("*").eq("id", task_id).eq("user_id", user_id).execute()
         )
-        return result.data[0] if result.data else None
+        return sync_task_ai_safely(self.db, result.data[0]) if result.data else None
 
     # ── Update ──────────────────────────────────────────────────────────
     def update(self, user_id: str, task_id: str, payload: dict) -> dict | None:
         if not payload:
             return self.get(user_id, task_id)
         result = (
-            self.db.table("tasks").update(payload).eq("id", task_id).eq("user_id", user_id).execute()
+            self.db.table("tasks").update(payload)
+            .eq("id", task_id).eq("user_id", user_id).execute()
         )
-        return result.data[0] if result.data else None
+        return sync_task_ai_safely(self.db, result.data[0]) if result.data else None
 
     def update_status(self, user_id: str, task_id: str, status: str) -> dict | None:
         result = (

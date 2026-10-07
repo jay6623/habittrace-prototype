@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import argparse
-import hashlib
-import json
-from pathlib import Path
+import argparse     # read tarining option from terminal
+import hashlib      # make unique hash of training data
+import json         # store in josn format
+from pathlib import Path    #path of csv, model file
 from typing import Any
 
-import numpy as np
-import pandas as pd
+import numpy as np  # for math
+import pandas as pd     # for data process
 
 from habittrace_ai.artifacts import save_model_artifact
 from habittrace_ai.dataset import build_training_datasets
@@ -19,7 +19,7 @@ from habittrace_ai.models.selection import select_success_model
 from habittrace_ai.models.success import SuccessProbabilityModel
 from habittrace_ai.split import temporal_split_aligned, temporal_train_validation_test_split
 
-
+# csv -> hash
 def _file_sha256(paths: list[Path]) -> str:
     digest = hashlib.sha256()
     for path in paths:
@@ -32,7 +32,7 @@ def _load_csv(path: Path, name: str) -> pd.DataFrame:
     if not path.is_file():
         raise FileNotFoundError(f"{name} CSV not found: {path}")
     return pd.read_csv(path)
-
+# check csv file and read file by pandas
 
 def train(
     plans_path: Path,

@@ -10,14 +10,12 @@ from uuid import UUID
 from ..core.errors import DomainValidationError, ResourceConflictError, ResourceNotFoundError
 from ..repositories.ai_plan_repository import AIPlanRepository
 from ..repositories.daily_schedule_repository import DailyScheduleRepository
-from ..schemas.ai_plan import PlanInputCreate
 from ..schemas.daily_schedule import (
     DailyScheduleGenerate,
     DailyScheduleTaskInput,
     DailyScheduleUpdate,
 )
 from ..utils.timezone import as_local, get_timezone
-from .ai_plan_service import AIPlanService
 from .ai_v2_ml_service import AIV2MLService
 from .google_calendar_service import GoogleCalendarService
 from .personalization_service import PersonalizationService
@@ -258,9 +256,8 @@ class DailyScheduleService:
             self.tasks.list_for_user(str(user_id), date_filter=str(draft["selected_date"]))
         )
         total_count = existing_count + len(scheduled)
-        plan_service = AIPlanService(self.plans)
         for item in scheduled:
-            start = _parse_datetime(item["scheduled_start"])
+            start = as_local(_parse_datetime(item["scheduled_start"]), str(draft["timezone_name"]))
             task = self.tasks.create(
                 str(user_id),
                 {
@@ -274,29 +271,16 @@ class DailyScheduleService:
                     "energy_level": int(item["required_energy"]),
                     "focus_level": int(item["required_focus"]),
                     "total_tasks_today": total_count,
+                    "timezone_name": str(draft["timezone_name"]),
+                    "ai_plan_details": {
+                        "difficulty": int(item["difficulty"]),
+                        "deadline_at": item.get("deadline_at"),
+                        "is_fixed_time": bool(item["is_fixed_time"]),
+                    },
                 },
             )
-            plan = plan_service.create(
-                user_id,
-                PlanInputCreate(
-                    title=item["title"],
-                    description=item["explanation"],
-                    category=item["category"],
-                    planned_start=start,
-                    planned_duration_minutes=int(item["estimated_duration_minutes"]),
-                    deadline_at=item.get("deadline_at"),
-                    importance=int(item["importance"]),
-                    difficulty=int(item["difficulty"]),
-                    required_energy=int(item["required_energy"]),
-                    required_focus=int(item["required_focus"]),
-                    current_energy=int(item["required_energy"]),
-                    current_focus=int(item["required_focus"]),
-                    timezone_name=str(draft["timezone_name"]),
-                    is_fixed_time=bool(item["is_fixed_time"]),
-                ),
-            )
             item["created_task_id"] = task["id"]
-            item["plan_input_id"] = plan["id"]
+            item["plan_input_id"] = task["ai_plan_input_id"]
             if self.calendar is not None:
                 self.calendar.sync_task_safely(str(user_id), task)
 

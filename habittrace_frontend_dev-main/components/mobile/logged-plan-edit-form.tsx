@@ -3,11 +3,8 @@
 import { FormEvent, useEffect, useState } from "react";
 import {
   getLatestFinishedExecution,
-  reviseAIPlan,
-  clearAIPlan,
   reviseExecution,
   updateTask,
-  createMobileAIOutcome,
   type Task,
   type Execution,
 } from "@/lib/api";
@@ -21,7 +18,15 @@ import {
 } from "@/lib/mobile-task";
 import Dialog from "@/components/ui/dialog";
 
-type LogResult = "completed" | "partial" | "abandoned";
+type LogResult = "not_started" | "completed" | "partial" | "abandoned";
+
+function localInputTime(value: string | null | undefined): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+}
 
 const PRESET_DURATIONS = [15, 30, 45, 60, 90] as const;
 
@@ -40,7 +45,6 @@ export default function LoggedPlanEditForm({
   task,
   onDismiss,
   onSaved,
-  onWarn,
 }: {
   task: Task;
   onDismiss: () => void;
@@ -62,13 +66,17 @@ export default function LoggedPlanEditForm({
   const [customMinutesText, setCustomMinutesText] = useState(() =>
     String(task.planned_duration_min),
   );
-  const [result, setResult] = useState<LogResult>(
-    task.task_status === "success" ? "completed" : "abandoned",
+  const [result, setResult] = useState<LogResult | "">(
+    task.task_status === "success" ? "completed" : "",
   );
   const [failureReason, setFailureReason] = useState<FailureReasonCode | "">(
     "",
   );
   const [execution, setExecution] = useState<Execution | null>(null);
+  const [progress, setProgress] = useState("");
+  const [interruptions, setInterruptions] = useState("0");
+  const [actualStart, setActualStart] = useState("");
+  const [actualEnd, setActualEnd] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -80,12 +88,16 @@ export default function LoggedPlanEditForm({
         const latest = await getLatestFinishedExecution(task.id);
         if (cancelled) return;
         setExecution(latest);
-        if (task.task_status === "success") {
+        setActualStart(localInputTime(latest?.actual_start_time));
+        setActualEnd(localInputTime(latest?.actual_end_time));
+        setInterruptions(String(latest?.interruption_count ?? 0));
+        setProgress(latest?.completion_ratio != null ? String(Math.round(latest.completion_ratio * 100)) : "");
+        if (latest?.outcome_status) {
+          setResult(latest.outcome_status);
+        } else if (task.task_status === "success") {
           setResult("completed");
-        } else if (latest?.stopped_early) {
-          setResult("partial");
         } else {
-          setResult("abandoned");
+          setResult("");
         }
         const reason = latest?.failure_reason;
         if (
@@ -141,12 +153,32 @@ export default function LoggedPlanEditForm({
       setError("Choose a duration between 5 and 480 minutes.");
       return;
     }
-    if (result !== "completed" && !failureReason) {
+    if (!result) {
+      setError("Choose the actual outcome. Older failed records do not include a completion percentage.");
+      return;
+    }
+    if (result !== "completed" && result !== "not_started" && !failureReason) {
       setError("Choose what got in the way.");
       return;
     }
     if (!execution) {
       setError("No saved outcome was found for this plan.");
+      return;
+    }
+    const percent = Number(progress), count = Number(interruptions);
+    if (result !== "not_started" && (
+      interruptions.trim() === "" || !Number.isInteger(count) || count < 0 || count > 10000
+      || (result === "partial" && (progress.trim() === "" || !Number.isInteger(percent) || percent < 1 || percent > 99))
+    )) {
+      setError("Enter an interruption count and a partial completion percentage from 1 to 99.");
+      return;
+    }
+    const start = new Date(actualStart), end = new Date(actualEnd);
+    if (result !== "not_started" && (
+      !actualStart || !actualEnd || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())
+      || end < start || end.getTime() > Date.now() + 300000
+    )) {
+      setError("Enter valid actual start and finish times.");
       return;
     }
 
@@ -170,54 +202,20 @@ export default function LoggedPlanEditForm({
         total_tasks_today: task.total_tasks_today,
       };
 
-      const updated = await updateTask(task.id, payload);
-      let aiPlanId = task.ai_plan_input_id;
-      if (task.ai_plan_input_id) {
-        try {
-          aiPlanId = await reviseAIPlan(
-            task.id,
-            task.ai_plan_input_id,
-            payload,
-          );
-        } catch {
-          clearAIPlan(task.id);
-          onWarn?.(
-            "Plan updated",
-            "AI advice will be unavailable until a new snapshot is created.",
-          );
-          aiPlanId = undefined;
-        }
-      }
-
+      await updateTask(task.id, payload);
       const taskStatus = result === "completed" ? "success" : "failed";
-      const revised = await reviseExecution(execution.id, {
+      await reviseExecution(execution.id, {
         task_status: taskStatus,
-        stopped_early: result !== "completed",
+        outcome_status: result,
+        completion_ratio: result === "completed" ? 1 : result === "partial" ? percent / 100 : 0,
+        stopped_early: result === "partial" || result === "abandoned",
         failure_reason:
           result === "completed" ? undefined : failureReason || undefined,
-        interruption_count: execution.interruption_count,
-        actual_start_time: execution.actual_start_time,
-        actual_end_time: execution.actual_end_time ?? undefined,
+        interruption_count: result === "not_started" ? 0 : count,
+        actual_start_time: result === "not_started" ? undefined : start.toISOString(),
+        actual_end_time: result === "not_started" ? undefined : end.toISOString(),
       });
 
-      if (aiPlanId) {
-        try {
-          await createMobileAIOutcome({
-            task: { ...updated, ai_plan_input_id: aiPlanId },
-            execution: revised,
-            outcomeStatus: result,
-            failureReason:
-              result === "completed"
-                ? undefined
-                : (failureReason as FailureReasonCode),
-          });
-        } catch {
-          onWarn?.(
-            "Outcome updated",
-            "Insights were updated, but AI learning could not refresh this time.",
-          );
-        }
-      }
 
       notifyDataChanged();
       onSaved();
@@ -344,6 +342,7 @@ export default function LoggedPlanEditForm({
                     title: "Not completed",
                     detail: "Didn’t finish",
                   },
+                  { value: "not_started", title: "Didn’t start", detail: "No execution time" },
                 ] as const
               ).map((option) => (
                 <button
@@ -376,18 +375,41 @@ export default function LoggedPlanEditForm({
               ))}
             </div>
           </fieldset>
+          {result !== "not_started" && (
+            <fieldset className="space-y-3">
+              <legend className="text-sm font-semibold">Actual execution</legend>
+              <label className="block text-sm">Started
+                <input type="datetime-local" className="field mt-1" value={actualStart}
+                  onChange={(e) => setActualStart(e.target.value)} required />
+              </label>
+              <label className="block text-sm">Finished
+                <input type="datetime-local" className="field mt-1" value={actualEnd}
+                  onChange={(e) => setActualEnd(e.target.value)} required />
+              </label>
+              <label className="block text-sm">Times interrupted
+                <input type="number" min="0" max="10000" step="1" className="field mt-1"
+                  value={interruptions} onChange={(e) => setInterruptions(e.target.value)} required />
+              </label>
+              {result === "partial" && (
+                <label className="block text-sm">Completed (%)
+                  <input type="number" min="1" max="99" step="1" className="field mt-1"
+                    value={progress} onChange={(e) => setProgress(e.target.value)} required />
+                </label>
+              )}
+            </fieldset>
+          )}
           {result !== "completed" && (
             <label className="block space-y-2 text-sm font-semibold">
               What got in the way?
               <select
-                required
+                required={result !== "not_started"}
                 className="field"
                 value={failureReason}
                 onChange={(e) =>
                   setFailureReason(e.target.value as FailureReasonCode | "")
                 }
               >
-                <option value="">Select a reason</option>
+                <option value="">{result === "not_started" ? "Optional reason" : "Select a reason"}</option>
                 {FAILURE_REASONS.map((reason) => (
                   <option key={reason.code} value={reason.code}>
                     {reason.label}

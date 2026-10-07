@@ -7,12 +7,10 @@ import {
   getTasks,
   updateTask,
   deleteTask,
-  reviseAIPlan,
-  clearAIPlan,
   startExecution,
-  completeExecution,
+  savePlanOutcome,
+  type OutcomeMeasurements,
   getActiveExecutions,
-  createMobileAIOutcome,
   type Task,
   type Execution,
 } from "@/lib/api";
@@ -140,17 +138,6 @@ function Plans() {
         energy_level: editing.energy_level,
         focus_level: editing.focus_level,
       });
-      if (editing.ai_plan_input_id) {
-        try {
-          await reviseAIPlan(editing.id, editing.ai_plan_input_id, payload);
-        } catch {
-          clearAIPlan(editing.id);
-          toast.warn(
-            "Plan saved",
-            "AI advice will be unavailable until a new snapshot is created.",
-          );
-        }
-      }
     } else await createTask(payload);
     setEditing(null);
     setDate(draft.plannedDate);
@@ -174,33 +161,19 @@ function Plans() {
     result: MobileResult,
     reason?: FailureReasonCode,
     times?: OutcomeTimes,
+    measurements?: OutcomeMeasurements,
   ) {
     if (!outcome || busy) return;
     setBusy(true);
     setOutcomeError(null);
     try {
-      const e = active[outcome.id] ?? (await startExecution(outcome.id));
-      setActive((a) => ({ ...a, [outcome.id]: e }));
-      if (result !== "in_progress") {
-        const completed = await completeExecution(e.id, {
-          ...times,
-          task_status: result === "completed" ? "success" : "failed",
-          stopped_early: result !== "completed",
-          failure_reason: reason,
-        });
-        try {
-          await createMobileAIOutcome({
-            task: outcome,
-            execution: completed,
-            outcomeStatus: result,
-            failureReason: reason,
-          });
-        } catch {
-          toast.warn(
-            "Outcome saved",
-            "AI learning could not update this time.",
-          );
-        }
+      if (result === "in_progress") {
+        const execution = active[outcome.id] ?? await startExecution(outcome.id);
+        setActive((current) => ({ ...current, [outcome.id]: execution }));
+      } else {
+        if (!measurements) throw new Error("Outcome details are required.");
+        await savePlanOutcome(outcome.id, result, measurements, reason, times,
+          active[outcome.id]?.id);
       }
       setOutcome(null);
       toast.success(

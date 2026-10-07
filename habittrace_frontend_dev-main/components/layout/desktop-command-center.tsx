@@ -4,14 +4,14 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/app/providers";
 import {
-  completeExecution,
-  createMobileAIOutcome,
   createTask,
   ensureAIPlan,
   getActiveExecutions,
   getOrCreateAIPlanPrediction,
   getTasks,
   startExecution,
+  savePlanOutcome,
+  type OutcomeMeasurements,
   type Execution,
   type Prediction,
   type Task,
@@ -214,25 +214,22 @@ export default function DesktopCommandCenter() {
     result: MobileResult,
     reason?: FailureReasonCode,
     times?: OutcomeTimes,
+    measurements?: OutcomeMeasurements,
   ) {
     if (!selectedTask || savingOutcome) return;
     setSavingOutcome(true);
     setOutcomeError(null);
     try {
-      const execution = await ensureStarted(selectedTask);
       if (result === "in_progress") {
+        await ensureStarted(selectedTask);
         setSelectedTask(null);
         notifications.info("Plan kept in progress", selectedTask.title);
         return;
       }
       const taskStatus = result === "completed" ? "success" : "failed";
-      const completedExecution = await completeExecution(execution.id, {
-        ...times,
-        task_status: taskStatus,
-        stopped_early: result !== "completed",
-        interruption_count: 0,
-        failure_reason: reason,
-      });
+      if (!measurements) throw new Error("Outcome details are required.");
+      await savePlanOutcome(selectedTask.id, result, measurements, reason, times,
+        active[selectedTask.id]?.id);
       const finishedTask = selectedTask;
       setTasks((current) =>
         current.map((task) =>
@@ -246,17 +243,6 @@ export default function DesktopCommandCenter() {
       });
       setSelectedTask(null);
       notifications.success("Outcome saved", finishedTask.title);
-      void createMobileAIOutcome({
-        task: finishedTask,
-        execution: completedExecution,
-        outcomeStatus: result,
-        failureReason: reason,
-      }).catch(() =>
-        notifications.warn(
-          "Outcome saved",
-          "AI learning could not update this time. Your plan record is safe.",
-        ),
-      );
     } catch {
       setOutcomeError("We couldn’t save this outcome. Check your connection and try again.");
     } finally {

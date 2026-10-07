@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  createMobileAIOutcome,
   getActiveExecutions,
   getTasks,
-  logExecution,
   startExecution,
+  savePlanOutcome,
+  type OutcomeMeasurements,
   type Execution,
   type Task,
 } from "@/lib/api";
@@ -24,25 +24,6 @@ import OutcomeSheet, {
   type MobileResult,
   type OutcomeTimes,
 } from "@/components/mobile/outcome-sheet";
-
-function toTwentyFourHour(time: string): string {
-  const match = time.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
-  if (!match) return "12:00";
-  let hour = Number(match[1]);
-  const minute = match[2];
-  const meridiem = match[3]?.toUpperCase();
-  if (meridiem === "AM" && hour === 12) hour = 0;
-  if (meridiem === "PM" && hour !== 12) hour += 12;
-  return `${String(hour).padStart(2, "0")}:${minute}`;
-}
-
-function plannedWindowIso(task: Task): { start: string; end: string } {
-  const start = new Date(
-    `${task.planned_date}T${toTwentyFourHour(task.planned_start_time)}:00`,
-  );
-  const end = new Date(start.getTime() + task.planned_duration_min * 60_000);
-  return { start: start.toISOString(), end: end.toISOString() };
-}
 
 export default function UnloggedPlansPage() {
   const toast = useToast();
@@ -83,17 +64,8 @@ export default function UnloggedPlansPage() {
     if (busyId) return;
     setBusyId(task.id);
     try {
-      const { start, end } = plannedWindowIso(task);
-      await logExecution({
-        task_id: task.id,
-        actual_start_time: start,
-        actual_end_time: end,
-        interruption_count: 0,
-        stopped_early: true,
-        task_status: "failed",
-        failure_reason: "other",
-      });
-      toast.success("Marked not completed", `"${task.title}" was logged.`);
+      await savePlanOutcome(task.id, "not_started", { completion_ratio: 0, interruption_count: 0 });
+      toast.success("Recorded as not started", `"${task.title}" was logged.`);
       void load();
     } catch {
       toast.error("Couldn’t save", "Please try again.");
@@ -106,6 +78,7 @@ export default function UnloggedPlansPage() {
     result: MobileResult,
     reason?: FailureReasonCode,
     times?: OutcomeTimes,
+    measurements?: OutcomeMeasurements,
   ) {
     if (!logging || busyId) return;
     setBusyId(logging.id);
@@ -118,26 +91,9 @@ export default function UnloggedPlansPage() {
         void load();
         return;
       }
-      const { start, end } = plannedWindowIso(logging);
-      const execution = await logExecution({
-        task_id: logging.id,
-        actual_start_time: times?.actual_start_time ?? start,
-        actual_end_time: times?.actual_end_time ?? end,
-        interruption_count: 0,
-        stopped_early: result !== "completed",
-        task_status: result === "completed" ? "success" : "failed",
-        failure_reason: reason,
-      });
-      try {
-        await createMobileAIOutcome({
-          task: logging,
-          execution,
-          outcomeStatus: result,
-          failureReason: reason,
-        });
-      } catch {
-        toast.warn("Outcome saved", "AI learning could not update this time.");
-      }
+      if (!measurements) throw new Error("Outcome details are required.");
+      await savePlanOutcome(logging.id, result, measurements, reason, times,
+        active[logging.id]?.id);
       setLogging(null);
       toast.success("Outcome recorded");
       void load();
@@ -215,7 +171,7 @@ export default function UnloggedPlansPage() {
                     disabled={busyId === task.id}
                     onClick={() => void markNotCompleted(task)}
                   >
-                    Mark not completed
+                    Didn’t start
                   </button>
                   <button
                     className="btn-primary"

@@ -137,7 +137,7 @@ class CoachingPlanningService:
                 }
             )
 
-        task = self._task_payload(draft, options, schedule.get("tasks") or [])
+        task = self._task_payload(draft, options, schedule.get("tasks") or [], timezone_name)
         proposal_payload = {"task": task, "options": options}
         proposal = self.repository.create_proposal(
             user_id,
@@ -174,6 +174,7 @@ class CoachingPlanningService:
         draft: PlanDraft,
         options: list[dict[str, Any]],
         scheduled_tasks: list[dict[str, Any]],
+        timezone_name: str,
     ) -> dict[str, Any]:
         assert draft.title is not None
         assert draft.planned_date is not None
@@ -183,6 +184,7 @@ class CoachingPlanningService:
             "task_category": draft.category,
             "planned_start_time": first_clock,
             "planned_date": draft.planned_date,
+            "timezone_name": timezone_name,
             "planned_duration_min": draft.duration_minutes,
             "importance": draft.importance,
             "energy_level": draft.energy_level,

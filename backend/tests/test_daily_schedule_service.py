@@ -76,6 +76,8 @@ class TasksFake:
             "user_id": user_id,
             "created_at": "2026-09-28T12:00:00+00:00",
             "task_status": "pending",
+            "ai_plan_input_id": str(uuid4()),
+            "ai_sync_status": "pending",
             **deepcopy(payload),
         }
         self.created.append(row)
@@ -257,7 +259,7 @@ def test_insufficient_time_returns_clear_unscheduled_reason() -> None:
     assert "Not enough conflict-free time" in result["unscheduled_tasks"][0]["reason"]
 
 
-def test_confirmation_creates_tasks_and_ai_plans_only_after_confirmation() -> None:
+def test_confirmation_creates_tasks_with_server_owned_ai_links_only_after_confirmation() -> None:
     service, plans, _drafts, tasks, calendar = make_service()
     draft = service.generate(USER_ID, request([task("Confirm me", duration=30)]))
     assert tasks.created == []
@@ -267,6 +269,10 @@ def test_confirmation_creates_tasks_and_ai_plans_only_after_confirmation() -> No
     assert confirmed["status"] == "confirmed"
     assert confirmed["confirmed_at"] is not None
     assert len(tasks.created) == 1
-    assert len(plans.rows) == 1
+    # Task creation enqueues the snapshot; the optimizer must not create an
+    # additional, unlinked AI plan in a second database write.
+    assert len(plans.rows) == 0
+    assert confirmed["scheduled_tasks"][0]["plan_input_id"] == tasks.created[0]["ai_plan_input_id"]
+    assert tasks.created[0]["timezone_name"] == draft["timezone_name"]
     assert confirmed["scheduled_tasks"][0]["created_task_id"] == tasks.created[0]["id"]
     assert calendar.synced == [tasks.created[0]["id"]]

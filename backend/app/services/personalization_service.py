@@ -13,6 +13,10 @@ from zoneinfo import ZoneInfo
 from ..repositories.personalization_repository import PersonalizationRepository
 
 UTC = timezone.utc
+
+# Personalization is intentionally conservative. A pattern must appear at least
+# twice before it is shown to the user, and the prior/confidence constants keep
+# a small or noisy personal history from overpowering the shared model.
 MIN_FACTOR_SUPPORT = 2
 PRIOR_STRENGTH = 8.0
 PERSONALIZATION_STRENGTH = 20.0
@@ -20,6 +24,7 @@ MAX_HISTORY_ROWS = 200
 
 
 def _datetime(value: object) -> datetime:
+    """Parse an ISO timestamp and normalize it to UTC."""
     parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise ValueError("personalization timestamps must include a timezone")
@@ -27,6 +32,7 @@ def _datetime(value: object) -> datetime:
 
 
 def _duration_bucket(minutes: object) -> str:
+    """Group exact durations into broad buckets that have more history support."""
     try:
         value = int(str(minutes or 0))
     except (TypeError, ValueError):
@@ -41,11 +47,13 @@ def _duration_bucket(minutes: object) -> str:
 
 
 def _local_datetime(value: object, timezone_name: object) -> datetime:
+    """Convert a stored timestamp into the user's local timezone."""
     name = str(timezone_name or "UTC")
     return _datetime(value).astimezone(ZoneInfo(name))
 
 
 def _time_bucket(value: object, timezone_name: object) -> str:
+    """Map an upcoming plan's local start time to a part of the day."""
     hour = _local_datetime(value, timezone_name).hour
     if hour < 6:
         return "overnight"
@@ -59,6 +67,11 @@ def _time_bucket(value: object, timezone_name: object) -> str:
 
 
 def _stored_time_bucket(value: object) -> str:
+    """Map legacy task time strings to a part of the day.
+
+    Completed tasks may contain either 12-hour or 24-hour time strings, so all
+    supported storage formats are tried before the value is treated as unknown.
+    """
     raw = str(value or "").strip().upper()
     for pattern in ("%I:%M %p", "%I:%M%p", "%H:%M", "%H:%M:%S"):
         try:
@@ -79,6 +92,8 @@ def _stored_time_bucket(value: object) -> str:
 
 @dataclass(frozen=True)
 class HistoryExample:
+    """Normalized features and outcome for one completed plan."""
+
     category: str
     time_bucket: str
     weekday: int
@@ -89,6 +104,8 @@ class HistoryExample:
 
 @dataclass(frozen=True)
 class PersonalizationProfile:
+    """The immutable, user-specific history used during one prediction."""
+
     examples: tuple[HistoryExample, ...]
 
     @property
@@ -109,10 +126,18 @@ class PersonalizationService:
         exclude_plan_id: object | None = None,
         as_of: datetime | None = None,
     ) -> PersonalizationProfile:
+        """Load and normalize past outcomes for a single user.
+
+        Future rows and the plan currently being evaluated are excluded to
+        prevent information leakage. Older examples remain useful, but their
+        influence halves every 90 days so recent behavior matters more.
+        """
         cutoff = (as_of or datetime.now(UTC)).astimezone(UTC)
         rows = self.history.list_completed_tasks(user_id)
         examples: list[HistoryExample] = []
         for row in rows:
+            # Excluding the target plan is important when re-evaluating an
+            # existing plan whose outcome may already be stored.
             if exclude_plan_id is not None and str(row.get("id")) == str(exclude_plan_id):
                 continue
             planned_date_value = row.get("planned_date")
@@ -127,6 +152,8 @@ class PersonalizationService:
             if history_date > cutoff:
                 continue
             age_days = max(0.0, (cutoff - history_date).total_seconds() / 86_400)
+            # Exponential decay gives an example from 90 days ago half the
+            # weight of an otherwise identical recent example.
             recency_weight = math.pow(0.5, age_days / 90.0)
             success = float(row.get("task_status") == "success")
             examples.append(
@@ -149,8 +176,15 @@ class PersonalizationService:
         plan: dict[str, Any],
         profile: PersonalizationProfile,
     ) -> dict[str, Any]:
+        """Blend the shared model probability with matching personal history.
+
+        The shared model remains the baseline. Personal evidence is computed
+        from the user's overall completion rate and four interpretable signals:
+        category, time of day, weekday, and duration.
+        """
         base_probability = float(base_result["success_probability"])
         if not profile.examples:
+            # Keep a consistent response shape even for a brand-new user.
             return {
                 **base_result,
                 "base_success_probability": base_probability,
@@ -164,6 +198,9 @@ class PersonalizationService:
             }
 
         overall_rate = self._weighted_rate(profile.examples)
+
+        # Each signal contains its display label and the historical examples
+        # that match the plan currently being scored.
         signals: list[tuple[str, str, list[HistoryExample]]] = [
             (
                 "category",
@@ -187,9 +224,7 @@ class PersonalizationService:
             (
                 "weekday",
                 str(
-                    _local_datetime(
-                        plan.get("planned_start"), plan.get("timezone_name")
-                    ).weekday()
+                    _local_datetime(plan.get("planned_start"), plan.get("timezone_name")).weekday()
                 ),
                 [
                     example
@@ -219,12 +254,17 @@ class PersonalizationService:
                 continue
             support_weight = sum(example.weight for example in matches)
             successes = sum(example.success * example.weight for example in matches)
+            # Bayesian-style smoothing pulls sparse factor rates toward the
+            # shared model instead of trusting one or two outcomes too much.
             rate = (successes + base_probability * PRIOR_STRENGTH) / (
                 support_weight + PRIOR_STRENGTH
             )
+            # Stronger matching history can contribute more, with a cap so one
+            # factor never dominates the other evidence.
             estimates.append((rate, min(2.0, support_weight / 3.0)))
             if len(matches) >= MIN_FACTOR_SUPPORT:
                 difference = rate - base_probability
+                # Only expose explanations that are large enough to be useful.
                 if abs(difference) >= 0.02:
                     direction = "positive" if difference > 0 else "negative"
                     factors.append(
@@ -241,9 +281,11 @@ class PersonalizationService:
         personal_score = sum(score * weight for score, weight in estimates) / sum(
             weight for _score, weight in estimates
         )
-        confidence = profile.sample_count / (
-            profile.sample_count + PERSONALIZATION_STRENGTH
-        )
+        # Confidence grows gradually with history size. With 20 examples, the
+        # shared and personal scores receive equal weight.
+        confidence = profile.sample_count / (profile.sample_count + PERSONALIZATION_STRENGTH)
+        # Blend rather than replace the shared prediction, then enforce the
+        # probability's valid [0, 1] range.
         final_probability = max(
             0.0,
             min(1.0, base_probability * (1.0 - confidence) + personal_score * confidence),
@@ -267,15 +309,15 @@ class PersonalizationService:
 
     @staticmethod
     def _weighted_rate(examples: list[HistoryExample] | tuple[HistoryExample, ...]) -> float:
+        """Return the recency-weighted completion rate for a group of plans."""
         total_weight = sum(example.weight for example in examples)
         if total_weight <= 0:
             return 0.0
         return sum(example.success * example.weight for example in examples) / total_weight
 
     @staticmethod
-    def _factor_message(
-        factor_type: str, label: str, direction: str, sample_count: int
-    ) -> str:
+    def _factor_message(factor_type: str, label: str, direction: str, sample_count: int) -> str:
+        """Build a short user-facing explanation for a detected pattern."""
         tendency = "more often" if direction == "positive" else "less often"
         descriptions: dict[str, Callable[[], str]] = {
             "category": lambda: f"You complete {label or 'similar'} plans {tendency}.",

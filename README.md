@@ -37,6 +37,8 @@ habittrace_prototype/
 - English mobile-first login using the same Supabase account as desktop
 - Today view with the active or nearest plan
 - Quick Add with date, start time, duration, and optional details
+- Optional duration suggestions from personal completion history, showing evidence
+  and applying only on request (requires the step-1/2 primary SQL migrations)
 - Idempotent start recording with a server-generated timestamp
 - Completed, partially done, not completed, and still-in-progress outcome flows
 - Canonical failure-reason buttons for partial and failed outcomes
@@ -88,6 +90,10 @@ User-owned API routes validate the Supabase access token. The backend derives `u
 2. Run `supabase/schema.sql` in the SQL Editor.
 3. Run `supabase/coach_agent_schema.sql` to add persisted coach conversations,
    preferences, and confirmation-gated action proposals.
+   Run `supabase/task_ai_sync_schema.sql` in this **primary project** before
+   deploying task/AI synchronization. It captures durable AI snapshots alongside
+   task writes and preserves links across devices. See `supabase/README.md`.
+   Then run `supabase/execution_outcome_sync_schema.sql` in this primary project.
 4. Copy the project URL, anon key, and service-role key from the project API settings.
 5. Configure the desired Auth providers and redirect URLs.
 
@@ -99,6 +105,8 @@ Use a separate project for AI V2 when possible:
 
 1. Back up an existing database before applying changes.
 2. Run `supabase/ai_schema.sql`.
+   Then run `supabase/ai_outcome_delivery_schema.sql` in this AI project for atomic
+   outcome/reason delivery and corrections.
 3. Run the read-only checks in `supabase/verify_ai_schema.sql`.
 4. Keep the AI service-role key in the backend environment only.
 

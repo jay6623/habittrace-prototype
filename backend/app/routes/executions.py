@@ -8,6 +8,7 @@ from ..schemas.execution import (
     ExecutionResponse,
     ExecutionStart,
 )
+from ..services.execution_ai_sync_service import sync_execution_ai_safely
 from ..services.execution_service import ExecutionService
 
 router = APIRouter()
@@ -32,7 +33,10 @@ def log_execution(
 ):
     db = _require_db()
     svc = ExecutionService(db)
-    result = svc.log(str(user_id), body.model_dump())
+    try:
+        result = svc.log(str(user_id), body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not result:
         raise HTTPException(status_code=404, detail="Task not found")
     return result
@@ -60,7 +64,10 @@ def complete_execution(
     user_id: CurrentUserId,
 ):
     svc = ExecutionService(_require_db())
-    result = svc.complete(str(user_id), execution_id, body.model_dump())
+    try:
+        result = svc.complete(str(user_id), execution_id, body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if not result:
         raise HTTPException(status_code=404, detail="Execution not found")
     return result
@@ -74,7 +81,10 @@ def revise_execution(
 ):
     """Revise a finished execution outcome (and sync the parent task status)."""
     svc = ExecutionService(_require_db())
-    result = svc.revise(str(user_id), execution_id, body.model_dump())
+    try:
+        result = svc.revise(str(user_id), execution_id, body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if not result:
         raise HTTPException(status_code=404, detail="Execution not found")
     return result
@@ -89,5 +99,36 @@ def list_executions(
     db = _require_db()
     svc = ExecutionService(db)
     if active:
+        pending = (
+            db.table("executions").select("*").eq("user_id", str(user_id))
+            .eq("ai_outcome_sync_status", "pending").order("created_at").limit(3).execute().data
+        )
+        for execution in pending:
+            synced = sync_execution_ai_safely(db, execution)
+            if synced.get("ai_outcome_sync_status") == "pending":
+                break
         return svc.list_active_for_user(str(user_id))
-    return svc.list_for_user(str(user_id))
+    rows = svc.list_for_user(str(user_id))
+    retried = 0
+    for index, execution in enumerate(rows):
+        if execution.get("ai_outcome_sync_status") == "pending" and retried < 3:
+            rows[index] = sync_execution_ai_safely(db, execution)
+            retried += 1
+            if rows[index].get("ai_outcome_sync_status") not in {"synced", "ineligible"}:
+                break
+    return rows
+
+
+@router.post("/{execution_id}/ai-outcome", response_model=ExecutionResponse)
+def retry_execution_outcome(execution_id: str, user_id: CurrentUserId):
+    db = _require_db()
+    rows = (
+        db.table("executions").select("*").eq("id", execution_id)
+        .eq("user_id", str(user_id)).limit(1).execute().data
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Execution not found")
+    result = sync_execution_ai_safely(db, rows[0])
+    if result.get("ai_outcome_sync_status") == "pending":
+        raise HTTPException(status_code=503, detail="Outcome sync is pending. Please retry later.")
+    return result

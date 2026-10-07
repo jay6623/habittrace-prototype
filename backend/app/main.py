@@ -50,6 +50,7 @@ async def lifespan(app: FastAPI):
         ml.load()
     except Exception as exc:
         logger.error("ML model loading failed: %s", exc)
+        #load ML model to memeory to prevent delay
     try:
         get_ai_v2_ml_service().load()
     except Exception as exc:
@@ -58,6 +59,7 @@ async def lifespan(app: FastAPI):
     # (shutdown logic could go here)
 
 
+# this is habittrace entire backend server
 _app_kwargs: dict = dict(
     title="HabitTrace API",
     description="Habit tracking with ML-powered success prediction",

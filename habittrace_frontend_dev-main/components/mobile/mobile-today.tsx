@@ -3,16 +3,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useDataRefresh } from "@/lib/refresh";
-import { useToast } from "@/components/ui/toast";
 import { useAuth } from "@/app/providers";
 import {
-  completeExecution,
-  createMobileAIOutcome,
   createTask,
   getActiveExecutions,
   getTask,
   getTasks,
   startExecution,
+  savePlanOutcome,
+  type OutcomeMeasurements,
   type Execution,
   type Task,
 } from "@/lib/api";
@@ -63,7 +62,8 @@ function readableError(caught: unknown, fallback: string): string {
   return fallback;
 }
 
-function formatStartedAt(value: string): string {
+function formatStartedAt(value: string | null): string {
+  if (!value) return "an unknown time";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleTimeString("en-US", {
@@ -74,7 +74,6 @@ function formatStartedAt(value: string): string {
 
 export default function MobileToday() {
   const { displayName } = useAuth();
-  const notifications = useToast();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [activeExecutions, setActiveExecutions] = useState<
     Record<string, Execution>
@@ -281,26 +280,23 @@ export default function MobileToday() {
     result: MobileResult,
     reason?: FailureReasonCode,
     times?: OutcomeTimes,
+    measurements?: OutcomeMeasurements,
   ) {
     if (!selectedTask || outcomeSaving) return;
     setOutcomeSaving(true);
     setOutcomeError(null);
     try {
-      const started = await ensureStarted(selectedTask);
       if (result === "in_progress") {
+        await ensureStarted(selectedTask);
         setSelectedTask(null);
         setToast({ message: "Plan kept in progress.", tone: "success" });
         return;
       }
 
       const legacyStatus = result === "completed" ? "success" : "failed";
-      const completed = await completeExecution(started.id, {
-        ...times,
-        task_status: legacyStatus,
-        stopped_early: result !== "completed",
-        interruption_count: 0,
-        failure_reason: reason,
-      });
+      if (!measurements) throw new Error("Outcome details are required.");
+      await savePlanOutcome(selectedTask.id, result, measurements, reason, times,
+        activeExecutions[selectedTask.id]?.id);
 
       const completedTask = selectedTask;
       setTasks((current) =>
@@ -318,18 +314,6 @@ export default function MobileToday() {
       setSelectedTask(null);
       setToast({ message: "Outcome saved.", tone: "success" });
 
-      void createMobileAIOutcome({
-        task: completedTask,
-        execution: completed,
-        outcomeStatus: result,
-        failureReason: reason,
-      }).catch((caught) => {
-        console.warn("AI V2 outcome was not created:", caught);
-        notifications.warn(
-          "Outcome saved",
-          "AI learning could not update this time. Your plan record is safe.",
-        );
-      });
     } catch (caught) {
       setOutcomeError(
         readableError(caught, "We couldn't save the outcome. Try again."),
