@@ -101,6 +101,16 @@ class GroupRepository(BaseRepository):
         )
         return bool(response.data)
 
+    def update_member_role(self, group_id: str, user_id: str, role: str) -> JsonRow | None:
+        response = self._execute(
+            self.db.table(self.members_table)
+            .update({"role": role})
+            .eq("group_id", group_id)
+            .eq("user_id", user_id),
+            validation_detail="The membership violates a database constraint.",
+        )
+        return response.data[0] if response.data else None
+
     def get_profiles(self, user_ids: list[str]) -> dict[str, JsonRow]:
         """Return public profile fields from `profiles` keyed by user id."""
         unique_ids = sorted(set(user_ids))

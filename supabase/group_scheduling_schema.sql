@@ -16,7 +16,7 @@ create index if not exists idx_groups_owner on public.groups(owner_id);
 create table if not exists public.group_members (
   group_id uuid not null references public.groups(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
-  role text not null default 'member' check (role in ('owner', 'member')),
+  role text not null default 'member' check (role in ('owner', 'admin', 'member')),
   joined_at timestamptz not null default now(),
   primary key (group_id, user_id)
 );

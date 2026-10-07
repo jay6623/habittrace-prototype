@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 INVITE_CODE_PATTERN = re.compile(r"^[A-Z0-9]{8}$")
 
-GroupRole = Literal["owner", "member"]
+GroupRole = Literal["owner", "admin", "member"]
 GroupTaskStatus = Literal["pending", "success", "failed"]
 GroupTaskPriority = Literal["high", "medium", "low"]
 
@@ -46,6 +46,14 @@ class GroupJoinRequest(BaseModel):
         if not INVITE_CODE_PATTERN.fullmatch(normalized):
             raise ValueError("invite_code must be 8 letters or digits")
         return normalized
+
+
+class GroupMemberRoleUpdate(BaseModel):
+    """Owner-only: promote a member to admin, or demote them back to member."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    role: Literal["admin", "member"]
 
 
 class GroupResponse(BaseModel):

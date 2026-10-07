@@ -972,7 +972,7 @@ export async function dismissCoachProposal(proposalId: string): Promise<void> {
 // Mirrors backend/app/schemas/group.py. Membership is enforced server-side:
 // a group the caller does not belong to answers 404 on every route.
 
-export type GroupRole = "owner" | "member";
+export type GroupRole = "owner" | "admin" | "member";
 export type GroupTaskStatus = "pending" | "success" | "failed";
 export type GroupTaskPriority = "high" | "medium" | "low";
 
@@ -1072,6 +1072,18 @@ export async function deleteGroup(groupId: string): Promise<void> {
 
 export async function leaveGroup(groupId: string): Promise<void> {
   return apiFetch<void>(`/groups/${groupId}/leave`, { method: "POST" });
+}
+
+/** Owner-only: promote a member to admin, or demote them back to member. */
+export async function updateGroupMemberRole(
+  groupId: string,
+  userId: string,
+  role: "admin" | "member"
+): Promise<GroupMember> {
+  return apiFetch<GroupMember>(`/groups/${groupId}/members/${userId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ role }),
+  });
 }
 
 export async function createGroupTask(
