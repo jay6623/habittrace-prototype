@@ -2,7 +2,7 @@ import SwiftUI
 
 struct TaskListView: View {
     @EnvironmentObject private var authManager: AuthManager
-    @StateObject private var taskService = TaskService()
+    @EnvironmentObject private var taskService: TaskService
     @State private var showingCreateTask = false
 
     var body: some View {
@@ -44,19 +44,13 @@ struct TaskListView: View {
             }
             .navigationTitle("My Tasks")
             .toolbar {
-                ToolbarItemGroup(placement: .topBarTrailing) {
+                ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         showingCreateTask = true
                     } label: {
                         Image(systemName: "plus")
                     }
                     .accessibilityLabel("Create Task")
-
-                    Button("Sign Out") {
-                        Task {
-                            await authManager.signOut()
-                        }
-                    }
                 }
             }
             .task {

@@ -8,7 +8,7 @@ struct ContentView: View {
             if authManager.isLoading {
                 ProgressView("Loading HabitTrace...")
             } else if authManager.isAuthenticated {
-                TaskListView()
+                MainTabView()
             } else {
                 LoginView()
             }
