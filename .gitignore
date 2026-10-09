@@ -49,3 +49,7 @@ habittrace_ai_v2/data/
 
 # Local Xcode scheme settings
 /ios/HabitTrace/HabitTrace.xcodeproj/xcshareddata/xcschemes/HabitTrace.xcscheme
+
+# Local Supabase configuration bundled into the iOS app
+# (copy ios/HabitTrace/SupabaseConfig.example.plist and fill it in)
+/ios/HabitTrace/HabitTrace/Configuration/SupabaseConfig.plist

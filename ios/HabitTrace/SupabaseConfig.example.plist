@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Supabase configuration template for the native iOS app.
+
+  Copy this file to:
+      HabitTrace/Configuration/SupabaseConfig.plist
+  and fill in the project URL and publishable (anon) key from the Supabase
+  dashboard. The copied file is gitignored and is bundled into the app at
+  build time. Environment variables with the same names, when present,
+  override these values.
+-->
+<plist version="1.0">
+<dict>
+	<key>SUPABASE_URL</key>
+	<string>https://YOUR-PROJECT-REF.supabase.co</string>
+	<key>SUPABASE_ANON_KEY</key>
+	<string>YOUR-PUBLISHABLE-ANON-KEY</string>
+</dict>
+</plist>
