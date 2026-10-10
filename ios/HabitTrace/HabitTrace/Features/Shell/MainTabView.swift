@@ -7,7 +7,7 @@ struct MainTabView: View {
     var body: some View {
         TabView(selection: $selectedTab) {
             Tab(AppTab.today.title, systemImage: AppTab.today.systemImage, value: .today) {
-                TodayView()
+                TodayView(onViewPlans: { selectedTab = .plans })
             }
 
             Tab(AppTab.plans.title, systemImage: AppTab.plans.systemImage, value: .plans) {

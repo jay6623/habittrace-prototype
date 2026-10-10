@@ -115,6 +115,19 @@ enum TaskTimeFormatting {
         return "\(hours) hr \(remainder) min"
     }
 
+    /// Compact duration matching the PWA's `formatPlannedMinutes`:
+    /// "30m", "1h", or "2h 30m".
+    static func compactDurationText(minutes: Int) -> String {
+        guard minutes >= 60 else {
+            return "\(minutes)m"
+        }
+
+        let hours = minutes / 60
+        let remainder = minutes % 60
+
+        return remainder == 0 ? "\(hours)h" : "\(hours)h \(remainder)m"
+    }
+
     /// Long header date such as "Wednesday, October 7".
     static func headerDate(_ date: Date) -> String {
         date.formatted(
