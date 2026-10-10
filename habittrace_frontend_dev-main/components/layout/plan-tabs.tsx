@@ -9,7 +9,6 @@ import { useDataRefresh } from "@/lib/refresh";
 
 const MAIN_TABS = [
   ["/dashboard/habits", "List"],
-  ["/dashboard/calendar", "Calendar"],
   ["/dashboard/scheduler", "Find a time"],
   ["/dashboard/scheduler/generate", "Generate day"],
 ] as const;

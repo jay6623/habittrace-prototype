@@ -1001,7 +1001,12 @@ export interface GroupTask {
   assigned_to: string | null;
   assignee_name: string | null;
   assigned_to_ids: string[];
-  assignees: { user_id: string; display_name: string | null }[];
+  assignees: {
+    user_id: string;
+    display_name: string | null;
+    avatar_url?: string | null;
+    outcome: "success" | "failed" | null;
+  }[];
   title: string;
   category: string;
   priority: GroupTaskPriority;
@@ -1063,7 +1068,21 @@ export async function joinGroup(inviteCode: string): Promise<Group> {
 }
 
 export async function getGroupDetail(groupId: string): Promise<GroupDetail> {
-  return apiFetch<GroupDetail>(`/groups/${groupId}`);
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const params = new URLSearchParams({ timezone });
+  return apiFetch<GroupDetail>(`/groups/${groupId}?${params.toString()}`);
+}
+
+export async function logGroupTaskCompletion(
+  groupId: string,
+  taskId: string,
+  outcome: "success" | "failed"
+): Promise<GroupTask> {
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  return apiFetch<GroupTask>(`/groups/${groupId}/tasks/${taskId}/completion`, {
+    method: "POST",
+    body: JSON.stringify({ outcome, timezone }),
+  });
 }
 
 export async function deleteGroup(groupId: string): Promise<void> {
@@ -1109,6 +1128,61 @@ export async function updateGroupTask(
 
 export async function deleteGroupTask(groupId: string, taskId: string): Promise<void> {
   return apiFetch<void>(`/groups/${groupId}/tasks/${taskId}`, { method: "DELETE" });
+}
+
+export interface GroupAnnouncementReply {
+  id: string;
+  announcement_id: string;
+  group_id: string;
+  author_id: string;
+  author_name: string | null;
+  author_role: GroupRole | null;
+  author_avatar_url?: string | null;
+  body: string;
+  created_at: string;
+}
+
+export interface GroupAnnouncement {
+  id: string;
+  group_id: string;
+  author_id: string;
+  author_name: string | null;
+  author_role: GroupRole | null;
+  author_avatar_url?: string | null;
+  title: string;
+  body: string;
+  created_at: string;
+  replies: GroupAnnouncementReply[];
+}
+
+export async function getGroupAnnouncements(
+  groupId: string
+): Promise<GroupAnnouncement[]> {
+  return apiFetch<GroupAnnouncement[]>(`/groups/${groupId}/announcements`);
+}
+
+export async function createGroupAnnouncement(
+  groupId: string,
+  input: { title: string; body: string }
+): Promise<GroupAnnouncement> {
+  return apiFetch<GroupAnnouncement>(`/groups/${groupId}/announcements`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function replyToGroupAnnouncement(
+  groupId: string,
+  announcementId: string,
+  body: string
+): Promise<GroupAnnouncementReply> {
+  return apiFetch<GroupAnnouncementReply>(
+    `/groups/${groupId}/announcements/${announcementId}/replies`,
+    {
+      method: "POST",
+      body: JSON.stringify({ body }),
+    }
+  );
 }
 
 // ── Health ───────────────────────────────────────────────────────────────────
