@@ -12,16 +12,15 @@ import {
   deleteGroupTask,
   getGroupDetail,
   getGroups,
+  logGroupTaskCompletion,
   joinGroup,
   leaveGroup,
   updateGroupMemberRole,
-  updateGroupTask,
   type Group,
   type GroupDetail,
   type GroupMember,
   type GroupTask,
   type GroupTaskCreate,
-  type GroupTaskStatus,
 } from "@/lib/api";
 import {
   describeApiError,
@@ -41,6 +40,8 @@ import {
   type QuickAddDraft,
 } from "@/lib/mobile-task";
 import { useDataRefresh } from "@/lib/refresh";
+import { useToast } from "@/components/ui/toast";
+import GroupAnnouncements from "@/components/group/group-announcements";
 import GroupSetup from "@/components/group/group-setup";
 import GroupTaskForm from "@/components/group/group-task-form";
 
@@ -69,15 +70,19 @@ const categoryChip: Record<string, string> = {
   Other: "bg-slate-100 text-slate-600",
 };
 
-const STATUS_OPTIONS: {
-  value: GroupTaskStatus;
-  label: string;
-  active: string;
-}[] = [
-  { value: "pending", label: "Pending", active: "bg-slate-900 text-white" },
-  { value: "success", label: "Done", active: "bg-emerald-600 text-white" },
-  { value: "failed", label: "Not completed", active: "bg-rose-600 text-white" },
-];
+function deadlinePassed(task: GroupTask): boolean {
+  if (!task.due_date || !task.due_time) return false;
+  const [year, month, day] = task.due_date.split("-").map(Number);
+  const [hour, minute, second] = task.due_time.split(":").map(Number);
+  if (!year || !month || !day || Number.isNaN(hour) || Number.isNaN(minute)) return false;
+  const deadline = new Date(year, month - 1, day, hour, minute, second || 0);
+  return Date.now() >= deadline.getTime();
+}
+
+function shownOutcome(task: GroupTask, outcome: "success" | "failed" | null | undefined) {
+  if (outcome === "success" || outcome === "failed") return outcome;
+  return deadlinePassed(task) ? "failed" : null;
+}
 
 function rateTone(rate: number): { text: string; bar: string } {
   if (rate >= 70) return { text: "text-emerald-600", bar: "bg-emerald-400" };
@@ -91,17 +96,6 @@ function taskAssigneeIds(task: GroupTask): string[] {
     : task.assigned_to
       ? [task.assigned_to]
       : [];
-}
-
-function taskAssigneeLabel(task: GroupTask, currentUserId: string | null): string {
-  const assignees = task.assignees?.length
-    ? task.assignees
-    : task.assigned_to
-      ? [{ user_id: task.assigned_to, display_name: task.assignee_name }]
-      : [];
-  return assignees.length
-    ? assignees.map((assignee) => memberName(assignee, currentUserId)).join(", ")
-    : "Unassigned";
 }
 
 const secondaryButton =
@@ -136,6 +130,11 @@ export default function GroupPage() {
   const [deletingGroup, setDeletingGroup] = useState(false);
   const [updatingMemberId, setUpdatingMemberId] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
+  const inbox = useToast();
+  function notice(next: ToastState) {
+    setToast(next);
+    inbox.record(next.tone, next.message);
+  }
 
   // ── Loading ─────────────────────────────────────────────────────────────
   const selectGroup = useCallback(
@@ -176,7 +175,7 @@ export default function GroupPage() {
       } catch (caught) {
         if (caught instanceof ApiError && caught.status === 404) {
           // Deleted, or the user was removed, since the list loaded.
-          setToast({
+          notice({
             message: "That group is no longer available.",
             tone: "error",
           });
@@ -235,24 +234,36 @@ export default function GroupPage() {
         ? !!userId && taskAssigneeIds(task).includes(userId)
         : taskAssigneeIds(task).length === 0),
   );
-  const done = tasks.filter((task) => task.status === "success").length;
-  const failed = tasks.filter((task) => task.status === "failed").length;
-  const pending = tasks.length - done - failed;
-  const groupRate = tasks.length ? Math.round((done / tasks.length) * 100) : 0;
-  const assignedToMe = tasks.filter(
-    (task) => !!userId && taskAssigneeIds(task).includes(userId) && task.status === "pending",
-  ).length;
+  const completionCounts = tasks.reduce(
+    (counts, task) => {
+      for (const assignee of task.assignees ?? []) {
+        const outcome = shownOutcome(task, assignee.outcome);
+        if (outcome === "success") counts.done += 1;
+        if (outcome === "failed") counts.failed += 1;
+      }
+      return counts;
+    },
+    { done: 0, failed: 0 },
+  );
+  const loggedCount = completionCounts.done + completionCounts.failed;
+  const groupRate = loggedCount
+    ? Math.round((completionCounts.done / loggedCount) * 100)
+    : 0;
+  const assignedToMe = tasks.filter((task) => {
+    const mine = task.assignees?.find((assignee) => assignee.user_id === userId);
+    return !!mine && shownOutcome(task, mine.outcome) === null;
+  }).length;
 
   const memberStats = useMemo(() => {
     const stats = new Map<string, { assigned: number; done: number }>();
     for (const member of members)
       stats.set(member.user_id, { assigned: 0, done: 0 });
     for (const task of tasks) {
-      for (const assigneeId of taskAssigneeIds(task)) {
-        const entry = stats.get(assigneeId);
+      for (const assignee of task.assignees ?? []) {
+        const entry = stats.get(assignee.user_id);
         if (!entry) continue;
         entry.assigned += 1;
-        if (task.status === "success") entry.done += 1;
+        if (shownOutcome(task, assignee.outcome) === "success") entry.done += 1;
       }
     }
     return stats;
@@ -265,7 +276,7 @@ export default function GroupPage() {
     selectGroup(created.id);
     setShowSetup(false);
     setShowInvite(true);
-    setToast({
+    notice({
       message: "Group created. Share the invite code with your team.",
       tone: "success",
     });
@@ -280,7 +291,7 @@ export default function GroupPage() {
     );
     selectGroup(joined.id);
     setShowSetup(false);
-    setToast({ message: `You joined ${joined.name}.`, tone: "success" });
+    notice({ message: `You joined ${joined.name}.`, tone: "success" });
   }
 
   async function handleCreateTask(input: GroupTaskCreate) {
@@ -292,7 +303,7 @@ export default function GroupPage() {
         : current,
     );
     setShowAddTask(false);
-    setToast({ message: "Task added for the group.", tone: "success" });
+    notice({ message: "Task added for the group.", tone: "success" });
   }
 
   function replaceTask(next: GroupTask) {
@@ -308,18 +319,19 @@ export default function GroupPage() {
     );
   }
 
-  async function handleStatusChange(task: GroupTask, status: GroupTaskStatus) {
-    if (task.status === status || busyTaskId) return;
+  async function handleCompletion(task: GroupTask, outcome: "success" | "failed") {
+    if (busyTaskId) return;
+    const mine = task.assignees?.find((assignee) => assignee.user_id === userId);
+    if (!mine || mine.outcome === outcome) return;
     setBusyTaskId(task.id);
-    replaceTask({ ...task, status });
     try {
-      replaceTask(await updateGroupTask(task.group_id, task.id, { status }));
+      replaceTask(await logGroupTaskCompletion(task.group_id, task.id, outcome));
     } catch (caught) {
-      replaceTask(task);
-      setToast({
-        message: describeApiError(caught, "We couldn't update that task."),
+      notice({
+        message: describeApiError(caught, "We couldn't log that task."),
         tone: "error",
       });
+      if (selectedGroupId) void loadDetail(selectedGroupId);
     } finally {
       setBusyTaskId(null);
     }
@@ -340,7 +352,7 @@ export default function GroupPage() {
           : current,
       );
     } catch (caught) {
-      setToast({
+      notice({
         message: describeApiError(caught, "We couldn't delete that task."),
         tone: "error",
       });
@@ -358,12 +370,12 @@ export default function GroupPage() {
       setGroups(remaining);
       setDetail(null);
       selectGroup(remaining[0]?.id ?? null);
-      setToast({
+      notice({
         message: `${selectedGroup.name} was deleted.`,
         tone: "success",
       });
     } catch (caught) {
-      setToast({
+      notice({
         message: describeApiError(caught, "We couldn't delete this group."),
         tone: "error",
       });
@@ -381,9 +393,9 @@ export default function GroupPage() {
       setGroups(remaining);
       setDetail(null);
       selectGroup(remaining[0]?.id ?? null);
-      setToast({ message: `You left ${selectedGroup.name}.`, tone: "success" });
+      notice({ message: `You left ${selectedGroup.name}.`, tone: "success" });
     } catch (caught) {
-      setToast({
+      notice({
         message: describeApiError(caught, "We couldn't leave this group."),
         tone: "error",
       });
@@ -409,7 +421,7 @@ export default function GroupPage() {
             }
           : current,
       );
-      setToast({
+      notice({
         message:
           role === "admin"
             ? `${memberName(member, userId)} is now an admin.`
@@ -417,7 +429,7 @@ export default function GroupPage() {
         tone: "success",
       });
     } catch (caught) {
-      setToast({
+      notice({
         message: describeApiError(caught, "We couldn't update this member's role."),
         tone: "error",
       });
@@ -431,7 +443,7 @@ export default function GroupPage() {
     const clipboard =
       typeof navigator !== "undefined" ? navigator.clipboard : undefined;
     if (!clipboard) {
-      setToast({
+      notice({
         message: "Copying isn't available here. Select the code to copy it.",
         tone: "error",
       });
@@ -441,7 +453,7 @@ export default function GroupPage() {
       .writeText(selectedGroup.invite_code)
       .then(() => setCopied(true))
       .catch(() =>
-        setToast({
+        notice({
           message: "Copying failed. Select the code to copy it.",
           tone: "error",
         }),
@@ -625,9 +637,9 @@ export default function GroupPage() {
         <div className="bg-white rounded-2xl border border-slate-200 p-4">
           <div className="text-xs text-slate-500">Group success rate</div>
           <div
-            className={`text-2xl font-bold mt-1 ${tasks.length ? "text-emerald-600" : "text-slate-400"}`}
+            className={`text-2xl font-bold mt-1 ${loggedCount ? "text-emerald-600" : "text-slate-400"}`}
           >
-            {tasks.length ? `${groupRate}%` : "—"}
+            {loggedCount ? `${groupRate}%` : "—"}
           </div>
           <div className="mt-2 h-2 rounded-full bg-slate-100 overflow-hidden">
             <div
@@ -639,11 +651,12 @@ export default function GroupPage() {
         <div className="bg-white rounded-2xl border border-slate-200 p-4">
           <div className="text-xs text-slate-500">Group tasks</div>
           <div className="flex items-baseline gap-1 mt-1">
-            <span className="text-2xl font-bold text-emerald-600">{done}</span>
-            <span className="text-sm text-slate-500">/ {tasks.length}</span>
+            <span className="text-2xl font-bold text-emerald-600">{completionCounts.done}</span>
+            <span className="text-sm text-slate-500">/ {loggedCount || tasks.length}</span>
           </div>
           <div className="text-xs text-slate-500 mt-1">
-            {pending} pending{failed ? ` · ${failed} failed` : ""}
+            {completionCounts.done} completed
+            {completionCounts.failed ? ` · ${completionCounts.failed} not completed` : ""}
           </div>
         </div>
         <div className="bg-white rounded-2xl border border-slate-200 p-4">
@@ -656,9 +669,17 @@ export default function GroupPage() {
         <div className="bg-white rounded-2xl border border-slate-200 p-4">
           <div className="text-xs text-slate-500">Assigned to you</div>
           <div className="text-2xl font-bold mt-1">{assignedToMe}</div>
-          <div className="text-xs text-slate-500 mt-1">pending</div>
+          <div className="text-xs text-slate-500 mt-1">not logged</div>
         </div>
       </div>
+
+      {activeDetail && (
+        <GroupAnnouncements
+          currentUserId={userId}
+          groupId={activeDetail.group.id}
+          role={activeDetail.group.role}
+        />
+      )}
 
       {/* Tab navigation */}
       <div className="flex rounded-xl border border-slate-200 overflow-hidden w-fit">
@@ -723,53 +744,125 @@ export default function GroupPage() {
               {visibleTasks.map((task) => {
                 const busy = busyTaskId === task.id;
                 const due = formatDue(task);
-                const assignee = taskAssigneeLabel(task, userId);
+                const people = task.assignees ?? [];
+                const closed = deadlinePassed(task);
+                const everyoneCompleted =
+                  people.length > 0 &&
+                  people.every(
+                    (assignee) => shownOutcome(task, assignee.outcome) === "success",
+                  );
                 return (
-                  <div
-                    key={task.id}
-                    className={`px-5 py-4 ${
-                      task.status === "success"
-                        ? "bg-emerald-50/40"
-                        : task.status === "failed"
-                          ? "bg-rose-50/40"
-                          : ""
-                    }`}
-                  >
-                    <div className="flex flex-wrap items-start gap-3">
-                      <div
-                        className={`mt-1.5 h-3 w-3 rounded-full shrink-0 ${
-                          task.status === "success"
-                            ? "bg-emerald-400"
-                            : task.status === "failed"
-                              ? "bg-rose-400"
-                              : "bg-slate-300"
-                        }`}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span
-                            className={`text-sm font-medium ${task.status !== "pending" ? "text-slate-400 line-through" : ""}`}
-                          >
-                            {task.title}
-                          </span>
-                          <span
-                            className={`text-xs px-2 py-0.5 rounded-full ${categoryChip[task.category] ?? "bg-slate-100 text-slate-600"}`}
-                          >
-                            {task.category}
-                          </span>
-                          <span
-                            className={`text-xs px-2 py-0.5 rounded-full ${priorityBadge[task.priority]}`}
-                          >
-                            {task.priority}
-                          </span>
-                        </div>
-                        <div className="text-xs text-slate-500 mt-1">
-                          Assigned to{" "}
-                          <span className="font-medium">{assignee}</span>
-                          {due && <> · Due {due}</>}
+                  <div key={task.id} className="px-5 py-4">
+                    <div className="flex items-center gap-4">
+                      <div className="flex min-w-0 flex-1 items-start gap-3">
+                        <div
+                          className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${
+                            everyoneCompleted ? "bg-emerald-500" : "bg-slate-300"
+                          }`}
+                        />
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-medium">{task.title}</span>
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-xs ${categoryChip[task.category] ?? "bg-slate-100 text-slate-600"}`}
+                            >
+                              {task.category}
+                            </span>
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-xs ${priorityBadge[task.priority]}`}
+                            >
+                              {task.priority}
+                            </span>
+                          </div>
+                          <div className="mt-1 text-xs text-slate-500">
+                            {due ? `Due ${due}` : "No due time"}
+                          </div>
+                          {people.length === 0 ? (
+                            <div className="mt-3 text-xs text-slate-500">Unassigned</div>
+                          ) : (
+                            <ul className="mt-3 space-y-2">
+                              {people.map((assignee) => {
+                                const name = memberName(assignee, userId);
+                                return (
+                                  <li
+                                    key={assignee.user_id}
+                                    className="flex min-w-0 items-center gap-2 text-sm text-slate-700"
+                                  >
+                                    <MemberAvatar
+                                      avatarUrl={assignee.avatar_url}
+                                      className="h-7 w-7 text-xs"
+                                      name={name}
+                                    />
+                                    <span className="truncate">{name}</span>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          )}
                         </div>
                       </div>
-                      <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex shrink-0 items-center gap-3">
+                        {people.length > 0 && (
+                          <div className="flex flex-col items-end gap-2">
+                            {people.map((assignee) => {
+                              const outcome = shownOutcome(task, assignee.outcome);
+                              const mine = assignee.user_id === userId;
+                              const canLog = mine && !closed;
+                              return canLog ? (
+                                <div
+                                  key={assignee.user_id}
+                                  aria-label={`Your result for ${task.title}`}
+                                  className="flex overflow-hidden rounded-lg border border-slate-200"
+                                  role="group"
+                                >
+                                  <button
+                                    aria-pressed={outcome === "success"}
+                                    className={`border-r border-slate-200 px-2.5 py-1 text-xs font-medium disabled:opacity-60 ${
+                                      outcome === "success"
+                                        ? "bg-emerald-600 text-white"
+                                        : "bg-white text-slate-500 hover:bg-slate-50"
+                                    }`}
+                                    disabled={busy}
+                                    onClick={() => void handleCompletion(task, "success")}
+                                    type="button"
+                                  >
+                                    Completed
+                                  </button>
+                                  <button
+                                    aria-pressed={outcome === "failed"}
+                                    className={`px-2.5 py-1 text-xs font-medium disabled:opacity-60 ${
+                                      outcome === "failed"
+                                        ? "bg-rose-600 text-white"
+                                        : "bg-white text-slate-500 hover:bg-slate-50"
+                                    }`}
+                                    disabled={busy}
+                                    onClick={() => void handleCompletion(task, "failed")}
+                                    type="button"
+                                  >
+                                    Not completed
+                                  </button>
+                                </div>
+                              ) : (
+                                <span
+                                  key={assignee.user_id}
+                                  className={`flex h-7 items-center text-xs font-medium ${
+                                    outcome === "success"
+                                      ? "text-emerald-700"
+                                      : outcome === "failed"
+                                        ? "text-rose-700"
+                                        : "text-slate-400"
+                                  }`}
+                                >
+                                  {outcome === "success"
+                                    ? "Completed"
+                                    : outcome === "failed"
+                                      ? "Not completed"
+                                      : "Not logged"}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
                         <button
                           className="btn-secondary"
                           onClick={() =>
@@ -797,33 +890,9 @@ export default function GroupPage() {
                         >
                           Copy to my plans
                         </button>
-                        <div
-                          aria-label={`Status for ${task.title}`}
-                          className="flex rounded-lg border border-slate-200 overflow-hidden"
-                          role="group"
-                        >
-                          {STATUS_OPTIONS.map((option) => (
-                            <button
-                              aria-pressed={task.status === option.value}
-                              className={`px-2.5 py-1 text-xs font-medium transition-colors border-r border-slate-200 last:border-r-0 disabled:opacity-60 ${
-                                task.status === option.value
-                                  ? option.active
-                                  : "bg-white text-slate-500 hover:bg-slate-50"
-                              }`}
-                              disabled={busy}
-                              key={option.value}
-                              onClick={() =>
-                                void handleStatusChange(task, option.value)
-                              }
-                              type="button"
-                            >
-                              {option.label}
-                            </button>
-                          ))}
-                        </div>
                         <button
                           aria-label={`Delete ${task.title}`}
-                          className="h-7 w-7 grid place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition-colors disabled:opacity-60"
+                          className="grid h-7 w-7 place-items-center rounded-lg text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600 disabled:opacity-60"
                           disabled={busy}
                           onClick={() => setConfirmDelete(task)}
                           type="button"
@@ -989,27 +1058,24 @@ export default function GroupPage() {
                       key={task.id}
                       className="flex flex-wrap items-start gap-3"
                     >
-                      <div
-                        className={`mt-1.5 h-2 w-2 rounded-full shrink-0 ${
-                          task.status === "success"
-                            ? "bg-emerald-400"
-                            : task.status === "failed"
-                              ? "bg-rose-400"
-                              : "bg-sky-400"
-                        }`}
-                      />
+                      <div className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-slate-300" />
                       <div className="text-sm min-w-0">
                         <span className="text-slate-700">
                           &quot;{task.title}&quot;
                         </span>
                         <span className="text-xs text-slate-400 ml-2">
-                          {taskAssigneeLabel(task, userId)}
-                          {" · "}
-                          {task.status === "success"
-                            ? "Done"
-                            : task.status === "failed"
-                              ? "Failed"
-                              : "Pending"}
+                          {(task.assignees ?? [])
+                            .map((assignee) => {
+                              const outcome = shownOutcome(task, assignee.outcome);
+                              const label =
+                                outcome === "success"
+                                  ? "completed"
+                                  : outcome === "failed"
+                                    ? "not completed"
+                                    : "not logged";
+                              return `${memberName(assignee, userId)} ${label}`;
+                            })
+                            .join(", ") || "Unassigned"}
                         </span>
                       </div>
                     </div>
@@ -1077,7 +1143,7 @@ export default function GroupPage() {
             const existing = await getTasks(draft.plannedDate);
             await createTask(toQuickTaskCreate(draft, existing.length + 1));
             setCopyDraft(null);
-            setToast({
+            notice({
               tone: "success",
               message:
                 "Personal copy created. Changes to this copy do not update the group task.",

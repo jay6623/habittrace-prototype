@@ -77,6 +77,28 @@ class GroupTaskAssigneeResponse(BaseModel):
     user_id: str
     display_name: str | None = None
     avatar_url: str | None = None
+    outcome: Literal["success", "failed"] | None = None
+
+
+class GroupTaskCompletion(BaseModel):
+    """The signed-in assignee logs only their own result."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    outcome: Literal["success", "failed"]
+    timezone: str = "UTC"
+
+    @field_validator("timezone")
+    @classmethod
+    def _timezone(cls, value: str) -> str:
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        name = value.strip() or "UTC"
+        try:
+            ZoneInfo(name)
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError("timezone must be a valid IANA timezone name") from exc
+        return name
 
 
 class GroupTaskCreate(BaseModel):
@@ -160,3 +182,56 @@ class GroupDetailResponse(BaseModel):
     group: GroupResponse
     members: list[GroupMemberResponse]
     tasks: list[GroupTaskResponse]
+
+
+class GroupAnnouncementCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(..., min_length=1, max_length=120)
+    body: str = Field(..., min_length=1, max_length=2000)
+
+    @field_validator("title")
+    @classmethod
+    def _strip_title(cls, value: str) -> str:
+        return _require_non_blank(value, "title")
+
+    @field_validator("body")
+    @classmethod
+    def _strip_body(cls, value: str) -> str:
+        return _require_non_blank(value, "body")
+
+
+class GroupAnnouncementReplyCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    body: str = Field(..., min_length=1, max_length=2000)
+
+    @field_validator("body")
+    @classmethod
+    def _strip_body(cls, value: str) -> str:
+        return _require_non_blank(value, "body")
+
+
+class GroupAnnouncementReplyResponse(BaseModel):
+    id: str
+    announcement_id: str
+    group_id: str
+    author_id: str
+    author_name: str | None = None
+    author_role: GroupRole | None = None
+    author_avatar_url: str | None = None
+    body: str
+    created_at: str
+
+
+class GroupAnnouncementResponse(BaseModel):
+    id: str
+    group_id: str
+    author_id: str
+    author_name: str | None = None
+    author_role: GroupRole | None = None
+    author_avatar_url: str | None = None
+    title: str
+    body: str
+    created_at: str
+    replies: list[GroupAnnouncementReplyResponse] = Field(default_factory=list)

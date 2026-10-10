@@ -30,6 +30,7 @@ import OutcomeSheet, {
 import QuickAddForm from "./quick-add-form";
 import PersonalizedOutlookCard from "@/components/personalized-outlook-card";
 import { countUnloggedAttention } from "@/lib/unlogged";
+import { useToast } from "@/components/ui/toast";
 
 interface ToastState {
   message: string;
@@ -91,6 +92,11 @@ export default function MobileToday() {
   const [outcomeSaving, setOutcomeSaving] = useState(false);
   const [outcomeError, setOutcomeError] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
+  const inbox = useToast();
+  function notice(next: ToastState) {
+    setToast(next);
+    inbox.record(next.tone, next.message);
+  }
   const [unloggedCount, setUnloggedCount] = useState(0);
 
   const today = localDateString();
@@ -235,7 +241,7 @@ export default function MobileToday() {
       return [...current, created].sort(taskSort);
     });
     closeQuickAdd();
-    setToast({
+    notice({
       message:
         draft.plannedDate === today
           ? "Plan added to today's list."
@@ -257,12 +263,12 @@ export default function MobileToday() {
     setStartingTaskId(task.id);
     try {
       const started = await ensureStarted(task);
-      setToast({
+      notice({
         message: `Started at ${formatStartedAt(started.actual_start_time)}.`,
         tone: "success",
       });
     } catch (caught) {
-      setToast({
+      notice({
         message: readableError(caught, "We couldn't record the start time."),
         tone: "error",
       });
@@ -289,7 +295,7 @@ export default function MobileToday() {
       if (result === "in_progress") {
         await ensureStarted(selectedTask);
         setSelectedTask(null);
-        setToast({ message: "Plan kept in progress.", tone: "success" });
+        notice({ message: "Plan kept in progress.", tone: "success" });
         return;
       }
 
@@ -312,7 +318,7 @@ export default function MobileToday() {
         return next;
       });
       setSelectedTask(null);
-      setToast({ message: "Outcome saved.", tone: "success" });
+      notice({ message: "Outcome saved.", tone: "success" });
 
     } catch (caught) {
       setOutcomeError(

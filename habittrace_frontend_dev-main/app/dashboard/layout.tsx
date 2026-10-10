@@ -52,7 +52,7 @@ export default function DashboardLayout({
               : "mx-auto max-w-7xl px-4 pb-32 pt-6 sm:px-6 lg:pb-24"
           }
         >
-          {/\/dashboard\/(habits|calendar|scheduler)(\/(unlogged|generate))?$/.test(
+          {/\/dashboard\/(habits|scheduler)(\/(unlogged|generate))?$/.test(
             pathname,
           ) && <PlanTabs />}
           {children}

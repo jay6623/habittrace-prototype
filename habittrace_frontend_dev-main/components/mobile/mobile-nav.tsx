@@ -7,14 +7,14 @@ export default function MobileNav() {
   return (
     <nav
       aria-label="Mobile navigation"
-      className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-slate-200 bg-white/95 pb-[max(.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur lg:hidden"
+      className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-6 border-t border-slate-200 bg-white/95 pb-[max(.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur lg:hidden"
     >
       {navigation.map((item) => (
         <Link
           key={item.href}
           href={item.href}
           aria-current={navActive(path, item.href) ? "page" : undefined}
-          className={`flex min-h-12 flex-col items-center justify-center gap-1 text-xs font-semibold ${navActive(path, item.href) ? "text-slate-950" : "text-slate-500"}`}
+          className={`flex min-h-12 flex-col items-center justify-center gap-1 px-0.5 text-[10px] font-semibold leading-tight sm:text-xs ${navActive(path, item.href) ? "text-slate-950" : "text-slate-500"}`}
         >
           <span className="text-lg" aria-hidden="true">
             {item.icon}

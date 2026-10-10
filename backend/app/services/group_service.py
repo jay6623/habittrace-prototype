@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import secrets
 from datetime import date, datetime, time, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Any
 from uuid import UUID
 
@@ -22,9 +23,12 @@ from ..core.errors import (
 )
 from ..repositories.group_repository import GroupRepository, JsonRow
 from ..schemas.group import (
+    GroupAnnouncementCreate,
+    GroupAnnouncementReplyCreate,
     GroupCreate,
     GroupJoinRequest,
     GroupMemberRoleUpdate,
+    GroupTaskCompletion,
     GroupTaskCreate,
     GroupTaskUpdate,
 )
@@ -76,7 +80,7 @@ class GroupService:
         listed = [{**group, "role": roles[str(group["id"])]} for group in groups]
         return sorted(listed, key=lambda group: str(group.get("created_at", "")))
 
-    def get_group_detail(self, user_id: UUID, group_id: UUID) -> JsonRow:
+    def get_group_detail(self, user_id: UUID, group_id: UUID, timezone_name: str = "UTC") -> JsonRow:
         membership = self._require_member(group_id, user_id)
         group = self.groups.get_group(str(group_id))
         if group is None:
@@ -84,6 +88,7 @@ class GroupService:
 
         members = self.groups.list_members(str(group_id))
         tasks = self.groups.list_tasks(str(group_id))
+        self._close_missed_outcomes(str(group_id), tasks, timezone_name)
         assignment_rows = self.groups.list_task_assignees(str(group_id))
         assignee_ids = [str(row["user_id"]) for row in assignment_rows]
         profiles = self.groups.get_profiles(
@@ -108,6 +113,7 @@ class GroupService:
                     task,
                     assignments_by_task.get(str(task["id"]), []),
                     profiles,
+                    self._outcomes_for(assignment_rows, str(task["id"])),
                 )
                 for task in tasks
             ],
@@ -194,10 +200,121 @@ class GroupService:
             assignee_ids = self._task_assignee_ids(str(group_id), str(task_id), updated)
         return self._with_assignees(updated, assignee_ids)
 
+    def log_own_outcome(
+        self, user_id: UUID, group_id: UUID, task_id: UUID, body: GroupTaskCompletion
+    ) -> JsonRow:
+        self._require_member(group_id, user_id)
+        task = self.groups.get_task(str(group_id), str(task_id))
+        if task is None:
+            raise ResourceNotFoundError("Task not found.")
+        assignee_ids = self._task_assignee_ids(str(group_id), str(task_id), task)
+        if str(user_id) not in assignee_ids:
+            raise PermissionDeniedError("Only people assigned to this task can log it.")
+        if self._deadline_passed(task, body.timezone):
+            self._close_missed_outcomes(str(group_id), [task], body.timezone)
+            raise DomainValidationError(
+                "The scheduled time has passed, so this task was marked not completed."
+            )
+        logged_at = datetime.now(timezone.utc).isoformat()
+        updated = self.groups.set_assignee_outcome(
+            str(group_id), str(task_id), str(user_id), body.outcome, logged_at
+        )
+        if updated is None:
+            raise ResourceNotFoundError("Task not found.")
+        return self._task_for_response(str(group_id), task)
+
     def delete_task(self, user_id: UUID, group_id: UUID, task_id: UUID) -> None:
         self._require_member(group_id, user_id)
         if not self.groups.delete_task(str(group_id), str(task_id)):
             raise ResourceNotFoundError("Task not found.")
+
+    # ── announcements ───────────────────────────────────────────────────────
+    def list_announcements(self, user_id: UUID, group_id: UUID) -> list[JsonRow]:
+        self._require_member(group_id, user_id)
+        announcements = self.groups.list_announcements(str(group_id))
+        replies = self.groups.list_replies(str(group_id))
+        return self._with_threads(announcements, replies)
+
+    def create_announcement(
+        self, user_id: UUID, group_id: UUID, body: GroupAnnouncementCreate
+    ) -> JsonRow:
+        membership = self._require_member(group_id, user_id)
+        if not self._is_admin_or_owner(membership["role"]):
+            raise PermissionDeniedError(
+                "Only the group owner or an admin can post an announcement."
+            )
+        created = self.groups.create_announcement(
+            {
+                "group_id": str(group_id),
+                "author_id": str(user_id),
+                "title": body.title,
+                "body": body.body,
+            }
+        )
+        threads = self._with_threads([created], [])
+        return threads[0]
+
+    def create_reply(
+        self,
+        user_id: UUID,
+        group_id: UUID,
+        announcement_id: UUID,
+        body: GroupAnnouncementReplyCreate,
+    ) -> JsonRow:
+        self._require_member(group_id, user_id)
+        announcement = self.groups.get_announcement(str(group_id), str(announcement_id))
+        if announcement is None:
+            raise ResourceNotFoundError("Announcement not found.")
+        created = self.groups.create_reply(
+            {
+                "announcement_id": str(announcement_id),
+                "group_id": str(group_id),
+                "author_id": str(user_id),
+                "body": body.body,
+            }
+        )
+        return self._with_author(created, *self._author_context([created]))
+
+    def _with_threads(
+        self, announcements: list[JsonRow], replies: list[JsonRow]
+    ) -> list[JsonRow]:
+        profiles, roles = self._author_context([*announcements, *replies])
+        replies_by_announcement: dict[str, list[JsonRow]] = {}
+        for reply in replies:
+            replies_by_announcement.setdefault(str(reply["announcement_id"]), []).append(
+                self._with_author(reply, profiles, roles)
+            )
+        return [
+            {
+                **self._with_author(announcement, profiles, roles),
+                "replies": replies_by_announcement.get(str(announcement["id"]), []),
+            }
+            for announcement in announcements
+        ]
+
+    def _author_context(
+        self, rows: list[JsonRow]
+    ) -> tuple[dict[str, JsonRow], dict[str, str]]:
+        author_ids = [str(row["author_id"]) for row in rows]
+        group_ids = {str(row["group_id"]) for row in rows}
+        roles: dict[str, str] = {}
+        for group_id in group_ids:
+            for member in self.groups.list_members(group_id):
+                roles[str(member["user_id"])] = str(member["role"])
+        return self.groups.get_profiles(author_ids), roles
+
+    @staticmethod
+    def _with_author(
+        row: JsonRow, profiles: dict[str, JsonRow], roles: dict[str, str]
+    ) -> JsonRow:
+        author_id = str(row["author_id"])
+        profile = profiles.get(author_id, {})
+        return {
+            **row,
+            "author_name": profile.get("display_name"),
+            "author_role": roles.get(author_id),
+            "author_avatar_url": profile.get("avatar_url"),
+        }
 
     # ── helpers ─────────────────────────────────────────────────────────────
     @staticmethod
@@ -230,19 +347,70 @@ class GroupService:
             result = [str(task["assigned_to"])]
         return result
 
+    def _close_missed_outcomes(
+        self, group_id: str, tasks: list[JsonRow], timezone_name: str
+    ) -> None:
+        logged_at = datetime.now(timezone.utc).isoformat()
+        assignments = self.groups.list_task_assignees(group_id)
+        for task in tasks:
+            if not self._deadline_passed(task, timezone_name):
+                continue
+            task_id = str(task["id"])
+            for row in assignments:
+                if str(row["task_id"]) != task_id or row.get("outcome"):
+                    continue
+                self.groups.close_unlogged_outcome(
+                    group_id, task_id, str(row["user_id"]), logged_at
+                )
+
+    @staticmethod
+    def _deadline_passed(task: JsonRow, timezone_name: str) -> bool:
+        due_date = task.get("due_date")
+        due_time = task.get("due_time")
+        if not due_date or not due_time:
+            return False
+        parsed_date = date.fromisoformat(str(due_date)[:10])
+        parsed_time = time.fromisoformat(str(due_time))
+        try:
+            zone = ZoneInfo(timezone_name.strip() or "UTC")
+        except ZoneInfoNotFoundError as exc:
+            raise DomainValidationError("timezone must be a valid IANA timezone name") from exc
+        deadline = datetime.combine(parsed_date, parsed_time, zone)
+        return datetime.now(timezone.utc) >= deadline.astimezone(timezone.utc)
+
+    def _task_for_response(self, group_id: str, task: JsonRow) -> JsonRow:
+        assignee_ids = self._task_assignee_ids(group_id, str(task["id"]), task)
+        rows = self.groups.list_task_assignees(group_id)
+        return self._with_assignees(
+            task,
+            assignee_ids,
+            outcomes=self._outcomes_for(rows, str(task["id"])),
+        )
+
+    @staticmethod
+    def _outcomes_for(rows: list[JsonRow], task_id: str) -> dict[str, str | None]:
+        return {
+            str(row["user_id"]): row.get("outcome")
+            for row in rows
+            if str(row["task_id"]) == task_id
+        }
+
     def _with_assignees(
         self,
         task: JsonRow,
         assignee_ids: list[str],
         profiles: dict[str, JsonRow] | None = None,
+        outcomes: dict[str, str | None] | None = None,
     ) -> JsonRow:
         if profiles is None:
             profiles = self.groups.get_profiles(assignee_ids)
+        outcomes = outcomes or {}
         assignees = [
             {
                 "user_id": assignee_id,
                 "display_name": profiles.get(assignee_id, {}).get("display_name"),
                 "avatar_url": profiles.get(assignee_id, {}).get("avatar_url"),
+                "outcome": outcomes.get(assignee_id),
             }
             for assignee_id in assignee_ids
         ]
