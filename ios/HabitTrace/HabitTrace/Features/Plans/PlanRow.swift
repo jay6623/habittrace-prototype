@@ -9,7 +9,7 @@ struct PlanRow: View {
     let onAction: (PlanAction) -> Void
 
     var body: some View {
-        TaskRowView(task: item.task, isActive: item.isRunning) {
+        TaskRowView(task: item.task, isActive: item.isRunning, showsDate: false) {
             VStack(alignment: .leading, spacing: HTSpacing.sm) {
                 if let activeSince {
                     HTMetaText("Active since \(TaskTimeFormatting.displayTime(activeSince))", color: HTColor.success700)

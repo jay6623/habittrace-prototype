@@ -58,7 +58,8 @@ struct PlansScreen: View {
                     )
 
                     PlansSummaryStrip(summary: viewModel.summary)
-                        .redacted(reason: isSwappingDays ? .placeholder : [])
+                        .redacted(reason: isAwaitingSelectedDay ? .placeholder : [])
+                        .accessibilityHidden(isAwaitingSelectedDay)
 
                     PlansFilterView(selection: $viewModel.selectedFilter)
 
@@ -114,10 +115,12 @@ struct PlansScreen: View {
 
     // MARK: - Content states
 
-    /// True while a different day is loading and the previous day's data
-    /// must not be presented as the new day's.
-    private var isSwappingDays: Bool {
-        viewModel.isLoading && viewModel.isShowingStaleContent
+    /// True until the selected day's data has loaded: before the first
+    /// request starts, during the first load, and during a date change.
+    /// Summary tiles are redacted and the list shows the loading card so
+    /// neither zeros nor another day's plans are presented as this day's.
+    private var isAwaitingSelectedDay: Bool {
+        viewModel.loadErrorMessage == nil && viewModel.isShowingStaleContent
     }
 
     @ViewBuilder
@@ -128,7 +131,7 @@ struct PlansScreen: View {
                     await viewModel.load()
                 }
             }
-        } else if viewModel.isLoading && (viewModel.isShowingStaleContent || viewModel.tasks.isEmpty) {
+        } else if isAwaitingSelectedDay || (viewModel.isLoading && viewModel.tasks.isEmpty) {
             PlansLoadingView()
         } else if let emptyState = viewModel.emptyState {
             PlansEmptyStateView(

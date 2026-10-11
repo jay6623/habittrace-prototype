@@ -8,15 +8,20 @@ import SwiftUI
 struct TaskRowView<Actions: View>: View {
     let task: HabitTraceTask
     var isActive = false
+    /// Whether to show the planned date for tasks not planned today.
+    /// Date-scoped lists such as Plans pass `false`.
+    var showsDate = true
     @ViewBuilder var actions: Actions
 
     init(
         task: HabitTraceTask,
         isActive: Bool = false,
+        showsDate: Bool = true,
         @ViewBuilder actions: () -> Actions
     ) {
         self.task = task
         self.isActive = isActive
+        self.showsDate = showsDate
         self.actions = actions()
     }
 
@@ -94,6 +99,7 @@ struct TaskRowView<Actions: View>: View {
 
     private var dateText: String {
         guard
+            showsDate,
             let stored = task.plannedDate,
             let date = TaskTimeFormatting.date(fromISODate: stored),
             !Calendar.current.isDateInToday(date)
@@ -105,8 +111,11 @@ struct TaskRowView<Actions: View>: View {
 }
 
 extension TaskRowView where Actions == EmptyView {
-    init(task: HabitTraceTask, isActive: Bool = false) {
-        self.init(task: task, isActive: isActive) { EmptyView() }
+    init(task: HabitTraceTask, isActive: Bool = false, showsDate: Bool = true) {
+        self.task = task
+        self.isActive = isActive
+        self.showsDate = showsDate
+        self.actions = EmptyView()
     }
 }
 

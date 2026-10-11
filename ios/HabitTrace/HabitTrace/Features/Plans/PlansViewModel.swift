@@ -90,9 +90,9 @@ final class PlansViewModel: ObservableObject {
         PlansSummary(items: items)
     }
 
-    /// Non-nil when the list has nothing to show and no load is pending.
+    /// Non-nil when the selected day has loaded and has nothing to show.
     var emptyState: PlansEmptyState? {
-        guard !isLoading, loadErrorMessage == nil else { return nil }
+        guard !isLoading, !isShowingStaleContent, loadErrorMessage == nil else { return nil }
         if tasks.isEmpty { return .noPlans }
         if filteredItems.isEmpty { return .noMatches }
         return nil
