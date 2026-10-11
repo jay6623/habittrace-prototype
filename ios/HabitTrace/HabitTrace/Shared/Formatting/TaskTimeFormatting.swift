@@ -60,6 +60,21 @@ enum TaskTimeFormatting {
         isoDateFormatter.date(from: storedDate)
     }
 
+    /// Parses an ISO 8601 timestamp as returned for execution times, with
+    /// or without fractional seconds, for example
+    /// "2026-10-09T15:00:00+00:00" or "2026-10-09T15:00:00.123456Z".
+    static func date(fromISO8601 timestamp: String) -> Date? {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractional.date(from: timestamp) {
+            return date
+        }
+
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        return plain.date(from: timestamp)
+    }
+
     // MARK: Storage formatting
 
     /// `"yyyy-MM-dd"` in the current time zone, matching the PWA's

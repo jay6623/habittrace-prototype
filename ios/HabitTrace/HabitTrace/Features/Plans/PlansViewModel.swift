@@ -28,6 +28,10 @@ final class PlansViewModel: ObservableObject {
     @Published private(set) var loadErrorMessage: String?
     /// Presentable failure from the last mutation. The UI clears it.
     @Published var actionErrorMessage: String?
+    /// The day `tasks` currently belongs to, or nil after a failed load.
+    /// Lets the UI avoid presenting one day's plans under another day's header.
+    @Published private(set) var loadedDateKey: String?
+    private(set) var lastLoadedAt: Date?
 
     // MARK: - Dependencies
 
@@ -63,9 +67,17 @@ final class PlansViewModel: ObservableObject {
         calendar.isDate(selectedDate, inSameDayAs: now())
     }
 
+    /// True while `tasks` still holds a different day than `selectedDate`.
+    var isShowingStaleContent: Bool {
+        loadedDateKey != selectedDateKey
+    }
+
     /// Every plan on the selected day joined with its active execution.
+    /// Empty while `tasks` still belongs to a previously selected day, so
+    /// neither the list nor the summary shows one day's data under another.
     var items: [PlanListItem] {
-        tasks.map { PlanListItem(task: $0, activeExecution: activeExecutions[$0.id]) }
+        guard !isShowingStaleContent else { return [] }
+        return tasks.map { PlanListItem(task: $0, activeExecution: activeExecutions[$0.id]) }
     }
 
     /// Plans that pass `selectedFilter`.
@@ -149,21 +161,42 @@ final class PlansViewModel: ObservableObject {
 
         do {
             let token = try await accessToken()
-            let fetchedTasks = try await taskService.fetchTasks(accessToken: token, on: dateKey)
-            let fetchedActive = try await taskService.fetchActiveExecutions(accessToken: token)
+
+            // Both requests are independent; run them concurrently.
+            async let tasksRequest = taskService.fetchTasks(accessToken: token, on: dateKey)
+            async let activeRequest = taskService.fetchActiveExecutions(accessToken: token)
+            let (fetchedTasks, fetchedActive) = try await (tasksRequest, activeRequest)
 
             guard generation == requestGeneration else { return }
 
             tasks = PlanOrdering.sorted(fetchedTasks)
             activeExecutions = Self.activeMap(fetchedActive)
+            loadedDateKey = dateKey
+            lastLoadedAt = now()
             isLoading = false
         } catch {
             guard generation == requestGeneration else { return }
 
             tasks = []
+            loadedDateKey = nil
             loadErrorMessage = Self.presentableMessage(for: error)
             isLoading = false
         }
+    }
+
+    /// Loads on first appearance and when the data is older than `maxAge`,
+    /// so returning to the tab does not fire duplicate requests.
+    func loadIfStale(maxAge: TimeInterval = 60) async {
+        if
+            loadErrorMessage == nil,
+            loadedDateKey == selectedDateKey,
+            let lastLoadedAt,
+            now().timeIntervalSince(lastLoadedAt) < maxAge
+        {
+            return
+        }
+
+        await load()
     }
 
     /// Reloads only the active-execution map, for cheap refreshes.
