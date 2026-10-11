@@ -23,4 +23,29 @@ extension AuthManager {
 
         return nil
     }
+
+    /// The PWA's saved default plan length, from
+    /// `user_metadata.planning_preferences.defaultDuration`, when valid.
+    var defaultPlanDurationMinutes: Int? {
+        guard
+            let preferences = session?.user.userMetadata["planning_preferences"]?.objectValue,
+            let raw = preferences["defaultDuration"]
+        else {
+            return nil
+        }
+
+        let minutes: Int?
+        if let integer = raw.intValue {
+            minutes = integer
+        } else if let double = raw.doubleValue {
+            minutes = Int(double)
+        } else {
+            minutes = nil
+        }
+
+        guard let minutes, PlanDraft.durationRange.contains(minutes) else {
+            return nil
+        }
+        return minutes
+    }
 }

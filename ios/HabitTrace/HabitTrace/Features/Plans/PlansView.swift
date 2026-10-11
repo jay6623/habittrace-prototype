@@ -16,16 +16,15 @@ struct PlansView: View {
 
 /// The Plans screen: header, summary, filter, and the day's plans.
 ///
-/// Renders `PlansViewModel` state and forwards actions. Start and Delete
-/// call the view model; Log outcome and the edit flows present a
-/// placeholder until their sheets exist.
+/// Renders `PlansViewModel` state and forwards actions. Start, Delete,
+/// Add plan, and Edit plan call the view model; Log outcome and the
+/// logged edit flow present a placeholder until their sheets exist.
 struct PlansScreen: View {
     @EnvironmentObject private var authManager: AuthManager
-    @EnvironmentObject private var taskService: TaskService
     @StateObject private var viewModel: PlansViewModel
 
     @State private var showingDatePicker = false
-    @State private var showingAddPlan = false
+    @State private var planFormRequest: PlanFormRequest?
     @State private var pendingAction: PendingAction?
     @State private var planToDelete: PlanListItem?
     @State private var toast: HTToastMessage?
@@ -54,7 +53,7 @@ struct PlansScreen: View {
                         onNext: viewModel.showNextDay,
                         onToday: viewModel.showToday,
                         onPickDate: { showingDatePicker = true },
-                        onAddPlan: { showingAddPlan = true }
+                        onAddPlan: presentNewPlanForm
                     )
 
                     PlansSummaryStrip(summary: viewModel.summary)
@@ -88,9 +87,10 @@ struct PlansScreen: View {
                     viewModel.select(date: date)
                 }
             }
-            .sheet(isPresented: $showingAddPlan, onDismiss: reloadAfterCreate) {
-                CreateTaskView(taskService: taskService)
-                    .environmentObject(authManager)
+            .sheet(item: $planFormRequest) { request in
+                PlanFormSheet(request: request, viewModel: viewModel) { _ in
+                    toast = .success("Plan saved")
+                }
             }
             .sheet(item: $pendingAction) { pending in
                 PlanActionPlaceholderSheet(action: pending.action, planTitle: pending.item.task.title)
@@ -136,7 +136,7 @@ struct PlansScreen: View {
         } else if let emptyState = viewModel.emptyState {
             PlansEmptyStateView(
                 state: emptyState,
-                onAddPlan: { showingAddPlan = true },
+                onAddPlan: presentNewPlanForm,
                 onShowAll: { viewModel.selectedFilter = .all }
             )
         } else {
@@ -160,7 +160,9 @@ struct PlansScreen: View {
             }
         case .delete:
             planToDelete = item
-        case .logOutcome, .edit, .editLogged:
+        case .edit:
+            presentEditForm(for: item)
+        case .logOutcome, .editLogged:
             pendingAction = PendingAction(action: action, item: item)
         }
     }
@@ -171,12 +173,22 @@ struct PlansScreen: View {
         }
     }
 
-    /// `CreateTaskView` writes through the shared service, not this
-    /// screen's list, so the day is reloaded once the sheet closes.
-    private func reloadAfterCreate() {
-        Task {
-            await viewModel.load()
+    /// New plan on the selected day at the next quarter hour, using the
+    /// user's saved default duration when one exists.
+    private func presentNewPlanForm() {
+        let draft = PlanDraft.new(
+            on: viewModel.selectedDate,
+            defaultDuration: authManager.defaultPlanDurationMinutes ?? 30
+        )
+        planFormRequest = PlanFormRequest(draft: draft, editingTaskID: nil)
+    }
+
+    private func presentEditForm(for item: PlanListItem) {
+        guard let draft = PlanDraft(task: item.task) else {
+            toast = .error("This plan is missing a date and can't be edited here.")
+            return
         }
+        planFormRequest = PlanFormRequest(draft: draft, editingTaskID: item.id)
     }
 
     private var isPresentingDelete: Binding<Bool> {
