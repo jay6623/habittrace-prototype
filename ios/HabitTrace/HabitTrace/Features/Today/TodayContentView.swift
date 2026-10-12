@@ -6,6 +6,8 @@ import SwiftUI
 /// tasks and composed by `TodayView`, which owns the service wiring.
 struct TodayContentView: View {
     let tasks: [HabitTraceTask]
+    /// Active execution per task id, from the shared service.
+    var activeExecutions: [String: HabitTraceExecution] = [:]
     let isLoading: Bool
     let loadErrorMessage: String?
     let greetingName: String?
@@ -18,7 +20,7 @@ struct TodayContentView: View {
 
     var body: some View {
         TimelineView(.everyMinute) { context in
-            let model = TodayViewModel(tasks: tasks, now: context.date)
+            let model = TodayViewModel(tasks: tasks, activeExecutions: activeExecutions, now: context.date)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: HTSpacing.xl) {
@@ -34,6 +36,7 @@ struct TodayContentView: View {
 
                     UpNextSection(
                         task: model.upNext,
+                        activeSince: model.upNextActiveSince,
                         hasTasksToday: model.hasTasksToday,
                         isLoading: isLoading,
                         isCompleting: isCompleting,
@@ -48,6 +51,7 @@ struct TodayContentView: View {
 
                     RemainingTodayList(
                         tasks: model.remainingAfterUpNext,
+                        runningTaskIDs: model.runningTaskIDs,
                         isCompleting: isCompleting,
                         onComplete: onComplete
                     )

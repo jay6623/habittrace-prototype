@@ -143,6 +143,7 @@ struct PlansScreen: View {
             PlanListView(
                 items: viewModel.filteredItems,
                 isBusy: viewModel.isBusy,
+                startingTaskID: viewModel.startingTaskID,
                 onAction: handle
             )
         }

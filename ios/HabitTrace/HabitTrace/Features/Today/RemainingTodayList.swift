@@ -3,6 +3,8 @@ import SwiftUI
 /// "Remaining today" section: one card row per pending task.
 struct RemainingTodayList: View {
     let tasks: [HabitTraceTask]
+    /// Tasks with an active execution, shown as In progress.
+    var runningTaskIDs: Set<String> = []
     let isCompleting: Bool
     let onComplete: (HabitTraceTask) -> Void
 
@@ -23,7 +25,7 @@ struct RemainingTodayList: View {
                 .htCard()
             } else {
                 ForEach(tasks) { task in
-                    TaskRowView(task: task) {
+                    TaskRowView(task: task, isActive: runningTaskIDs.contains(task.id)) {
                         Button("Mark complete") {
                             onComplete(task)
                         }

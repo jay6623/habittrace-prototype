@@ -9,6 +9,10 @@ import Combine
 @MainActor
 final class TaskService: ObservableObject {
     @Published private(set) var tasks: [HabitTraceTask] = []
+    /// Active (started, unfinished) execution per task id, across all
+    /// dates. The backend is authoritative: this is replaced on every
+    /// `fetchActiveExecutions` and adjusted only from server responses.
+    @Published private(set) var activeExecutions: [String: HabitTraceExecution] = [:]
     @Published private(set) var isLoading = false
     @Published var errorMessage: String?
 
@@ -16,6 +20,18 @@ final class TaskService: ObservableObject {
 
     init(apiClient: APIClient = APIClient()) {
         self.apiClient = apiClient
+    }
+
+    // MARK: - Session boundary
+
+    /// Drops everything belonging to the previous account. Called when the
+    /// signed-in user changes or signs out so no task or execution from one
+    /// user can be shown under another, even briefly or if the next load fails.
+    func reset() {
+        tasks = []
+        activeExecutions = [:]
+        errorMessage = nil
+        isLoading = false
     }
 
     // MARK: - Load Tasks
@@ -89,10 +105,15 @@ final class TaskService: ObservableObject {
         errorMessage = nil
 
         do {
-            _ = try await apiClient.completeTask(
+            let execution = try await apiClient.completeTask(
                 accessToken: accessToken,
                 taskId: taskId
             )
+
+            // The server completes any active execution for this task.
+            if !execution.isActive {
+                activeExecutions[taskId] = nil
+            }
 
             tasks = try await apiClient.fetchTasks(
                 accessToken: accessToken
@@ -246,11 +267,19 @@ final class TaskService: ObservableObject {
         removeTask(id: taskId)
     }
 
-    // MARK: - Executions (Plans)
+    // MARK: - Executions
 
     /// Executions that have started but not finished, newest first.
+    /// Replaces `activeExecutions` with the server's view.
+    @discardableResult
     func fetchActiveExecutions(accessToken: String) async throws -> [HabitTraceExecution] {
-        try await apiClient.fetchExecutions(accessToken: accessToken, activeOnly: true)
+        let executions = try await apiClient.fetchExecutions(accessToken: accessToken, activeOnly: true)
+        // Newest first; keep the first entry per task.
+        activeExecutions = Dictionary(
+            executions.map { ($0.taskId, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return executions
     }
 
     /// All of the user's executions, newest first.
@@ -258,8 +287,14 @@ final class TaskService: ObservableObject {
         try await apiClient.fetchExecutions(accessToken: accessToken)
     }
 
+    /// `POST /executions/start`. The server returns the existing active
+    /// execution if one exists, so the map is set from the response only.
     func startExecution(accessToken: String, taskId: String) async throws -> HabitTraceExecution {
-        try await apiClient.startExecution(accessToken: accessToken, taskId: taskId)
+        let execution = try await apiClient.startExecution(accessToken: accessToken, taskId: taskId)
+        if execution.isActive {
+            activeExecutions[taskId] = execution
+        }
+        return execution
     }
 
     /// Records a finished outcome in one call and reconciles the task's
@@ -324,9 +359,11 @@ final class TaskService: ObservableObject {
         }
     }
 
-    /// Removes a task from the shared array by id.
+    /// Removes a task from the shared array by id, along with any active
+    /// execution the server deleted with it.
     func removeTask(id: String) {
         tasks.removeAll { $0.id == id }
+        activeExecutions[id] = nil
     }
 
     /// Replaces every shared task planned on `date` with `fetched`,
@@ -338,8 +375,13 @@ final class TaskService: ObservableObject {
     }
 
     /// Mirrors the server's task-status sync after an execution write so
-    /// Today reflects it without a full reload.
+    /// Today reflects it without a full reload, and clears the task's
+    /// active entry once the execution is finished.
     private func applyStatus(from execution: HabitTraceExecution) {
+        if !execution.isActive {
+            activeExecutions[execution.taskId] = nil
+        }
+
         guard
             let status = execution.taskStatus,
             let index = tasks.firstIndex(where: { $0.id == execution.taskId })

@@ -16,5 +16,10 @@
 	<string>https://YOUR-PROJECT-REF.supabase.co</string>
 	<key>SUPABASE_ANON_KEY</key>
 	<string>YOUR-PUBLISHABLE-ANON-KEY</string>
+	<!-- Optional. Overrides the API base URL (default http://127.0.0.1:8000)
+	     for every launch, including from the home screen. The
+	     HABITTRACE_API_URL environment variable takes precedence. -->
+	<key>API_BASE_URL</key>
+	<string>http://127.0.0.1:8000</string>
 </dict>
 </plist>

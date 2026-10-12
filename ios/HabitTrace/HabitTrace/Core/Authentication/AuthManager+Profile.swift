@@ -2,6 +2,12 @@ import Foundation
 import Supabase
 
 extension AuthManager {
+    /// Stable id of the signed-in user, or nil when signed out. Used to
+    /// detect account changes without exposing Supabase types to views.
+    var currentUserID: String? {
+        session?.user.id.uuidString
+    }
+
     /// Short name for greetings: the `first_name` the PWA stores in
     /// Supabase user metadata, else the local part of the email.
     var greetingName: String? {

@@ -24,6 +24,8 @@ final class PlansViewModel: ObservableObject {
     @Published private(set) var isLoading = false
     /// True while a mutation is in flight. Gates every action.
     @Published private(set) var isBusy = false
+    /// The task whose Start request is in flight, for per-row progress.
+    @Published private(set) var startingTaskID: String?
     /// Presentable failure from the last load, cleared on success.
     @Published private(set) var loadErrorMessage: String?
     /// Presentable failure from the last mutation. The UI clears it.
@@ -165,23 +167,45 @@ final class PlansViewModel: ObservableObject {
             // Both requests are independent; run them concurrently.
             async let tasksRequest = taskService.fetchTasks(accessToken: token, on: dateKey)
             async let activeRequest = taskService.fetchActiveExecutions(accessToken: token)
-            let (fetchedTasks, fetchedActive) = try await (tasksRequest, activeRequest)
+            let (fetchedTasks, _) = try await (tasksRequest, activeRequest)
 
             guard generation == requestGeneration else { return }
 
             tasks = PlanOrdering.sorted(fetchedTasks)
-            activeExecutions = Self.activeMap(fetchedActive)
+            syncActiveExecutions()
             loadedDateKey = dateKey
             lastLoadedAt = now()
             isLoading = false
         } catch {
             guard generation == requestGeneration else { return }
 
-            tasks = []
-            loadedDateKey = nil
-            loadErrorMessage = Self.presentableMessage(for: error)
+            // A cancelled refresh (for example a released pull gesture or a
+            // superseded task) is not a failure; leave the state untouched.
+            if Self.isCancellation(error) {
+                isLoading = false
+                return
+            }
+
+            let message = Self.presentableMessage(for: error)
+
+            if loadedDateKey == dateKey {
+                // Same-day refresh failed: keep the plans already shown and
+                // report through the action channel instead of replacing
+                // the list with an error card.
+                actionErrorMessage = message
+            } else {
+                tasks = []
+                loadedDateKey = nil
+                loadErrorMessage = message
+            }
             isLoading = false
         }
+    }
+
+    private static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if let urlError = error as? URLError, urlError.code == .cancelled { return true }
+        return false
     }
 
     /// Loads on first appearance and when the data is older than `maxAge`,
@@ -193,6 +217,8 @@ final class PlansViewModel: ObservableObject {
             let lastLoadedAt,
             now().timeIntervalSince(lastLoadedAt) < maxAge
         {
+            // Another screen may have changed execution state meanwhile.
+            syncActiveExecutions()
             return
         }
 
@@ -203,10 +229,16 @@ final class PlansViewModel: ObservableObject {
     func refreshActiveExecutions() async {
         do {
             let token = try await accessToken()
-            activeExecutions = Self.activeMap(try await taskService.fetchActiveExecutions(accessToken: token))
+            try await taskService.fetchActiveExecutions(accessToken: token)
+            syncActiveExecutions()
         } catch {
             actionErrorMessage = Self.presentableMessage(for: error)
         }
+    }
+
+    /// Copies the shared, server-backed map from `TaskService`.
+    private func syncActiveExecutions() {
+        activeExecutions = taskService.activeExecutions
     }
 
     // MARK: - Overlap detection
@@ -319,7 +351,7 @@ final class PlansViewModel: ObservableObject {
             let token = try await accessToken()
             try await taskService.removeTask(accessToken: token, taskId: taskID)
             tasks.removeAll { $0.id == taskID }
-            activeExecutions[taskID] = nil
+            syncActiveExecutions()
             return true
         } catch {
             actionErrorMessage = Self.presentableMessage(for: error)
@@ -327,20 +359,42 @@ final class PlansViewModel: ObservableObject {
         }
     }
 
-    /// Starts a plan. Idempotent on the server; also used for the
-    /// outcome sheet's "Still working" choice.
+    /// Starts a plan through `POST /executions/start`.
+    ///
+    /// Only pending plans are sent; a plan already running locally returns
+    /// its execution without a request, and logged plans are refused with
+    /// the server's own wording. The row is marked running only from the
+    /// server's response. A 409 means the server disagrees about the
+    /// plan's state, so the day is reloaded before the message is shown.
     @discardableResult
     func startPlan(taskID: String) async -> HabitTraceExecution? {
+        if let running = activeExecutions[taskID] {
+            return running
+        }
+
+        if let item = item(for: taskID), item.isLogged {
+            actionErrorMessage = "Completed tasks cannot be started"
+            return nil
+        }
+
         guard beginMutation() else { return nil }
-        defer { endMutation() }
+        startingTaskID = taskID
+        defer {
+            startingTaskID = nil
+            endMutation()
+        }
 
         do {
             let token = try await accessToken()
             let execution = try await taskService.startExecution(accessToken: token, taskId: taskID)
-            activeExecutions[taskID] = execution
+            syncActiveExecutions()
             return execution
         } catch {
             actionErrorMessage = Self.presentableMessage(for: error)
+
+            if (error as? APIError)?.statusCode == 409 {
+                await load()
+            }
             return nil
         }
     }
@@ -455,7 +509,7 @@ final class PlansViewModel: ObservableObject {
     /// Applies a finished execution: clears the active entry and mirrors
     /// the server's task-status sync locally and into the shared array.
     private func applyFinished(_ execution: HabitTraceExecution) {
-        activeExecutions[execution.taskId] = nil
+        syncActiveExecutions()
 
         guard let status = execution.taskStatus else { return }
 
@@ -481,11 +535,6 @@ final class PlansViewModel: ObservableObject {
 
     private func endMutation() {
         isBusy = false
-    }
-
-    private static func activeMap(_ executions: [HabitTraceExecution]) -> [String: HabitTraceExecution] {
-        // Newest first; keep the first entry per task.
-        Dictionary(executions.map { ($0.taskId, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
     // MARK: - Errors

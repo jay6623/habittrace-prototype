@@ -22,6 +22,7 @@ struct TodayView: View {
         NavigationStack {
             TodayContentView(
                 tasks: taskService.tasks,
+                activeExecutions: taskService.activeExecutions,
                 isLoading: taskService.isLoading && taskService.tasks.isEmpty,
                 loadErrorMessage: taskService.tasks.isEmpty ? taskService.errorMessage : nil,
                 greetingName: authManager.greetingName,
@@ -76,6 +77,9 @@ struct TodayView: View {
         do {
             let accessToken = try await authManager.validAccessToken()
             await taskService.loadTasks(accessToken: accessToken)
+            // Active executions drive the In progress hero. A failure here
+            // keeps the last known map rather than surfacing a second error.
+            _ = try? await taskService.fetchActiveExecutions(accessToken: accessToken)
         } catch {
             taskService.errorMessage = error.localizedDescription
         }

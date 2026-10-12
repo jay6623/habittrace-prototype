@@ -4,6 +4,9 @@ import SwiftUI
 /// empty state when nothing is pending.
 struct UpNextSection: View {
     let task: HabitTraceTask?
+    /// Server-recorded start when `task` is running; drives the
+    /// "In progress" treatment of the hero card.
+    var activeSince: Date? = nil
     let hasTasksToday: Bool
     let isLoading: Bool
     let isCompleting: Bool
@@ -11,7 +14,7 @@ struct UpNextSection: View {
 
     var body: some View {
         if let task {
-            TaskHeroCard(task: task) {
+            TaskHeroCard(task: task, activeSince: activeSince) {
                 Button {
                     onComplete(task)
                 } label: {

@@ -4,12 +4,17 @@ import SwiftUI
 struct PlanListView: View {
     let items: [PlanListItem]
     let isBusy: Bool
+    var startingTaskID: String?
     let onAction: (PlanAction, PlanListItem) -> Void
 
     var body: some View {
         LazyVStack(spacing: HTSpacing.md) {
             ForEach(items) { item in
-                PlanRow(item: item, isBusy: isBusy) { action in
+                PlanRow(
+                    item: item,
+                    isBusy: isBusy,
+                    isStarting: item.id == startingTaskID
+                ) { action in
                     onAction(action, item)
                 }
             }

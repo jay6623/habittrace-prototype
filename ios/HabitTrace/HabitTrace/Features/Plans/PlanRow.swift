@@ -6,6 +6,8 @@ import SwiftUI
 struct PlanRow: View {
     let item: PlanListItem
     let isBusy: Bool
+    /// True while this row's Start request is in flight.
+    var isStarting = false
     let onAction: (PlanAction) -> Void
 
     var body: some View {
@@ -17,10 +19,18 @@ struct PlanRow: View {
 
                 HStack(spacing: HTSpacing.sm) {
                     if item.supports(.start) {
-                        Button("Start") {
+                        Button {
                             onAction(.start)
+                        } label: {
+                            if isStarting {
+                                ProgressView()
+                                    .tint(.white)
+                            } else {
+                                Text("Start")
+                            }
                         }
                         .buttonStyle(.htPrimary(fullWidth: true))
+                        .accessibilityLabel(isStarting ? "Starting" : "Start")
                     }
 
                     if item.supports(.logOutcome) {

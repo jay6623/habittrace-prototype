@@ -16,12 +16,22 @@ struct TodayViewModel {
     let plannedMinutes: Int
     /// Pending tasks planned for a day before today.
     let unloggedCount: Int
-    /// The pending task whose start time is closest to now.
+    /// The running task if one is planned today, otherwise the pending
+    /// task whose start time is closest to now. Mirrors the PWA hero.
     let upNext: HabitTraceTask?
+    /// When `upNext` is running, the server-recorded start time.
+    let upNextActiveSince: Date?
     /// Remaining tasks with `upNext` removed, for the list below the hero.
     let remainingAfterUpNext: [HabitTraceTask]
+    /// Ids of today's tasks that currently have an active execution.
+    let runningTaskIDs: Set<String>
 
-    init(tasks: [HabitTraceTask], now: Date = .now, calendar: Calendar = .current) {
+    init(
+        tasks: [HabitTraceTask],
+        activeExecutions: [String: HabitTraceExecution] = [:],
+        now: Date = .now,
+        calendar: Calendar = .current
+    ) {
         let todayKey = TaskTimeFormatting.isoDate(from: now)
         let startOfToday = calendar.startOfDay(for: now)
 
@@ -48,9 +58,15 @@ struct TodayViewModel {
             return day < startOfToday
         }.count
 
-        let nextTask = Self.closestToNow(remainingTasks, now: now)
+        runningTaskIDs = Set(remainingTasks.map(\.id).filter { activeExecutions[$0] != nil })
+
+        let runningTask = remainingTasks.first { activeExecutions[$0.id] != nil }
+        let nextTask = runningTask ?? Self.closestToNow(remainingTasks, now: now)
         let nextTaskID = nextTask?.id
         upNext = nextTask
+        upNextActiveSince = runningTask
+            .flatMap { activeExecutions[$0.id]?.actualStartTime }
+            .flatMap { TaskTimeFormatting.date(fromISO8601: $0) }
         remainingAfterUpNext = remainingTasks.filter { $0.id != nextTaskID }
     }
 
