@@ -214,9 +214,9 @@ export default function IntegrationsPage() {
             timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
           });
           setGoogleConnected(true);
-          setNotice(
-            `Google Calendar connected. ${connected.sync.synced} task${connected.sync.synced === 1 ? "" : "s"} synced.`,
-          );
+          const connectedMessage = `Google Calendar connected. ${connected.sync.synced} task${connected.sync.synced === 1 ? "" : "s"} synced.`;
+          setNotice(connectedMessage);
+          toast.record("success", connectedMessage);
           window.history.replaceState({}, "", window.location.pathname);
         }
 
@@ -257,9 +257,10 @@ export default function IntegrationsPage() {
       if (intg.connected) {
         await disconnectGoogleCalendar();
         setGoogleConnected(false);
-        setNotice(
-          "Google Calendar disconnected. Existing Google events were left unchanged.",
-        );
+        const disconnectedMessage =
+          "Google Calendar disconnected. Existing Google events were left unchanged.";
+        setNotice(disconnectedMessage);
+        toast.record("info", disconnectedMessage);
         return;
       }
       if (!calendarConfigured) {
@@ -305,9 +306,9 @@ export default function IntegrationsPage() {
     setNotice(null);
     try {
       const result = await syncGoogleCalendar();
-      setNotice(
-        `${result.synced} task${result.synced === 1 ? "" : "s"} synced to Google Calendar.`,
-      );
+      const syncedMessage = `${result.synced} task${result.synced === 1 ? "" : "s"} synced to Google Calendar.`;
+      setNotice(syncedMessage);
+      toast.record("success", syncedMessage);
       if (result.failed) {
         setError(
           `${result.failed} task${result.failed === 1 ? "" : "s"} could not be synced.`,

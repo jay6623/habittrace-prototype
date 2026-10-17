@@ -11,6 +11,7 @@ import {
   type QuickAddDraft,
 } from "@/lib/mobile-task";
 import QuickAddForm from "./quick-add-form";
+import { useToast } from "@/components/ui/toast";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
@@ -75,6 +76,7 @@ export default function MobileCalendar() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const inbox = useToast();
 
   const loadCalendar = useCallback(async () => {
     setLoading(true);
@@ -159,9 +161,9 @@ export default function MobileCalendar() {
       new Date(createdDate.getFullYear(), createdDate.getMonth(), 1, 12),
     );
     setQuickAddOpen(false);
-    setToast(
-      `Plan added for ${createdDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}.`,
-    );
+    const message = `Plan added for ${createdDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}.`;
+    setToast(message);
+    inbox.record("success", message);
   }
 
   return (

@@ -413,9 +413,14 @@ export default function DesktopCommandCenter() {
                 return (
                   <div key={date} className="text-center">
                     <p className="text-[10px] font-bold uppercase text-slate-400">{day.toLocaleDateString("en-US", { weekday: "narrow" })}</p>
-                    <div title={`${done} completed of ${dayTasks.length} planned`} className={`mx-auto mt-2 grid h-9 w-9 place-items-center rounded-xl text-xs font-bold ${isToday ? "ring-2 ring-slate-950 ring-offset-2" : ""} ${pastOutcomes && done === pastOutcomes ? "bg-emerald-500 text-white" : pastOutcomes ? "bg-amber-100 text-amber-900" : dayTasks.length ? "bg-slate-100 text-slate-600" : "bg-slate-50 text-slate-300"}`}>
+                    <Link
+                      href={`/dashboard/habits?date=${date}`}
+                      aria-label={`Open ${day.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })} in Plans`}
+                      title={`${done} completed of ${dayTasks.length} planned`}
+                      className={`mx-auto mt-2 grid h-9 w-9 place-items-center rounded-xl text-xs font-bold transition hover:scale-105 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950 ${isToday ? "ring-2 ring-slate-950 ring-offset-2" : ""} ${pastOutcomes && done === pastOutcomes ? "bg-emerald-500 text-white" : pastOutcomes ? "bg-amber-100 text-amber-900" : dayTasks.length ? "bg-slate-100 text-slate-600" : "bg-slate-50 text-slate-300"}`}
+                    >
                       {day.getDate()}
-                    </div>
+                    </Link>
                   </div>
                 );
               })}

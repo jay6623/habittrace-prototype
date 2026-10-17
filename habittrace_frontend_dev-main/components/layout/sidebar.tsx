@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 export const navigation = [
   { href: "/dashboard", label: "Today", icon: "◉" },
   { href: "/dashboard/habits", label: "Plans", icon: "▦" },
+  { href: "/dashboard/calendar", label: "Calendar", icon: "▣" },
   { href: "/dashboard/group", label: "Groups", icon: "◎" },
   { href: "/dashboard/analytics", label: "Insights", icon: "↗" },
   { href: "/dashboard/settings", label: "Settings", icon: "⚙" },
@@ -12,7 +13,8 @@ export const navigation = [
 export function navActive(path: string, href: string) {
   if (href === "/dashboard")
     return path === href || path === "/dashboard/today";
-  if (href.endsWith("habits")) return /habits|calendar|scheduler/.test(path);
+  if (href.endsWith("calendar")) return path.includes("/calendar");
+  if (href.endsWith("habits")) return /habits|scheduler/.test(path);
   if (href.endsWith("settings"))
     return /settings|integrations|account/.test(path);
   return path === href;

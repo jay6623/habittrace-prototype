@@ -5,18 +5,23 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from ..db.supabase_client import get_supabase, is_supabase_configured
 from ..dependencies.auth import CurrentUserId
 from ..repositories.group_repository import GroupRepository
 from ..schemas.group import (
+    GroupAnnouncementCreate,
+    GroupAnnouncementReplyCreate,
+    GroupAnnouncementReplyResponse,
+    GroupAnnouncementResponse,
     GroupCreate,
     GroupDetailResponse,
     GroupJoinRequest,
     GroupMemberResponse,
     GroupMemberRoleUpdate,
     GroupResponse,
+    GroupTaskCompletion,
     GroupTaskCreate,
     GroupTaskResponse,
     GroupTaskUpdate,
@@ -55,8 +60,13 @@ def join_group(body: GroupJoinRequest, user_id: CurrentUserId, service: GroupSer
 
 
 @router.get("/{group_id}", response_model=GroupDetailResponse)
-def get_group(group_id: UUID, user_id: CurrentUserId, service: GroupServiceDep):
-    return service.get_group_detail(user_id, group_id)
+def get_group(
+    group_id: UUID,
+    user_id: CurrentUserId,
+    service: GroupServiceDep,
+    timezone_name: str = Query("UTC", alias="timezone"),
+):
+    return service.get_group_detail(user_id, group_id, timezone_name)
 
 
 @router.delete("/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -80,6 +90,45 @@ def update_group_member_role(
     return service.set_member_role(user_id, group_id, target_user_id, body)
 
 
+@router.get(
+    "/{group_id}/announcements",
+    response_model=list[GroupAnnouncementResponse],
+)
+def list_group_announcements(
+    group_id: UUID, user_id: CurrentUserId, service: GroupServiceDep
+):
+    return service.list_announcements(user_id, group_id)
+
+
+@router.post(
+    "/{group_id}/announcements",
+    response_model=GroupAnnouncementResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_group_announcement(
+    group_id: UUID,
+    body: GroupAnnouncementCreate,
+    user_id: CurrentUserId,
+    service: GroupServiceDep,
+):
+    return service.create_announcement(user_id, group_id, body)
+
+
+@router.post(
+    "/{group_id}/announcements/{announcement_id}/replies",
+    response_model=GroupAnnouncementReplyResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_group_announcement_reply(
+    group_id: UUID,
+    announcement_id: UUID,
+    body: GroupAnnouncementReplyCreate,
+    user_id: CurrentUserId,
+    service: GroupServiceDep,
+):
+    return service.create_reply(user_id, group_id, announcement_id, body)
+
+
 @router.post(
     "/{group_id}/tasks",
     response_model=GroupTaskResponse,
@@ -92,6 +141,20 @@ def create_group_task(
     service: GroupServiceDep,
 ):
     return service.create_task(user_id, group_id, body)
+
+
+@router.post(
+    "/{group_id}/tasks/{task_id}/completion",
+    response_model=GroupTaskResponse,
+)
+def log_group_task_completion(
+    group_id: UUID,
+    task_id: UUID,
+    body: GroupTaskCompletion,
+    user_id: CurrentUserId,
+    service: GroupServiceDep,
+):
+    return service.log_own_outcome(user_id, group_id, task_id, body)
 
 
 @router.patch("/{group_id}/tasks/{task_id}", response_model=GroupTaskResponse)

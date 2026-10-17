@@ -152,6 +152,8 @@ def _memberships(database: MemoryDatabase, group_id: str) -> list[dict]:
         ("get", f"/groups/{OWN_GROUP_ID}"),
         ("post", f"/groups/{OWN_GROUP_ID}/leave"),
         ("post", f"/groups/{OWN_GROUP_ID}/tasks"),
+        ("get", f"/groups/{OWN_GROUP_ID}/announcements"),
+        ("post", f"/groups/{OWN_GROUP_ID}/announcements"),
     ],
 )
 def test_groups_require_auth(client: TestClient, method: str, path: str) -> None:
@@ -590,3 +592,198 @@ def test_owner_cannot_leave_group(authenticated_client: TestClient) -> None:
     response = authenticated_client.post(f"/groups/{OWN_GROUP_ID}/leave")
 
     assert response.status_code == 403
+
+
+# ── announcements ───────────────────────────────────────────────────────────
+ANNOUNCEMENT_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+
+
+def _set_role(database: MemoryDatabase, group_id: str, user_id: str, role: str) -> None:
+    for row in database.rows["group_members"]:
+        if row["group_id"] == group_id and row["user_id"] == user_id:
+            row["role"] = role
+
+
+def test_owner_can_post_and_list_announcement(authenticated_client: TestClient) -> None:
+    _use_memory_database()
+
+    created = authenticated_client.post(
+        f"/groups/{OWN_GROUP_ID}/announcements",
+        json={"title": "  Standup  ", "body": "  Standup moved to 9 AM.  "},
+    )
+
+    assert created.status_code == 201
+    body = created.json()
+    assert body["title"] == "Standup"
+    assert body["body"] == "Standup moved to 9 AM."
+    assert body["author_id"] == str(USER_ID)
+    assert body["author_name"] == "Yen"
+    assert body["author_role"] == "owner"
+    assert body["replies"] == []
+
+    listed = authenticated_client.get(f"/groups/{OWN_GROUP_ID}/announcements")
+    assert listed.status_code == 200
+    assert [item["id"] for item in listed.json()] == [body["id"]]
+
+
+def test_admin_can_post_announcement(authenticated_client: TestClient) -> None:
+    database = _use_memory_database()
+    _set_role(database, OWN_GROUP_ID, str(USER_ID), "admin")
+
+    response = authenticated_client.post(
+        f"/groups/{OWN_GROUP_ID}/announcements",
+        json={"title": "Admin note", "body": "Details for the team."},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["author_role"] == "admin"
+
+
+def test_member_cannot_post_announcement(authenticated_client: TestClient) -> None:
+    database = _use_memory_database()
+    _set_role(database, OWN_GROUP_ID, str(USER_ID), "member")
+
+    response = authenticated_client.post(
+        f"/groups/{OWN_GROUP_ID}/announcements",
+        json={"title": "Member note", "body": "A regular member should not post this."},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Only the group owner or an admin can post an announcement."
+    assert database.rows.get("group_announcements", []) == []
+
+
+def test_non_member_cannot_read_announcements(authenticated_client: TestClient) -> None:
+    _use_memory_database()
+
+    response = authenticated_client.get(f"/groups/{FOREIGN_GROUP_ID}/announcements")
+
+    assert response.status_code == 404
+
+
+def test_member_can_reply_to_announcement_thread(authenticated_client: TestClient) -> None:
+    database = _use_memory_database()
+    database.rows["group_announcements"] = [
+        {
+            "id": ANNOUNCEMENT_ID,
+            "group_id": FOREIGN_GROUP_ID,
+            "author_id": OTHER_ID,
+            "title": "Please read this",
+            "body": "Please read this.",
+            "created_at": NOW,
+        }
+    ]
+    authenticated_client.post("/groups/join", json={"invite_code": "WXYZ6789"})
+
+    response = authenticated_client.post(
+        f"/groups/{FOREIGN_GROUP_ID}/announcements/{ANNOUNCEMENT_ID}/replies",
+        json={"body": "Got it."},
+    )
+
+    assert response.status_code == 201
+    reply = response.json()
+    assert reply["body"] == "Got it."
+    assert reply["author_id"] == str(USER_ID)
+    assert reply["author_role"] == "member"
+    assert reply["announcement_id"] == ANNOUNCEMENT_ID
+
+    listed = authenticated_client.get(f"/groups/{FOREIGN_GROUP_ID}/announcements")
+    assert listed.status_code == 200
+    assert listed.json()[0]["replies"][0]["body"] == "Got it."
+
+
+def test_assignee_logs_only_their_own_completion(authenticated_client: TestClient) -> None:
+    database = _use_memory_database()
+    database.rows["group_tasks"][0]["due_date"] = "2099-09-06"
+    authenticated_client.patch(
+        f"/groups/{OWN_GROUP_ID}/tasks/{OWN_TASK_ID}",
+        json={"assigned_to_ids": [str(USER_ID), OTHER_ID]},
+    )
+
+    denied = authenticated_client.post(
+        f"/groups/{OWN_GROUP_ID}/tasks/{OWN_TASK_ID}/completion",
+        json={"outcome": "success", "timezone": "UTC"},
+    )
+    # The caller is assigned, so this succeeds for Yen only.
+    assert denied.status_code == 200
+    yen = next(item for item in denied.json()["assignees"] if item["user_id"] == str(USER_ID))
+    alex = next(item for item in denied.json()["assignees"] if item["user_id"] == OTHER_ID)
+    assert yen["outcome"] == "success"
+    assert alex["outcome"] is None
+    stored = {
+        row["user_id"]: row.get("outcome")
+        for row in database.rows["group_task_assignees"]
+        if row["task_id"] == OWN_TASK_ID
+    }
+    assert stored == {str(USER_ID): "success", OTHER_ID: None}
+
+
+def test_unassigned_member_cannot_log_group_task(authenticated_client: TestClient) -> None:
+    _use_memory_database()
+
+    response = authenticated_client.post(
+        f"/groups/{OWN_GROUP_ID}/tasks/{OWN_TASK_ID}/completion",
+        json={"outcome": "success", "timezone": "UTC"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Only people assigned to this task can log it."
+
+
+def test_overdue_unlogged_assignee_is_marked_not_completed(
+    authenticated_client: TestClient,
+) -> None:
+    database = _use_memory_database()
+    database.rows["group_tasks"][0]["due_date"] = "2026-09-01"
+    database.rows["group_tasks"][0]["due_time"] = "09:00:00"
+
+    response = authenticated_client.get(f"/groups/{OWN_GROUP_ID}?timezone=UTC")
+
+    assert response.status_code == 200
+    assignee = response.json()["tasks"][0]["assignees"][0]
+    assert assignee["user_id"] == OTHER_ID
+    assert assignee["outcome"] == "failed"
+    assert database.rows["group_task_assignees"][0]["outcome"] == "failed"
+
+
+def test_logged_completion_stays_completed_after_the_deadline(
+    authenticated_client: TestClient,
+) -> None:
+    database = _use_memory_database()
+    database.rows["group_task_assignees"][0]["outcome"] = "success"
+    database.rows["group_tasks"][0]["due_date"] = "2026-09-01"
+    database.rows["group_tasks"][0]["due_time"] = "09:00:00"
+
+    response = authenticated_client.get(f"/groups/{OWN_GROUP_ID}?timezone=UTC")
+
+    assert response.status_code == 200
+    assert response.json()["tasks"][0]["assignees"][0]["outcome"] == "success"
+
+
+def test_reply_to_missing_or_foreign_announcement_returns_404(
+    authenticated_client: TestClient,
+) -> None:
+    database = _use_memory_database()
+    database.rows["group_announcements"] = [
+        {
+            "id": ANNOUNCEMENT_ID,
+            "group_id": FOREIGN_GROUP_ID,
+            "author_id": OTHER_ID,
+            "title": "Private announcement",
+            "body": "Private announcement",
+            "created_at": NOW,
+        }
+    ]
+
+    missing = authenticated_client.post(
+        f"/groups/{OWN_GROUP_ID}/announcements/{ANNOUNCEMENT_ID}/replies",
+        json={"body": "This thread is in another group."},
+    )
+    stranger = authenticated_client.post(
+        f"/groups/{FOREIGN_GROUP_ID}/announcements/{ANNOUNCEMENT_ID}/replies",
+        json={"body": "Not a member."},
+    )
+
+    assert missing.status_code == 404
+    assert stranger.status_code == 404
+    assert database.rows.get("group_announcement_replies", []) == []

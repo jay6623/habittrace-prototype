@@ -362,6 +362,9 @@ export default function CoachChat() {
     setMessages((prev) => [...prev, userMsg]);
     setStreaming(true);
     setStreamText("");
+    // Sending moves focus onto the button. Put it back before the reply
+    // starts so the next message can be typed without another click.
+    inputRef.current?.focus();
 
     try {
       let full = "";
@@ -623,10 +626,9 @@ export default function CoachChat() {
           <input
             ref={inputRef}
             className="flex-1 bg-slate-100 rounded-xl px-4 py-3 outline-none text-sm border border-transparent focus:bg-white focus:border-slate-200"
-            placeholder={streaming ? "Waiting for response…" : "Ask or schedule a task…"}
+            placeholder="Ask or schedule a task…"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            disabled={streaming}
           />
           <button
             type="submit"

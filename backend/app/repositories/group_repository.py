@@ -15,6 +15,8 @@ class GroupRepository(BaseRepository):
     members_table = "group_members"
     tasks_table = "group_tasks"
     assignees_table = "group_task_assignees"
+    announcements_table = "group_announcements"
+    replies_table = "group_announcement_replies"
     profiles_table = "profiles"
 
     # ── groups ──────────────────────────────────────────────────────────────
@@ -207,3 +209,76 @@ class GroupRepository(BaseRepository):
                     ),
                     validation_detail="The task assignees violate a database constraint.",
                 )
+
+    def set_assignee_outcome(
+        self, group_id: str, task_id: str, user_id: str, outcome: str, logged_at: str
+    ) -> JsonRow | None:
+        response = self._execute(
+            self.db.table(self.assignees_table)
+            .update({"outcome": outcome, "logged_at": logged_at})
+            .eq("group_id", group_id)
+            .eq("task_id", task_id)
+            .eq("user_id", user_id),
+            validation_detail="The completion violates a database constraint.",
+        )
+        return response.data[0] if response.data else None
+
+    def close_unlogged_outcome(
+        self, group_id: str, task_id: str, user_id: str, logged_at: str
+    ) -> bool:
+        response = self._execute(
+            self.db.table(self.assignees_table)
+            .update({"outcome": "failed", "logged_at": logged_at})
+            .eq("group_id", group_id)
+            .eq("task_id", task_id)
+            .eq("user_id", user_id)
+            .is_("outcome", "null")
+        )
+        return bool(response.data)
+
+    # ── announcements ───────────────────────────────────────────────────────
+    def create_announcement(self, data: JsonRow) -> JsonRow:
+        response = self._execute(
+            self.db.table(self.announcements_table).insert(data),
+            validation_detail="The announcement violates a database constraint.",
+        )
+        if not response.data:
+            raise RepositoryError("The database did not return the created announcement.")
+        return response.data[0]
+
+    def list_announcements(self, group_id: str) -> list[JsonRow]:
+        response = self._execute(
+            self.db.table(self.announcements_table)
+            .select("*")
+            .eq("group_id", group_id)
+            .order("created_at", desc=True)
+        )
+        return list(response.data or [])
+
+    def get_announcement(self, group_id: str, announcement_id: str) -> JsonRow | None:
+        response = self._execute(
+            self.db.table(self.announcements_table)
+            .select("*")
+            .eq("group_id", group_id)
+            .eq("id", announcement_id)
+            .limit(1)
+        )
+        return response.data[0] if response.data else None
+
+    def create_reply(self, data: JsonRow) -> JsonRow:
+        response = self._execute(
+            self.db.table(self.replies_table).insert(data),
+            validation_detail="The reply violates a database constraint.",
+        )
+        if not response.data:
+            raise RepositoryError("The database did not return the created reply.")
+        return response.data[0]
+
+    def list_replies(self, group_id: str) -> list[JsonRow]:
+        response = self._execute(
+            self.db.table(self.replies_table)
+            .select("*")
+            .eq("group_id", group_id)
+            .order("created_at")
+        )
+        return list(response.data or [])

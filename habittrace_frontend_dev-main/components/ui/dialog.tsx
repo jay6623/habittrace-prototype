@@ -35,7 +35,7 @@ export default function Dialog({
       className="m-auto max-h-[90dvh] w-[calc(100%-2rem)] max-w-lg rounded-3xl border border-slate-200 bg-white p-6 text-slate-950 shadow-xl backdrop:bg-slate-950/40"
     >
       <div className="mb-5 flex items-center justify-between gap-4">
-        <h2 id={titleId} className="text-xl font-bold">
+        <h2 id={titleId} className="min-w-0 break-words text-xl font-bold">
           {title}
         </h2>
         <button

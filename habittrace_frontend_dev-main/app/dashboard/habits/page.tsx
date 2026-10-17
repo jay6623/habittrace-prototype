@@ -30,6 +30,11 @@ import OutcomeSheet, {
   type OutcomeTimes,
 } from "@/components/mobile/outcome-sheet";
 import Dialog from "@/components/ui/dialog";
+import PlanFilters, {
+  ALL_PLAN_FILTERS,
+  matchesPlanFilters,
+  type PlanFilterState,
+} from "@/components/layout/plan-filters";
 import { useToast } from "@/components/ui/toast";
 
 const CATEGORY_STYLES: Record<string, string> = {
@@ -72,6 +77,7 @@ function Plans() {
   const [outcomeError, setOutcomeError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState("all");
+  const [planFilters, setPlanFilters] = useState<PlanFilterState>(ALL_PLAN_FILTERS);
   const request = useRef(0);
   const load = useCallback(async () => {
     const id = ++request.current;
@@ -203,7 +209,10 @@ function Plans() {
         }
       : undefined;
   const visible = tasks.filter(
-    (t) => filter === "all" || t.task_status === filter || t.id === selected,
+    (t) =>
+      t.id === selected ||
+      ((filter === "all" || t.task_status === filter) &&
+        matchesPlanFilters(t, planFilters)),
   );
   const completedCount = tasks.filter((task) => task.task_status === "success").length;
   const remainingCount = tasks.filter((task) => task.task_status === "pending").length;
@@ -263,6 +272,7 @@ function Plans() {
             <option value="success">Completed</option>
             <option value="failed">Not completed</option>
           </select>
+          <PlanFilters filters={planFilters} onChange={setPlanFilters} />
           <button
             className="inline-flex min-h-11 items-center justify-center rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-700"
             onClick={() => setEditing("new")}
@@ -305,7 +315,7 @@ function Plans() {
           </h2>
           <p className="my-3 text-slate-500">
             {tasks.length
-              ? "Choose another status to see your plans."
+              ? "Choose another status, category, or priority to see your plans."
               : "Add one small plan. You can adjust it as your day changes."}
           </p>
           <button className="btn-primary" onClick={() => setEditing("new")}>

@@ -20,11 +20,24 @@ interface ToastItem {
   duration: number;
 }
 
+export interface AppNotification {
+  id: number;
+  type: ToastType;
+  title: string;
+  message?: string;
+  createdAt: string;
+}
+
 interface ToastContextType {
   success: (title: string, message?: string, duration?: number) => void;
   error: (title: string, message?: string, duration?: number) => void;
   info: (title: string, message?: string, duration?: number) => void;
   warn: (title: string, message?: string, duration?: number) => void;
+  /** Store a notification without showing a popup. */
+  record: (type: ToastType, title: string, message?: string) => void;
+  history: AppNotification[];
+  unreadCount: number;
+  markNotificationsRead: () => void;
 }
 
 const ToastContext = createContext<ToastContextType | null>(null);
@@ -70,10 +83,40 @@ const STYLES: Record<
 };
 
 const DEFAULT_DURATION = 4000;
+const HISTORY_KEY = "habittrace.notifications";
+const SEEN_KEY = "habittrace.notifications.seen";
+const HISTORY_LIMIT = 50;
+
+function readHistory(): AppNotification[] {
+  try {
+    const raw = sessionStorage.getItem(HISTORY_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? (parsed as AppNotification[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeHistory(items: AppNotification[]) {
+  try {
+    sessionStorage.setItem(HISTORY_KEY, JSON.stringify(items));
+  } catch {
+    // Private browsing can block storage; the in-memory list still works.
+  }
+}
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [history, setHistory] = useState<AppNotification[]>([]);
+  const [lastSeen, setLastSeen] = useState(0);
   const idRef = useRef(0);
+  useEffect(() => {
+    const loaded = readHistory();
+    setHistory(loaded);
+    idRef.current = loaded.reduce((max, item) => Math.max(max, item.id), 0);
+    const seen = Number(sessionStorage.getItem(SEEN_KEY) || 0);
+    if (Number.isFinite(seen)) setLastSeen(seen);
+  }, []);
   const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
   useEffect(() => {
     const active = timers.current;
@@ -87,6 +130,23 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
+  const remember = useCallback((type: ToastType, title: string, message?: string) => {
+    const id = ++idRef.current;
+    const item: AppNotification = {
+      id,
+      type,
+      title,
+      message,
+      createdAt: new Date().toISOString(),
+    };
+    setHistory((prev) => {
+      const next = [item, ...prev].slice(0, HISTORY_LIMIT);
+      writeHistory(next);
+      return next;
+    });
+    return id;
+  }, []);
+
   const push = useCallback(
     (
       type: ToastType,
@@ -94,7 +154,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       message?: string,
       duration: number = DEFAULT_DURATION,
     ) => {
-      const id = ++idRef.current;
+      const id = remember(type, title, message);
       setToasts((prev) => [...prev, { id, type, title, message, duration }]);
       if (duration > 0) {
         const timer = setTimeout(() => {
@@ -104,8 +164,18 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         timers.current.add(timer);
       }
     },
-    [dismiss],
+    [dismiss, remember],
   );
+
+  const markNotificationsRead = useCallback(() => {
+    const newest = history.reduce((max, item) => Math.max(max, item.id), 0);
+    setLastSeen(newest);
+    try {
+      sessionStorage.setItem(SEEN_KEY, String(newest));
+    } catch {
+      // The badge can reset on the next visit if storage is unavailable.
+    }
+  }, [history]);
 
   const api = useMemo<ToastContextType>(
     () => ({
@@ -117,8 +187,14 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         push("info", title, message, duration),
       warn: (title, message, duration) =>
         push("warn", title, message, duration),
+      record: (type, title, message) => {
+        remember(type, title, message);
+      },
+      history,
+      unreadCount: history.filter((item) => item.id > lastSeen).length,
+      markNotificationsRead,
     }),
-    [push],
+    [history, lastSeen, markNotificationsRead, push, remember],
   );
 
   return (

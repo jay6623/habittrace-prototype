@@ -6,6 +6,11 @@ import Dialog from "@/components/ui/dialog";
 import { toQuickTaskCreate } from "@/lib/mobile-task";
 import { useDataRefresh } from "@/lib/refresh";
 import { createTask, getTasks, type Task } from "@/lib/api";
+import PlanFilters, {
+  ALL_PLAN_FILTERS,
+  matchesPlanFilters,
+  type PlanFilterState,
+} from "@/components/layout/plan-filters";
 
 const categoryChipColors: Record<string, string> = {
   Study: "bg-sky-100 text-sky-800",
@@ -92,6 +97,7 @@ export default function CalendarPage() {
   const [weekAnchor, setWeekAnchor] = useState(todayIso);
   const [view, setView] = useState<"month" | "week">("month");
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [planFilters, setPlanFilters] = useState<PlanFilterState>(ALL_PLAN_FILTERS);
   const [loading, setLoading] = useState(true);
 
   const [error, setError] = useState<string | null>(null);
@@ -189,7 +195,7 @@ export default function CalendarPage() {
 
   function tasksForDate(date: string): Task[] {
     return tasks
-      .filter((task) => task.planned_date === date)
+      .filter((task) => task.planned_date === date && matchesPlanFilters(task, planFilters))
       .sort(
         (a, b) =>
           timeToMinutes(a.planned_start_time) -
@@ -274,6 +280,7 @@ export default function CalendarPage() {
             </button>
           </div>
 
+          <PlanFilters filters={planFilters} onChange={setPlanFilters} tone="slate" />
           <button
             type="button"
             onClick={goToToday}
@@ -628,7 +635,7 @@ export default function CalendarPage() {
             await createTask(
               toQuickTaskCreate(
                 value,
-                tasksForDate(value.plannedDate).length + 1,
+                tasks.filter((task) => task.planned_date === value.plannedDate).length + 1,
               ),
             );
             setDraft(null);
