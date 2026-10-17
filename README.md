@@ -270,7 +270,6 @@ The integration is one-way: HabitTrace tasks create and update events in the use
 ## Validation
 
 Frontend:
-
 ```powershell
 cd habittrace_frontend_dev-main
 npx tsc --noEmit
@@ -279,7 +278,6 @@ npm run build
 ```
 
 Backend:
-
 ```powershell
 cd backend
 python -m pytest -q
@@ -287,7 +285,6 @@ python -m ruff check app tests
 ```
 
 AI V2:
-
 ```powershell
 cd habittrace_ai_v2
 python -m pytest -q
