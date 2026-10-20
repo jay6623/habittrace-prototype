@@ -202,7 +202,6 @@ also save scheduling preferences in chat, for example: `Remember that I prefer t
 plan between 9 AM and 6 PM with a 20-minute buffer.`
 
 ## Running the stack
-
 Use separate terminals:
 
 ```powershell
