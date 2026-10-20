@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import argparse     # read tarining option from terminal
-import hashlib      # make unique hash of training data
-import json         # store in josn format
-from pathlib import Path    #path of csv, model file
+import argparse  # Read training options from the terminal.
+import hashlib  # Make a unique hash of training data.
+import json  # Store output in JSON format.
+from pathlib import Path  # CSV and model-file paths.
 from typing import Any
 
-import numpy as np  # for math
-import pandas as pd     # for data process
+import numpy as np  # Numeric operations.
+import pandas as pd  # Data processing.
 
 from habittrace_ai.artifacts import save_model_artifact
 from habittrace_ai.dataset import build_training_datasets
@@ -18,6 +18,7 @@ from habittrace_ai.models.failure_reason import FailureReasonProbabilityModel
 from habittrace_ai.models.selection import select_success_model
 from habittrace_ai.models.success import SuccessProbabilityModel
 from habittrace_ai.split import temporal_split_aligned, temporal_train_validation_test_split
+
 
 # csv -> hash
 def _file_sha256(paths: list[Path]) -> str:

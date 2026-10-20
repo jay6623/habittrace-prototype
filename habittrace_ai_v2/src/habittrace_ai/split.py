@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
 
 import pandas as pd
 
@@ -37,7 +37,7 @@ def _aware_utc(value: object, *, column: str) -> datetime:
     result = pd.Timestamp(raw).to_pydatetime()
     if result.tzinfo is None or result.utcoffset() is None:
         raise ValueError(f"{column} must contain timezone-aware timestamps")
-    return cast(datetime, result.astimezone(UTC))
+    return result.astimezone(UTC)
 
 
 def _lineage_roots(examples: pd.DataFrame) -> list[str]:

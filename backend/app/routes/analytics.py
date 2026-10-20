@@ -56,8 +56,8 @@ def analytics_summary(
 def personalized_outlook(
     user_id: CurrentUserId,
     db: Annotated[Client, Depends(get_primary_database)],
-    planned_date: date | None = Query(default=None, alias="date"),
-    timezone_name: str = Query(default="UTC", min_length=1, max_length=100),
+    planned_date: Annotated[date | None, Query(alias="date")] = None,
+    timezone_name: Annotated[str, Query(min_length=1, max_length=100)] = "UTC",
 ):
     service = PersonalizedOutlookService(
         db,
@@ -75,7 +75,7 @@ def personalized_insights(
     user_id: CurrentUserId,
     db: Annotated[Client, Depends(get_primary_database)],
     period: str = Query("week", pattern="^(week|month|3months)$"),
-    end_date: date | None = Query(default=None),
+    end_date: Annotated[date | None, Query()] = None,
 ):
     service = PersonalizedInsightsService(PersonalizationRepository(db))
     return service.get(user_id, period, end_date or date.today())

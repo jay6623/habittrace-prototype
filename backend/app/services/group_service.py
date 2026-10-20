@@ -11,9 +11,9 @@ from __future__ import annotations
 import logging
 import secrets
 from datetime import date, datetime, time, timezone
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Any
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from ..core.errors import (
     DomainValidationError,
@@ -80,7 +80,9 @@ class GroupService:
         listed = [{**group, "role": roles[str(group["id"])]} for group in groups]
         return sorted(listed, key=lambda group: str(group.get("created_at", "")))
 
-    def get_group_detail(self, user_id: UUID, group_id: UUID, timezone_name: str = "UTC") -> JsonRow:
+    def get_group_detail(
+        self, user_id: UUID, group_id: UUID, timezone_name: str = "UTC"
+    ) -> JsonRow:
         membership = self._require_member(group_id, user_id)
         group = self.groups.get_group(str(group_id))
         if group is None:

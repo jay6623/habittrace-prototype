@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date, datetime, timedelta
-from typing import Any
 from uuid import UUID
 
 from ..repositories.personalization_repository import PersonalizationRepository
@@ -217,6 +216,9 @@ class PersonalizedInsightsService:
         if strongest:
             return {
                 "title": "Repeat what worked",
-                "detail": f"Schedule one meaningful plan under your {strongest['label']} pattern and record the outcome.",
+                "detail": (
+                    f"Schedule one meaningful plan under your {strongest['label']} pattern "
+                    "and record the outcome."
+                ),
             }
         return self._default_experiment()

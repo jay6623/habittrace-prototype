@@ -111,11 +111,15 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [lastSeen, setLastSeen] = useState(0);
   const idRef = useRef(0);
   useEffect(() => {
-    const loaded = readHistory();
-    setHistory(loaded);
-    idRef.current = loaded.reduce((max, item) => Math.max(max, item.id), 0);
-    const seen = Number(sessionStorage.getItem(SEEN_KEY) || 0);
-    if (Number.isFinite(seen)) setLastSeen(seen);
+    // Hydrate browser storage after the initial render so server output stays stable.
+    const frame = window.requestAnimationFrame(() => {
+      const loaded = readHistory();
+      setHistory(loaded);
+      idRef.current = loaded.reduce((max, item) => Math.max(max, item.id), 0);
+      const seen = Number(sessionStorage.getItem(SEEN_KEY) || 0);
+      if (Number.isFinite(seen)) setLastSeen(seen);
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, []);
   const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
   useEffect(() => {
