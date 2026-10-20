@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -87,6 +87,7 @@ class CoachingContextService:
         end_date: date,
         category: str | None = None,
         title_query: str | None = None,
+        query_notes: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         query = (
             self.db.table("tasks")
@@ -104,6 +105,8 @@ class CoachingContextService:
             list[dict[str, Any]],
             list(query.limit(MAX_TOOL_QUERY_ROWS).execute().data or []),
         )
+        if len(rows) >= MAX_TOOL_QUERY_ROWS and query_notes is not None:
+            query_notes.append("Query limit reached; statistics may be incomplete.")
         if title_query:
             needle = title_query.casefold().strip()
             rows = [row for row in rows if needle in str(row.get("title") or "").casefold()]
@@ -145,12 +148,14 @@ class CoachingContextService:
             if compare_previous_period
             else current_start
         )
+        query_notes: list[str] = []
         tasks = self._task_rows(
             user_id,
             start_date=query_start,
             end_date=today,
             category=category,
             title_query=title_query,
+            query_notes=query_notes,
         )
         current = [
             task
@@ -165,7 +170,10 @@ class CoachingContextService:
                 "days": period_days,
             },
             "current": self._performance_summary(current),
-            "data_notes": ["Rates with fewer than 5 observations have low confidence."],
+            "data_notes": [
+                "Rates with fewer than 5 observations have low confidence.", *query_notes,
+            ],
+            "truncated": bool(query_notes),
         }
         if compare_previous_period:
             previous_end = current_start - timedelta(days=1)
@@ -193,13 +201,35 @@ class CoachingContextService:
         completed = [
             task for task in current if task.get("task_status") in {"success", "failed"}
         ]
+        date_groups: dict[str, list[dict]] = defaultdict(list)
+        for task in completed:
+            try:
+                day = date.fromisoformat(str(task.get("planned_date"))).isoformat()
+            except (TypeError, ValueError):
+                continue
+            date_groups[day].append(task)
+        result["by_date"] = [
+            {"date": day, **self._performance_summary(group)}
+            for day, group in sorted(date_groups.items())
+        ]
+        week_groups: dict[str, list[dict]] = defaultdict(list)
+        for day, group in date_groups.items():
+            parsed_day = date.fromisoformat(day)
+            week = (parsed_day - timedelta(days=parsed_day.weekday())).isoformat()
+            week_groups[week].extend(group)
+        result["by_week"] = [
+            {"date": week, **self._performance_summary(group)}
+            for week, group in sorted(week_groups.items())
+        ]
         requested_groups = set(group_by or [])
         if "hour" in requested_groups:
             hour_groups: dict[int, list[dict]] = defaultdict(list)
             for task in completed:
-                hour_groups[
-                    _hour_from_time_str(str(task.get("planned_start_time") or "12:00"))
-                ].append(task)
+                try:
+                    hour = time.fromisoformat(str(task.get("planned_start_time"))).hour
+                except (TypeError, ValueError):
+                    continue
+                hour_groups[hour].append(task)
             result["by_hour"] = [
                 {"hour": hour, **self._performance_summary(group)}
                 for hour, group in sorted(hour_groups.items())
@@ -231,12 +261,14 @@ class CoachingContextService:
         period_days = max(7, min(90, int(period_days)))
         today = self._today(timezone_name)
         start = today - timedelta(days=period_days - 1)
+        query_notes: list[str] = []
         tasks = self._task_rows(
             user_id,
             start_date=start,
             end_date=today,
             category=category,
             title_query=title_query,
+            query_notes=query_notes,
         )
         tasks_by_id = {str(task.get("id")): task for task in tasks}
         if tasks_by_id:
@@ -277,6 +309,7 @@ class CoachingContextService:
             "period": {"start": start.isoformat(), "end": today.isoformat(), "days": period_days},
             "matched_tasks": len(tasks),
             "failed_executions": len(failed),
+            "truncated": bool(query_notes) or len(rows) >= MAX_TOOL_QUERY_ROWS,
             "failure_reasons": [
                 {"reason": reason, "count": count} for reason, count in reasons.most_common(5)
             ],
@@ -288,7 +321,10 @@ class CoachingContextService:
             )
             if duration_deltas
             else None,
-            "data_notes": ["Recorded patterns are correlations, not proven causes."],
+            "data_notes": [
+                "Recorded patterns are correlations, not proven causes.", *query_notes,
+                *(["Execution query limit reached."] if len(rows) >= MAX_TOOL_QUERY_ROWS else []),
+            ],
         }
 
     def get_schedule(self, user_id: str, *, start_date: date, end_date: date) -> dict[str, Any]:

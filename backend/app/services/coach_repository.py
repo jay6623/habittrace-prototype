@@ -49,7 +49,10 @@ class CoachRepository:
         )
         return result.data[0] if result.data else None
 
-    def add_message(self, conversation_id: str, user_id: str, role: str, content: str) -> dict:
+    def add_message(
+        self, conversation_id: str, user_id: str, role: str, content: str,
+        metadata: dict | None = None,
+    ) -> dict:
         result = (
             self.db.table("coach_messages")
             .insert(
@@ -58,6 +61,7 @@ class CoachRepository:
                     "user_id": user_id,
                     "role": role,
                     "content": content,
+                    **({"metadata": metadata} if metadata else {}),
                 }
             )
             .execute()
@@ -72,7 +76,7 @@ class CoachRepository:
     def list_messages(self, conversation_id: str, user_id: str, limit: int = 30) -> list[dict]:
         result = (
             self.db.table("coach_messages")
-            .select("id,role,content,created_at")
+            .select("*")
             .eq("conversation_id", conversation_id)
             .eq("user_id", user_id)
             .order("created_at", desc=True)

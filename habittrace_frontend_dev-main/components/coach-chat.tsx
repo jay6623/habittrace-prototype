@@ -15,6 +15,8 @@ import {
   type TaskCreate,
 } from "@/lib/api";
 import Link from "next/link";
+import CoachChart from "@/components/coach-chart";
+import { isCoachChart, type CoachChartSpec } from "@/lib/coach-chart";
 
 // ── Suggestion chips shown at start ──────────────────────────────────────────
 const SUGGESTIONS = [
@@ -326,6 +328,7 @@ export default function CoachChat() {
           ...conversation.messages.map((message) => ({
             role: message.role,
             content: message.content,
+            chart: isCoachChart(message.metadata?.chart) ? message.metadata.chart : undefined,
           })),
           ...conversation.pending_proposals.map((proposal) => ({
             role: "assistant" as const,
@@ -369,6 +372,7 @@ export default function CoachChat() {
     try {
       let full = "";
       let proposal: CoachProposal | undefined;
+      let chart: CoachChartSpec | undefined;
 
       for await (const event of streamChatEvents(
         trimmed,
@@ -382,12 +386,14 @@ export default function CoachChat() {
           setConversationId(event.conversationId);
         } else if (event.type === "proposal") {
           proposal = event.proposal;
+        } else if (event.type === "chart") {
+          chart ??= event.chart;
         }
       }
 
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: full.trimEnd(), proposal },
+        { role: "assistant", content: full.trimEnd(), proposal, chart },
       ]);
       setStreamText("");
     } catch (err: unknown) {
@@ -490,9 +496,9 @@ export default function CoachChat() {
   const showWelcome = !loadingHistory && messages.length === 0 && !streaming;
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col h-full">
+    <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col h-full min-h-0 min-w-0">
       {/* Header */}
-      <div className="p-5 border-b border-slate-200 shrink-0">
+      <div className="p-3 sm:p-4 border-b border-slate-200 shrink-0 group-data-[tight-height=true]/coach:hidden">
         <div className="flex items-center gap-2">
           <div className="h-7 w-7 rounded-full bg-slate-900 flex items-center justify-center shrink-0">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
@@ -512,14 +518,14 @@ export default function CoachChat() {
       </div>
 
       {/* Message area */}
-      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 bg-slate-50 min-h-0">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-3 sm:px-4 py-4 group-data-[compact-height=true]/coach:py-2 group-data-[tight-height=true]/coach:py-0 space-y-4 bg-slate-50 min-h-0 min-w-0">
 
         {/* Welcome + suggestions */}
         {showWelcome && (
           <div className="space-y-3">
-            <div className="flex gap-3">
+            <div className="flex gap-2 sm:gap-3">
               <div className="h-8 w-8 rounded-full bg-slate-900 shrink-0 flex items-center justify-center text-white text-xs font-bold">AI</div>
-              <div className="max-w-[85%] bg-white border border-slate-200 rounded-2xl rounded-tl-sm px-4 py-3">
+              <div className="min-w-0 flex-1 break-words bg-white border border-slate-200 rounded-2xl rounded-tl-sm px-3 py-3">
                 <div className="text-sm text-slate-700">
                   Hi! I&apos;m your HabitTrace coach. I can see your task history and patterns.
                   Ask me anything, or tell me what you want to schedule — I&apos;ll add it to your calendar!
@@ -542,17 +548,18 @@ export default function CoachChat() {
 
         {/* Conversation history */}
         {messages.map((msg, i) => (
-          <div key={i} className={`flex gap-3 ${msg.role === "user" ? "flex-row-reverse" : ""}`}>
+          <div key={i} className={`flex gap-2 sm:gap-3 ${msg.role === "user" ? "flex-row-reverse" : ""}`}>
             {msg.role === "assistant" && (
               <div className="h-8 w-8 rounded-full bg-slate-900 shrink-0 flex items-center justify-center text-white text-xs font-bold">AI</div>
             )}
-            <div className={`max-w-[85%] ${msg.role === "user" ? "items-end" : ""}`}>
-              <div className={`rounded-2xl px-4 py-3 text-sm ${
+            <div className={`min-w-0 ${msg.role === "assistant" ? "flex-1" : "max-w-[85%] items-end"}`}>
+              <div className={`rounded-2xl px-3 py-3 text-sm [overflow-wrap:anywhere] ${
                 msg.role === "user"
                   ? "bg-slate-900 text-white rounded-tr-sm"
                   : "bg-white border border-slate-200 text-slate-700 rounded-tl-sm"
               }`}>
                 {msg.role === "assistant" ? renderContent(msg.content) : msg.content}
+                {msg.role === "assistant" && msg.chart && <CoachChart chart={msg.chart} />}
               </div>
 
               {/* Confirmation card */}
@@ -587,9 +594,9 @@ export default function CoachChat() {
 
         {/* Streaming response (in progress) */}
         {streaming && (
-          <div className="flex gap-3">
+          <div className="flex gap-2 sm:gap-3">
             <div className="h-8 w-8 rounded-full bg-slate-900 shrink-0 flex items-center justify-center text-white text-xs font-bold">AI</div>
-            <div className="max-w-[85%] bg-white border border-slate-200 rounded-2xl rounded-tl-sm px-4 py-3">
+            <div className="min-w-0 flex-1 [overflow-wrap:anywhere] bg-white border border-slate-200 rounded-2xl rounded-tl-sm px-3 py-3">
               {streamText ? (
                 <span className="text-sm text-slate-700">
                   {renderContent(streamText)}
@@ -618,14 +625,14 @@ export default function CoachChat() {
       </div>
 
       {/* Input */}
-      <div className="p-4 border-t border-slate-200 bg-white shrink-0">
+      <div className="p-3 group-data-[compact-height=true]/coach:pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-slate-200 bg-white shrink-0">
         <form
           onSubmit={(e) => { e.preventDefault(); send(input); }}
           className="flex gap-2"
         >
           <input
             ref={inputRef}
-            className="flex-1 bg-slate-100 rounded-xl px-4 py-3 outline-none text-sm border border-transparent focus:bg-white focus:border-slate-200"
+            className="min-w-0 flex-1 bg-slate-100 rounded-xl px-3 py-3 outline-none text-base sm:text-sm border border-transparent focus:bg-white focus:border-slate-200"
             placeholder="Ask or schedule a task…"
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -633,7 +640,7 @@ export default function CoachChat() {
           <button
             type="submit"
             disabled={streaming || !input.trim()}
-            className="px-4 py-3 rounded-xl bg-slate-900 text-white hover:bg-slate-800 text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className="shrink-0 px-4 py-3 rounded-xl bg-slate-900 text-white hover:bg-slate-800 text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {streaming ? (
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="animate-spin">
@@ -646,6 +653,7 @@ export default function CoachChat() {
         {messages.length > 0 && (
           <button
             onClick={() => void clearConversation()}
+            disabled={streaming}
             className="mt-2 text-xs text-slate-400 hover:text-slate-600 transition-colors"
           >
             Clear conversation

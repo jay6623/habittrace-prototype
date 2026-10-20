@@ -88,13 +88,14 @@ class _Responses:
         if isinstance(parsed, ToolDecision):
             parsed = _OpenAIToolDecision(
                 scope=parsed.scope,
+                visualization_focus=parsed.visualization_focus,
                 calls=[
                     {
                         "name": call.name,
                         "arguments_json": json.dumps(call.arguments),
                     }
                     for call in parsed.calls
-                ]
+                ],
             )
         return SimpleNamespace(output_parsed=parsed)
 
@@ -183,6 +184,8 @@ def test_openai_client_uses_bounded_sdk_retries() -> None:
     "decision",
     [
         ToolDecision(),
+        ToolDecision(visualization_focus="hour"),
+        ToolDecision(visualization_focus="comparison"),
         ToolDecision(
             calls=[
                 ToolCall(name="get_task_performance", arguments={"category": "Study"}),
@@ -256,7 +259,7 @@ def test_openai_structured_tool_request_uses_api_compatible_strict_schema(
     assert text_format["type"] == "json_schema"
     assert text_format["strict"] is True
     assert schema["additionalProperties"] is False
-    assert set(schema["required"]) == {"scope", "calls"}
+    assert set(schema["required"]) == {"scope", "calls", "visualization_focus"}
     assert schema["properties"]["scope"] == {
         "type": "string",
         "enum": ["in_scope", "off_topic"],
@@ -429,7 +432,7 @@ def test_chat_service_uses_native_openai_turn_and_limits_history(monkeypatch) ->
         events=[
             SimpleNamespace(type="response.output_text.delta", delta="현재 질문에 답합니다."),
             SimpleNamespace(type="response.completed", response=final_response),
-        ]
+        ],
     )
     _install_client(monkeypatch, responses)
     service = ChatService(None)

@@ -9,6 +9,7 @@ from typing import Literal
 from pydantic import BaseModel, ValidationError
 
 from ..schemas.chat import PreferenceUpdate
+from ..schemas.coach_chart import VisualizationFocus
 from ..schemas.coach_tools import (
     FindAvailableTimesArgs,
     GenerateDailyScheduleArgs,
@@ -23,6 +24,7 @@ from ..schemas.coach_tools import (
 from .coaching_context_service import CoachingContextService
 from .coaching_daily_schedule_service import CoachingDailyScheduleService
 from .coaching_planning_service import CoachingPlanningService
+from .coaching_visualization_service import CoachingVisualizationService
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +54,13 @@ class CoachToolRegistry:
                 GetTaskPerformanceArgs,
                 "Get bounded task success/failure performance, optionally scoped by category "
                 "or a case-insensitive title search. Can compare with the immediately preceding "
-                "period and group results by hour or weekday.",
+                "period and group results by hour or weekday. For productivity/time-of-day "
+                "questions select group_by=['hour']; for weekday patterns select ['weekday']. "
+                "For progress, trends, or a weekly review leave group_by empty for calendar-week "
+                "statistics. Set compare_previous_period for an explicit period comparison; "
+                "this retrieves additional totals and does not turn a trend into a comparison. "
+                "Analysis results automatically include a chart when sufficient; "
+                "do not call analysis tools for greetings or general motivation alone.",
                 "read",
                 self._task_performance,
             ),
@@ -131,6 +139,7 @@ class CoachToolRegistry:
         user_id: str,
         timezone_name: str,
         conversation_id: str | None = None,
+        visualization_focus: VisualizationFocus | None = None,
     ) -> ToolResult:
         registered = self._tools.get(call.name)
         if registered is None:
@@ -145,7 +154,7 @@ class CoachToolRegistry:
             return ToolResult(name=call.name, ok=False, error="Invalid tool arguments.")
 
         try:
-            return handler(user_id, arguments, timezone_name, conversation_id)
+            result = handler(user_id, arguments, timezone_name, conversation_id)
         except Exception:
             logger.exception("AI Coach tool %s failed", call.name)
             return ToolResult(
@@ -153,6 +162,15 @@ class CoachToolRegistry:
                 ok=False,
                 error="Tool data is temporarily unavailable.",
             )
+        if result.ok and result.data is not None:
+            try:
+                if isinstance(arguments, (GetTaskPerformanceArgs, GetFailurePatternsArgs)):
+                    result.chart = CoachingVisualizationService().build(
+                        call.name, arguments, result.data, focus=visualization_focus
+                    )
+            except Exception:
+                logger.exception("Coach visualization omitted for %s", call.name)
+        return result
 
     def execute_many(
         self,
@@ -161,6 +179,7 @@ class CoachToolRegistry:
         user_id: str,
         timezone_name: str,
         conversation_id: str | None = None,
+        visualization_focus: VisualizationFocus | None = None,
     ) -> list[ToolResult]:
         results: list[ToolResult] = []
         proposal_created = False
@@ -185,6 +204,7 @@ class CoachToolRegistry:
                 user_id=user_id,
                 timezone_name=timezone_name,
                 conversation_id=conversation_id,
+                visualization_focus=visualization_focus,
             )
             results.append(result)
             proposal_created = proposal_created or result.proposal is not None

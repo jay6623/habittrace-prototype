@@ -11,6 +11,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from ..config import settings
+from ..schemas.coach_chart import VisualizationFocus
 from ..schemas.coach_tools import ToolCall, ToolDecision, ToolDefinition, ToolResult
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,7 @@ class _OpenAIToolDecision(BaseModel):
 
     # Required here so the OpenAI strict schema has no optional top-level fields.
     scope: Literal["in_scope", "off_topic"]
+    visualization_focus: VisualizationFocus | None = None
     calls: list[_OpenAIToolCall] = Field(default_factory=list, max_length=4)
 
 
@@ -245,7 +247,13 @@ class OpenAILLMClient:
             if not isinstance(arguments, dict):
                 raise ValueError("OpenAI tool arguments must decode to an object.")
             calls.append({"name": call.name, "arguments": arguments})
-        return ToolDecision.model_validate({"scope": decision.scope, "calls": calls})
+        return ToolDecision.model_validate(
+            {
+                "scope": decision.scope,
+                "calls": calls,
+                "visualization_focus": decision.visualization_focus,
+            }
+        )
 
     async def select_tools(
         self,

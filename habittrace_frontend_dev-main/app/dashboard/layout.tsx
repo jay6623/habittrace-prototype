@@ -66,12 +66,12 @@ export default function DashboardLayout({
         Ask coach
       </button>
       {coach && (
-        <Dialog title="Plan with your coach" onClose={() => setCoach(false)}>
-          <p className="mb-3 text-sm text-slate-500">
+        <Dialog variant="coach" title="Plan with your coach" onClose={() => setCoach(false)}>
+          <p className="mb-3 shrink-0 text-sm text-slate-500 group-data-[compact-height=true]/coach:hidden">
             Ask about your schedule or make a plan. Review proposed changes
             before applying them.
           </p>
-          <div className="h-[60dvh]">
+          <div className="min-h-0 min-w-0 flex-1">
             <CoachChat />
           </div>
         </Dialog>
