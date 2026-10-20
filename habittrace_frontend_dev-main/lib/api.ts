@@ -14,6 +14,7 @@
 import { supabase } from "./supabase";
 import { notifyDataChanged } from "./refresh";
 import { localDateString } from "./mobile-task";
+import { isCoachChart, type CoachChartSpec } from "./coach-chart";
 
 function normalizeApiBaseUrl(url: string): string {
   return url.trim().replace(/\/+$/, "");
@@ -842,6 +843,7 @@ export async function getPersonalizedInsights(
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  chart?: CoachChartSpec;
 }
 
 export interface CoachTimeOption {
@@ -867,17 +869,18 @@ export type CoachProposal = CoachTaskProposal | CoachDailyScheduleProposal;
 
 export interface CoachConversation {
   id: string;
-  messages: Array<ChatMessage & { id: string; created_at: string }>;
+  messages: Array<ChatMessage & { id: string; created_at: string; metadata?: { chart?: unknown } }>;
   pending_proposals: CoachProposal[];
 }
 
 export type ChatStreamEvent =
+  | { type: "chart"; chart: CoachChartSpec }
   | { type: "token"; token: string }
   | { type: "conversation"; conversationId: string }
   | { type: "proposal"; proposal: CoachProposal };
 
 /**
- * Streams AI coach response events (tokens + optional task_candidate) via SSE.
+ * Streams AI coach tokens, optional chart, and confirmation proposals via SSE.
  */
 export async function* streamChatEvents(
   message: string,
@@ -927,6 +930,7 @@ export async function* streamChatEvents(
         if (parsed.proposal) {
           yield { type: "proposal", proposal: parsed.proposal as CoachProposal };
         }
+        if (isCoachChart(parsed.chart)) yield { type: "chart", chart: parsed.chart };
       } catch (e) {
         if (e instanceof SyntaxError) continue;
         throw e;

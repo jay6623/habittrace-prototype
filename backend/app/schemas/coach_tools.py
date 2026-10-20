@@ -7,6 +7,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .coach_chart import CoachChartSpec, VisualizationFocus
+
 
 class ToolDefinition(BaseModel):
     """A provider-neutral tool description exposed to the LLM."""
@@ -33,6 +35,10 @@ class ToolDecision(BaseModel):
 
     # Keep the default for Ollama/Gemini compatibility if an older provider response omits it.
     scope: Literal["in_scope", "off_topic"] = "in_scope"
+    visualization_focus: VisualizationFocus | None = Field(
+        default=None,
+        description="Chart dimension that directly answers the latest question; null for no chart.",
+    )
     calls: list[ToolCall] = Field(default_factory=list, max_length=4)
 
 
@@ -42,6 +48,7 @@ class ToolResult(BaseModel):
     data: dict[str, Any] | None = None
     error: str | None = None
     proposal: dict[str, Any] | None = None
+    chart: CoachChartSpec | None = Field(default=None, exclude=True)
 
 
 class TaskDataScope(BaseModel):
