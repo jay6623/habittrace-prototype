@@ -178,7 +178,7 @@ export default function AnalyticsPage() {
     },
     {
       label: "Avg interruptions",
-      value: String(data.avg_interruptions),
+      value: data.avg_interruptions === null ? "—" : String(data.avg_interruptions),
       change: "per task",
       positive: false,
     },
@@ -709,7 +709,7 @@ export default function AnalyticsPage() {
                 </div>
               )}
 
-            {data.avg_interruptions > 1.5 && (
+            {data.avg_interruptions !== null && data.avg_interruptions > 1.5 && (
               <div className="flex items-start gap-2 p-2 rounded-lg bg-amber-50 border border-amber-100">
                 <div className="mt-1 h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
                 <div>

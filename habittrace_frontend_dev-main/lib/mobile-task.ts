@@ -79,13 +79,39 @@ export function taskTimeInMinutes(time: string): number {
   return hour * 60 + minute;
 }
 
-export function formatTaskTime(time: string): string {
-  const minutes = taskTimeInMinutes(time);
-  if (!Number.isFinite(minutes) || minutes === Number.MAX_SAFE_INTEGER) return time;
-  const hour = Math.floor(minutes / 60);
+function formatClockMinutes(minutes: number): string {
+  const hour = Math.floor(minutes / 60) % 24;
   const minute = minutes % 60;
   const period = hour < 12 ? "AM" : "PM";
   return `${hour % 12 || 12}:${String(minute).padStart(2, "0")} ${period}`;
+}
+
+export function formatTaskTime(time: string): string {
+  const minutes = taskTimeInMinutes(time);
+  if (!Number.isFinite(minutes) || minutes === Number.MAX_SAFE_INTEGER) return time;
+  return formatClockMinutes(minutes);
+}
+
+/**
+ * Scheduled (planned) end of a plan, e.g. "8:00 PM" or "12:15 AM (next day)".
+ * Plans store a local wall-clock time, so this is wall-clock arithmetic with no
+ * timezone conversion. It is never an actual execution time.
+ */
+export function formatScheduledEnd(time: string, durationMinutes: number): string | null {
+  const start = taskTimeInMinutes(time);
+  if (start === Number.MAX_SAFE_INTEGER || !Number.isFinite(durationMinutes) || durationMinutes < 0) {
+    return null;
+  }
+  const end = start + Math.round(durationMinutes);
+  const days = Math.floor(end / 1440);
+  const suffix = days === 1 ? " (next day)" : days > 1 ? ` (+${days} days)` : "";
+  return `${formatClockMinutes(end % 1440)}${suffix}`;
+}
+
+/** Scheduled range, e.g. "7:15 PM – 8:00 PM"; falls back to the stored start text. */
+export function formatScheduledRange(time: string, durationMinutes: number): string {
+  const end = formatScheduledEnd(time, durationMinutes);
+  return end ? `${formatTaskTime(time)} – ${end}` : time;
 }
 
 export function toQuickTaskCreate(

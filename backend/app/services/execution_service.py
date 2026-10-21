@@ -48,7 +48,8 @@ def _validate_actual_data(data: dict, existing: JsonRow) -> None:
     start_value = data.get("actual_start_time", existing.get("actual_start_time"))
     end_value = data.get("actual_end_time", existing.get("actual_end_time"))
     if not start_value or not end_value:
-        raise ValueError("Actual start and finish times are required for this outcome")
+        # Missing times are unknown; only a complete range can be checked.
+        return
     try:
         start = datetime.fromisoformat(str(start_value).replace("Z", "+00:00"))
         end = datetime.fromisoformat(str(end_value).replace("Z", "+00:00"))
@@ -163,18 +164,20 @@ class ExecutionService:
             self._sync_legacy_task_status(user_id, existing)
             return cast(JsonRow, sync_execution_ai_safely(self.db, existing))
 
-        data = {
-            **_facts(payload),
-            "actual_end_time": datetime.now(timezone.utc).isoformat(),
-        }
+        data = _facts(payload)
         if payload.get("idempotency_key") is not None:
             data["idempotency_key"] = str(payload["idempotency_key"])
         if payload.get("outcome_status") == "not_started":
             raise ValueError("This plan has a recorded start. Record its actual outcome instead.")
         manual_start, manual_end = payload.get("actual_start_time"), payload.get("actual_end_time")
-        if isinstance(manual_start, datetime) and isinstance(manual_end, datetime):
-            data["actual_start_time"] = manual_start.isoformat()
+        if isinstance(manual_end, datetime):
+            # A reported finish keeps the recorded start unless a full range is supplied.
             data["actual_end_time"] = manual_end.isoformat()
+            if isinstance(manual_start, datetime):
+                data["actual_start_time"] = manual_start.isoformat()
+        elif not payload.get("actual_end_unknown"):
+            # Legacy clients: finishing the timer records the request time.
+            data["actual_end_time"] = datetime.now(timezone.utc).isoformat()
         _validate_actual_data(data, existing)
         result = (
             self.db.table("executions")
@@ -228,12 +231,12 @@ class ExecutionService:
         data = _facts(payload)
         if payload.get("outcome_status") == "not_started":
             data.update({"actual_start_time": None, "actual_end_time": None})
-        manual_start, manual_end = payload.get("actual_start_time"), payload.get(
-            "actual_end_time"
-        )
-        if isinstance(manual_start, datetime) and isinstance(manual_end, datetime):
-            data["actual_start_time"] = manual_start.isoformat()
-            data["actual_end_time"] = manual_end.isoformat()
+        else:
+            # Each reported time is applied on its own; an omitted time keeps the
+            # stored value, so unknown times stay unknown and history is not erased.
+            for key in ("actual_start_time", "actual_end_time"):
+                if isinstance(payload.get(key), datetime):
+                    data[key] = payload[key].isoformat()
 
         _validate_actual_data(data, existing)
         result = (

@@ -19,6 +19,15 @@ def _rate(successes: int, total: int) -> float | None:
     return round(successes / total * 100, 1) if total else None
 
 
+def _reported_interruptions(executions: list[dict[str, Any]]) -> list[int]:
+    """Counts that were actually reported; null means unknown and is not averaged as zero."""
+    return [
+        int(row["interruption_count"])
+        for row in executions
+        if row.get("interruption_count") is not None
+    ]
+
+
 def _parse_timestamp(value: object) -> datetime | None:
     if not value:
         return None
@@ -295,7 +304,7 @@ class CoachingContextService:
         reasons = Counter(
             str(row["failure_reason"]) for row in failed if row.get("failure_reason")
         )
-        interruptions = [int(row.get("interruption_count") or 0) for row in executions]
+        interruptions = _reported_interruptions(executions)
         duration_deltas: list[int] = []
         for execution in executions:
             started = _parse_timestamp(execution.get("actual_start_time"))
@@ -450,9 +459,7 @@ class CoachingContextService:
                 for execution in category_executions
                 if execution.get("task_status") == "failed" and execution.get("failure_reason")
             )
-            category_interruptions = [
-                int(execution.get("interruption_count") or 0) for execution in category_executions
-            ]
+            category_interruptions = _reported_interruptions(category_executions)
             planned_durations = [int(task.get("planned_duration_min") or 0) for task in group]
             category_patterns.append(
                 {
@@ -482,7 +489,7 @@ class CoachingContextService:
             for row in executions
             if row.get("task_status") == "failed" and row.get("failure_reason")
         )
-        interruptions = [int(row.get("interruption_count") or 0) for row in executions]
+        interruptions = _reported_interruptions(executions)
         duration_deltas: list[int] = []
         tasks_by_id = {str(task.get("id")): task for task in tasks}
         for execution in executions:

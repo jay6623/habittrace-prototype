@@ -13,7 +13,8 @@ FAILURE_REASONS = {
 
 
 class ExecutionFacts(BaseModel):
-    interruption_count: int = Field(default=0, ge=0, le=10000)
+    # None means not reported (unknown); 0 is a reported zero. Older clients send 0.
+    interruption_count: int | None = Field(default=0, ge=0, le=10000)
     stopped_early: bool = False
     task_status: Literal["success", "failed"]
     failure_reason: str | None = Field(default=None, max_length=100)
@@ -48,21 +49,25 @@ class ExecutionFacts(BaseModel):
             ):
                 raise ValueError("Not-started outcomes cannot contain execution activity")
             self.active_minutes = 0
+            self.interruption_count = 0  # nothing was executed, so zero is confirmed
+        # A failure reason is optional; a missing reason is unknown, not "other".
         if self.failure_reason:
             self.failure_reason = self.failure_reason.strip() or None
-        if (
-            self.task_status == "failed" and self.outcome_status != "not_started"
-            and not self.failure_reason
-        ):
-            raise ValueError("failure_reason is required for a failed execution")
         if self.outcome_status is not None and self.failure_reason not in (None, *FAILURE_REASONS):
             raise ValueError("Choose a supported failure_reason")
         return self
 
 
 class ExecutionTimes(ExecutionFacts):
+    """Actual times are optional; None means unknown and is never filled with a guess.
+
+    An end without a start is a user-reported finish time. ``actual_end_unknown``
+    asks the server not to stamp the request time as the finish of a running timer.
+    """
+
     actual_start_time: AwareDatetime | None = None
     actual_end_time: AwareDatetime | None = None
+    actual_end_unknown: bool = False
 
     @model_validator(mode="after")
     def validate_times(self) -> "ExecutionTimes":
@@ -70,13 +75,15 @@ class ExecutionTimes(ExecutionFacts):
             if self.actual_start_time is not None or self.actual_end_time is not None:
                 raise ValueError("Not-started outcomes cannot contain actual times")
             return self
-        if (self.actual_start_time is None) != (self.actual_end_time is None):
-            raise ValueError("Provide both actual start and end times, or neither")
+        if self.actual_end_unknown and self.actual_end_time is not None:
+            raise ValueError("An unknown finish time cannot also be provided")
+        latest_allowed = datetime.now(timezone.utc) + timedelta(minutes=5)
+        for value in (self.actual_start_time, self.actual_end_time):
+            if value is not None and value > latest_allowed:
+                raise ValueError("Actual times cannot be in the future")
         if self.actual_start_time is not None and self.actual_end_time is not None:
             if self.actual_end_time < self.actual_start_time:
                 raise ValueError("End time must follow start time")
-            if self.actual_end_time > datetime.now(timezone.utc) + timedelta(minutes=5):
-                raise ValueError("Actual times cannot be in the future")
             elapsed = int((self.actual_end_time - self.actual_start_time).total_seconds() // 60)
             if self.active_minutes is not None and self.active_minutes > elapsed:
                 raise ValueError("Active minutes cannot exceed elapsed time")
@@ -86,12 +93,6 @@ class ExecutionTimes(ExecutionFacts):
 class ExecutionCreate(ExecutionTimes):
     task_id: str
     idempotency_key: UUID | None = None
-
-    @model_validator(mode="after")
-    def require_actual_times(self) -> "ExecutionCreate":
-        if self.outcome_status != "not_started" and self.actual_start_time is None:
-            raise ValueError("Actual start and end times are required")
-        return self
 
 
 class ExecutionStart(BaseModel):
@@ -108,7 +109,7 @@ class ExecutionResponse(BaseModel):
     user_id: str
     actual_start_time: str | None
     actual_end_time: str | None
-    interruption_count: int
+    interruption_count: int | None
     stopped_early: bool
     task_status: Literal["success", "failed"] | None
     failure_reason: str | None

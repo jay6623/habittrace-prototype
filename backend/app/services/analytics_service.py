@@ -120,8 +120,14 @@ class AnalyticsService:
         success_rate = (success_count / total * 100) if total > 0 else 0.0
         total_planned_mins = sum(t.get("planned_duration_min", 0) for t in tasks)
         avg_importance = (sum(t.get("importance", 0) for t in tasks) / total) if total > 0 else 0.0
+        # Only reported counts: a null interruption_count is unknown, not zero.
+        reported_interruptions = [
+            int(e["interruption_count"]) for e in execs if e.get("interruption_count") is not None
+        ]
         avg_interruptions = (
-            (sum(e.get("interruption_count", 0) for e in execs) / len(execs)) if execs else 0.0
+            sum(reported_interruptions) / len(reported_interruptions)
+            if reported_interruptions
+            else None
         )
 
         # ── Failure by category ─────────────────────────────────────────
@@ -163,7 +169,9 @@ class AnalyticsService:
             "success_rate": round(success_rate, 1),
             "total_planned_minutes": total_planned_mins,
             "avg_importance": round(avg_importance, 1),
-            "avg_interruptions": round(avg_interruptions, 1),
+            "avg_interruptions": (
+                round(avg_interruptions, 1) if avg_interruptions is not None else None
+            ),
             "most_failed_category": most_failed_category,
             "best_time_of_day": best_time,
             "failure_by_category": dict(failure_by_category),

@@ -160,23 +160,15 @@ def test_mobile_completion_updates_owned_execution_and_task(
     database = _use_memory_database(monkeypatch)
     started = authenticated_client.post("/executions/start", json={"task_id": "task-owned"}).json()
 
-    missing_reason = authenticated_client.patch(
+    # A failure reason is optional: an unknown reason is stored as null, not "other".
+    completed = authenticated_client.patch(
         f"/executions/{started['id']}/complete",
         json={"task_status": "failed", "stopped_early": True},
     )
-    completed = authenticated_client.patch(
-        f"/executions/{started['id']}/complete",
-        json={
-            "task_status": "failed",
-            "stopped_early": True,
-            "failure_reason": "underestimated_time",
-        },
-    )
     active = authenticated_client.get("/executions?active=true")
 
-    assert missing_reason.status_code == 422
     assert completed.status_code == 200
-    assert completed.json()["failure_reason"] == "underestimated_time"
+    assert completed.json()["failure_reason"] is None
     assert completed.json()["actual_end_time"] is not None
     assert active.json() == []
     assert database.rows["tasks"][0]["task_status"] == "failed"

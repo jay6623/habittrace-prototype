@@ -9,24 +9,21 @@ import {
   getActiveExecutions,
   getTask,
   getTasks,
-  startExecution,
   savePlanOutcome,
-  type OutcomeMeasurements,
+  type ExecutionCompleteInput,
   type Execution,
   type Task,
 } from "@/lib/api";
 import {
-  formatTaskTime,
+  formatScheduledEnd,
+  formatScheduledRange,
   localDateString,
   taskTimeInMinutes,
   toQuickTaskCreate,
-  type FailureReasonCode,
   type QuickAddDraft,
 } from "@/lib/mobile-task";
-import OutcomeSheet, {
-  type MobileResult,
-  type OutcomeTimes,
-} from "./outcome-sheet";
+import { outcomeConfirmation } from "@/lib/outcome";
+import OutcomeSheet from "./outcome-sheet";
 import QuickAddForm from "./quick-add-form";
 import PersonalizedOutlookCard from "@/components/personalized-outlook-card";
 import { countUnloggedAttention } from "@/lib/unlogged";
@@ -88,7 +85,6 @@ export default function MobileToday() {
   });
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
-  const [startingTaskId, setStartingTaskId] = useState<string | null>(null);
   const [outcomeSaving, setOutcomeSaving] = useState(false);
   const [outcomeError, setOutcomeError] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -250,59 +246,18 @@ export default function MobileToday() {
     });
   }
 
-  async function ensureStarted(task: Task): Promise<Execution> {
-    const existing = activeExecutions[task.id];
-    if (existing) return existing;
-    const started = await startExecution(task.id);
-    setActiveExecutions((current) => ({ ...current, [task.id]: started }));
-    return started;
-  }
-
-  async function handleStart(task: Task) {
-    if (startingTaskId || activeExecutions[task.id]) return;
-    setStartingTaskId(task.id);
-    try {
-      const started = await ensureStarted(task);
-      notice({
-        message: `Started at ${formatStartedAt(started.actual_start_time)}.`,
-        tone: "success",
-      });
-    } catch (caught) {
-      notice({
-        message: readableError(caught, "We couldn't record the start time."),
-        tone: "error",
-      });
-    } finally {
-      setStartingTaskId(null);
-    }
-  }
-
   function openOutcome(task: Task) {
     setOutcomeError(null);
     setSelectedTask(task);
   }
 
-  async function handleOutcome(
-    result: MobileResult,
-    reason?: FailureReasonCode,
-    times?: OutcomeTimes,
-    measurements?: OutcomeMeasurements,
-  ) {
+  async function handleOutcome(input: ExecutionCompleteInput) {
     if (!selectedTask || outcomeSaving) return;
     setOutcomeSaving(true);
     setOutcomeError(null);
     try {
-      if (result === "in_progress") {
-        await ensureStarted(selectedTask);
-        setSelectedTask(null);
-        notice({ message: "Plan kept in progress.", tone: "success" });
-        return;
-      }
-
-      const legacyStatus = result === "completed" ? "success" : "failed";
-      if (!measurements) throw new Error("Outcome details are required.");
-      await savePlanOutcome(selectedTask.id, result, measurements, reason, times,
-        activeExecutions[selectedTask.id]?.id);
+      const legacyStatus = input.task_status;
+      await savePlanOutcome(selectedTask.id, input, activeExecutions[selectedTask.id]?.id);
 
       const completedTask = selectedTask;
       setTasks((current) =>
@@ -318,7 +273,13 @@ export default function MobileToday() {
         return next;
       });
       setSelectedTask(null);
-      notice({ message: "Outcome saved.", tone: "success" });
+      notice({
+        message: outcomeConfirmation(
+          input,
+          formatScheduledEnd(completedTask.planned_start_time, completedTask.planned_duration_min),
+        ),
+        tone: "success",
+      });
 
     } catch (caught) {
       setOutcomeError(
@@ -464,38 +425,20 @@ export default function MobileToday() {
                   {currentTask.title}
                 </h3>
                 <p className="mt-3 text-sm text-slate-300">
-                  {formatTaskTime(currentTask.planned_start_time)} ·{" "}
-                  {currentTask.planned_duration_min} min
+                  {formatScheduledRange(currentTask.planned_start_time, currentTask.planned_duration_min)}
                 </p>
                 {currentTask.notes?.trim() && (
                   <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-slate-300">
                     {currentTask.notes.trim()}
                   </p>
                 )}
-                <div className="mt-6 grid grid-cols-2 gap-3">
-                  <button
-                    className="min-h-14 rounded-2xl bg-white px-3 text-base font-bold text-slate-950 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300"
-                    disabled={
-                      Boolean(activeExecutions[currentTask.id]) ||
-                      startingTaskId === currentTask.id
-                    }
-                    onClick={() => void handleStart(currentTask)}
-                    type="button"
-                  >
-                    {startingTaskId === currentTask.id
-                      ? "Starting…"
-                      : activeExecutions[currentTask.id]
-                        ? "In progress"
-                        : "Start"}
-                  </button>
-                  <button
-                    className="min-h-14 rounded-2xl border border-white/25 bg-white/10 px-3 text-base font-bold text-white transition hover:bg-white/20"
-                    onClick={() => openOutcome(currentTask)}
-                    type="button"
-                  >
-                    Finish
-                  </button>
-                </div>
+                <button
+                  className="mt-6 min-h-14 w-full rounded-2xl bg-white px-3 text-base font-bold text-slate-950 transition hover:bg-slate-100"
+                  onClick={() => openOutcome(currentTask)}
+                  type="button"
+                >
+                  Log outcome
+                </button>
               </div>
             ) : (
               <div className="rounded-3xl border border-dashed border-slate-300 bg-white px-5 py-8 text-center">
@@ -559,8 +502,7 @@ export default function MobileToday() {
                             {task.title}
                           </p>
                           <p className="mt-1 text-xs font-medium text-slate-500">
-                            {formatTaskTime(task.planned_start_time)} ·{" "}
-                            {task.planned_duration_min} min
+                            {formatScheduledRange(task.planned_start_time, task.planned_duration_min)}
                           </p>
                           {task.notes?.trim() && (
                             <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-600">
@@ -574,29 +516,13 @@ export default function MobileToday() {
                           </span>
                         )}
                       </div>
-                      <div className="mt-3 grid grid-cols-2 gap-2">
-                        <button
-                          className="min-h-11 rounded-xl bg-slate-100 px-3 text-sm font-bold text-slate-800 disabled:text-slate-400"
-                          disabled={
-                            Boolean(active) || startingTaskId === task.id
-                          }
-                          onClick={() => void handleStart(task)}
-                          type="button"
-                        >
-                          {active
-                            ? "In progress"
-                            : startingTaskId === task.id
-                              ? "Starting…"
-                              : "Start"}
-                        </button>
-                        <button
-                          className="min-h-11 rounded-xl bg-slate-950 px-3 text-sm font-bold text-white"
-                          onClick={() => openOutcome(task)}
-                          type="button"
-                        >
-                          Log outcome
-                        </button>
-                      </div>
+                      <button
+                        className="mt-3 min-h-11 w-full rounded-xl bg-slate-950 px-3 text-sm font-bold text-white"
+                        onClick={() => openOutcome(task)}
+                        type="button"
+                      >
+                        Log outcome
+                      </button>
                     </li>
                   );
                 })}
@@ -626,11 +552,11 @@ export default function MobileToday() {
       {selectedTask && (
         <OutcomeSheet
           error={outcomeError}
-          isActive={Boolean(activeExecutions[selectedTask.id])}
+          activeStart={activeExecutions[selectedTask.id]?.actual_start_time ?? null}
           onDismiss={() => {
             if (!outcomeSaving) setSelectedTask(null);
           }}
-          onSelect={handleOutcome}
+          onSubmit={handleOutcome}
           saving={outcomeSaving}
           task={selectedTask}
         />

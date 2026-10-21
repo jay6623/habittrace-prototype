@@ -4,26 +4,20 @@ import { useCallback, useEffect, useState } from "react";
 import {
   getActiveExecutions,
   getTasks,
-  startExecution,
   savePlanOutcome,
-  type OutcomeMeasurements,
+  type ExecutionCompleteInput,
   type Execution,
   type Task,
 } from "@/lib/api";
-import {
-  formatTaskTime,
-  type FailureReasonCode,
-} from "@/lib/mobile-task";
+import { formatScheduledEnd, formatScheduledRange } from "@/lib/mobile-task";
+import { outcomeConfirmation } from "@/lib/outcome";
 import {
   filterUnloggedPastPlans,
   formatUnloggedDate,
 } from "@/lib/unlogged";
 import { useDataRefresh } from "@/lib/refresh";
 import { useToast } from "@/components/ui/toast";
-import OutcomeSheet, {
-  type MobileResult,
-  type OutcomeTimes,
-} from "@/components/mobile/outcome-sheet";
+import OutcomeSheet from "@/components/mobile/outcome-sheet";
 
 export default function UnloggedPlansPage() {
   const toast = useToast();
@@ -60,42 +54,20 @@ export default function UnloggedPlansPage() {
 
   const reviewList = filterUnloggedPastPlans(tasks);
 
-  async function markNotCompleted(task: Task) {
-    if (busyId) return;
-    setBusyId(task.id);
-    try {
-      await savePlanOutcome(task.id, "not_started", { completion_ratio: 0, interruption_count: 0 });
-      toast.success("Recorded as not started", `"${task.title}" was logged.`);
-      void load();
-    } catch {
-      toast.error("Couldn’t save", "Please try again.");
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  async function finish(
-    result: MobileResult,
-    reason?: FailureReasonCode,
-    times?: OutcomeTimes,
-    measurements?: OutcomeMeasurements,
-  ) {
+  async function finish(input: ExecutionCompleteInput) {
     if (!logging || busyId) return;
     setBusyId(logging.id);
     setOutcomeError(null);
     try {
-      if (result === "in_progress") {
-        await startExecution(logging.id);
-        setLogging(null);
-        toast.success("Plan kept active");
-        void load();
-        return;
-      }
-      if (!measurements) throw new Error("Outcome details are required.");
-      await savePlanOutcome(logging.id, result, measurements, reason, times,
-        active[logging.id]?.id);
+      await savePlanOutcome(logging.id, input, active[logging.id]?.id);
       setLogging(null);
-      toast.success("Outcome recorded");
+      toast.success(
+        "Outcome saved",
+        outcomeConfirmation(
+          input,
+          formatScheduledEnd(logging.planned_start_time, logging.planned_duration_min),
+        ),
+      );
       void load();
     } catch {
       setOutcomeError("Couldn’t save this outcome. Please try again.");
@@ -111,8 +83,8 @@ export default function UnloggedPlansPage() {
           Unlogged plans
         </h1>
         <p className="mt-1 max-w-2xl text-sm text-slate-600">
-          These past plans still need an outcome. Log what happened, or mark
-          them as not completed.
+          These past plans still need an outcome. Mark each one Completed or
+          Not completed.
         </p>
       </header>
 
@@ -156,8 +128,8 @@ export default function UnloggedPlansPage() {
                     {task.title}
                   </h2>
                   <p className="mt-1 text-sm text-slate-500">
-                    {formatTaskTime(task.planned_start_time)} ·{" "}
-                    {task.planned_duration_min} min · {task.task_category}
+                    {formatScheduledRange(task.planned_start_time, task.planned_duration_min)} ·{" "}
+                    {task.task_category}
                   </p>
                   {task.notes?.trim() && (
                     <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-600">
@@ -166,13 +138,6 @@ export default function UnloggedPlansPage() {
                   )}
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <button
-                    className="btn-secondary"
-                    disabled={busyId === task.id}
-                    onClick={() => void markNotCompleted(task)}
-                  >
-                    Didn’t start
-                  </button>
                   <button
                     className="btn-primary"
                     disabled={busyId === task.id}
@@ -193,11 +158,11 @@ export default function UnloggedPlansPage() {
       {logging && (
         <OutcomeSheet
           task={logging}
-          isActive={!!active[logging.id]}
+          activeStart={active[logging.id]?.actual_start_time ?? null}
           saving={busyId === logging.id}
           error={outcomeError}
           onDismiss={() => setLogging(null)}
-          onSelect={finish}
+          onSubmit={finish}
         />
       )}
     </div>

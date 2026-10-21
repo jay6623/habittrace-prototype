@@ -7,28 +7,26 @@ import {
   getTasks,
   updateTask,
   deleteTask,
-  startExecution,
   savePlanOutcome,
-  type OutcomeMeasurements,
   getActiveExecutions,
+  type ExecutionCompleteInput,
   type Task,
   type Execution,
 } from "@/lib/api";
 import { useDataRefresh } from "@/lib/refresh";
 import {
+  formatScheduledEnd,
+  formatScheduledRange,
   localDateString,
   taskTimeInMinutes,
   toQuickTaskCreate,
   TASK_CATEGORIES,
   type QuickAddDraft,
-  type FailureReasonCode,
 } from "@/lib/mobile-task";
+import { outcomeConfirmation } from "@/lib/outcome";
 import QuickAddForm from "@/components/mobile/quick-add-form";
 import LoggedPlanEditForm from "@/components/mobile/logged-plan-edit-form";
-import OutcomeSheet, {
-  type MobileResult,
-  type OutcomeTimes,
-} from "@/components/mobile/outcome-sheet";
+import OutcomeSheet from "@/components/mobile/outcome-sheet";
 import Dialog from "@/components/ui/dialog";
 import PlanFilters, {
   ALL_PLAN_FILTERS,
@@ -150,40 +148,19 @@ function Plans() {
     toast.success("Plan saved");
     void load();
   }
-  async function begin(task: Task) {
-    if (busy) return;
-    setBusy(true);
-    try {
-      const e = await startExecution(task.id);
-      setActive((a) => ({ ...a, [task.id]: e }));
-      toast.success("Started", "Your start time was recorded.");
-    } catch {
-      toast.error("Couldn’t start", "Please try again.");
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function finish(
-    result: MobileResult,
-    reason?: FailureReasonCode,
-    times?: OutcomeTimes,
-    measurements?: OutcomeMeasurements,
-  ) {
+  async function finish(input: ExecutionCompleteInput) {
     if (!outcome || busy) return;
     setBusy(true);
     setOutcomeError(null);
     try {
-      if (result === "in_progress") {
-        const execution = active[outcome.id] ?? await startExecution(outcome.id);
-        setActive((current) => ({ ...current, [outcome.id]: execution }));
-      } else {
-        if (!measurements) throw new Error("Outcome details are required.");
-        await savePlanOutcome(outcome.id, result, measurements, reason, times,
-          active[outcome.id]?.id);
-      }
+      await savePlanOutcome(outcome.id, input, active[outcome.id]?.id);
       setOutcome(null);
       toast.success(
-        result === "in_progress" ? "Plan kept active" : "Outcome recorded",
+        "Outcome saved",
+        outcomeConfirmation(
+          input,
+          formatScheduledEnd(outcome.planned_start_time, outcome.planned_duration_min),
+        ),
       );
       void load();
     } catch {
@@ -334,10 +311,10 @@ function Plans() {
                   : "hover:bg-slate-50/80"
               }`}
             >
-              <div className="grid gap-3 sm:grid-cols-[5.5rem_minmax(0,1fr)_auto] sm:items-center">
+              <div className="grid gap-3 sm:grid-cols-[8.5rem_minmax(0,1fr)_auto] sm:items-center">
                 <div className="flex items-center gap-3 sm:block">
                   <p className="text-sm font-bold tabular-nums text-slate-700">
-                    {task.planned_start_time}
+                    {formatScheduledRange(task.planned_start_time, task.planned_duration_min)}
                   </p>
                   <span
                     aria-hidden="true"
@@ -396,13 +373,6 @@ function Plans() {
                   </span>
                   {task.task_status === "pending" && (
                     <>
-                      <button
-                        disabled={busy || !!active[task.id]}
-                        className="inline-flex min-h-9 items-center justify-center rounded-lg bg-emerald-600 px-3 text-xs font-bold text-white transition hover:bg-emerald-700 disabled:bg-slate-300"
-                        onClick={() => void begin(task)}
-                      >
-                        {active[task.id] ? "In progress" : "Start"}
-                      </button>
                       <button
                         disabled={busy}
                         className="inline-flex min-h-9 items-center justify-center rounded-lg bg-emerald-50 px-3 text-xs font-bold text-emerald-800 transition hover:bg-emerald-100"
@@ -513,11 +483,11 @@ function Plans() {
       {outcome && (
         <OutcomeSheet
           task={outcome}
-          isActive={!!active[outcome.id]}
+          activeStart={active[outcome.id]?.actual_start_time ?? null}
           saving={busy}
           error={outcomeError}
           onDismiss={() => setOutcome(null)}
-          onSelect={finish}
+          onSubmit={finish}
         />
       )}
       {removing && (
