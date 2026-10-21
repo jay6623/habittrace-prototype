@@ -28,6 +28,7 @@ from ..schemas.group import (
     GroupCreate,
     GroupJoinRequest,
     GroupMemberRoleUpdate,
+    GroupPermissionsUpdate,
     GroupTaskCompletion,
     GroupTaskCreate,
     GroupTaskUpdate,
@@ -130,20 +131,24 @@ class GroupService:
 
     def delete_group(self, user_id: UUID, group_id: UUID) -> None:
         membership = self._require_member(group_id, user_id)
-        if not self._is_admin_or_owner(membership["role"]):
-            raise PermissionDeniedError("Only the group owner or an admin can delete this group.")
         group = self.groups.get_group(str(group_id))
-        owner_id = str(group["owner_id"]) if group else None
-        if not self.groups.delete_group(str(group_id), owner_id or str(user_id)):
+        if group is None:
+            raise ResourceNotFoundError("Group not found.")
+        if not self._has_permission(membership["role"], group, "delete_group"):
+            raise PermissionDeniedError("You don't have permission to delete this group.")
+        if not self.groups.delete_group(str(group_id), str(group["owner_id"])):
             raise ResourceNotFoundError("Group not found.")
 
     def set_member_role(
         self, user_id: UUID, group_id: UUID, target_user_id: UUID, body: GroupMemberRoleUpdate
     ) -> JsonRow:
-        """Promote a member to admin, or demote them back to member. Owner-only."""
+        """Promote a member to admin, or demote them back to member."""
         membership = self._require_member(group_id, user_id)
-        if membership["role"] != "owner":
-            raise PermissionDeniedError("Only the group owner can change member roles.")
+        group = self.groups.get_group(str(group_id))
+        if group is None:
+            raise ResourceNotFoundError("Group not found.")
+        if not self._has_permission(membership["role"], group, "manage_member_roles"):
+            raise PermissionDeniedError("You don't have permission to change member roles.")
         target_membership = self.groups.get_membership(str(group_id), str(target_user_id))
         if target_membership is None:
             raise ResourceNotFoundError("That person is not a member of this group.")
@@ -153,6 +158,23 @@ class GroupService:
         if updated is None:
             raise ResourceNotFoundError("That person is not a member of this group.")
         return updated
+
+    def update_permissions(
+        self, user_id: UUID, group_id: UUID, body: GroupPermissionsUpdate
+    ) -> JsonRow:
+        """Replace the admin/member permission matrix for this group. Owner-only.
+
+        Kept strictly owner-only (not itself gated by the matrix) so a group
+        can never end up in a state where nobody is able to adjust permissions.
+        """
+        membership = self._require_member(group_id, user_id)
+        if membership["role"] != "owner":
+            raise PermissionDeniedError("Only the group owner can change group permissions.")
+        permissions = {"admin": body.admin.model_dump(), "member": body.member.model_dump()}
+        updated = self.groups.update_permissions(str(group_id), permissions)
+        if updated is None:
+            raise ResourceNotFoundError("Group not found.")
+        return {**updated, "role": membership["role"]}
 
     def leave_group(self, user_id: UUID, group_id: UUID) -> None:
         membership = self._require_member(group_id, user_id)
@@ -177,12 +199,19 @@ class GroupService:
     def update_task(
         self, user_id: UUID, group_id: UUID, task_id: UUID, body: GroupTaskUpdate
     ) -> JsonRow:
-        self._require_member(group_id, user_id)
+        membership = self._require_member(group_id, user_id)
+        existing = self.groups.get_task(str(group_id), str(task_id))
+        if existing is None:
+            raise ResourceNotFoundError("Task not found.")
+        if str(existing.get("created_by")) != str(user_id):
+            self._require_permission(
+                membership["role"],
+                group_id,
+                "edit_others_tasks",
+                "You don't have permission to edit tasks created by other members.",
+            )
         data = _serialize_task_fields(body.model_dump(exclude_unset=True))
         if not data:
-            existing = self.groups.get_task(str(group_id), str(task_id))
-            if existing is None:
-                raise ResourceNotFoundError("Task not found.")
             assignee_ids = self._task_assignee_ids(str(group_id), str(task_id), existing)
             return self._with_assignees(existing, assignee_ids)
 
@@ -226,7 +255,17 @@ class GroupService:
         return self._task_for_response(str(group_id), task)
 
     def delete_task(self, user_id: UUID, group_id: UUID, task_id: UUID) -> None:
-        self._require_member(group_id, user_id)
+        membership = self._require_member(group_id, user_id)
+        existing = self.groups.get_task(str(group_id), str(task_id))
+        if existing is None:
+            raise ResourceNotFoundError("Task not found.")
+        if str(existing.get("created_by")) != str(user_id):
+            self._require_permission(
+                membership["role"],
+                group_id,
+                "delete_others_tasks",
+                "You don't have permission to delete tasks created by other members.",
+            )
         if not self.groups.delete_task(str(group_id), str(task_id)):
             raise ResourceNotFoundError("Task not found.")
 
@@ -322,6 +361,22 @@ class GroupService:
     @staticmethod
     def _is_admin_or_owner(role: str) -> bool:
         return role in ("owner", "admin")
+
+    @staticmethod
+    def _has_permission(role: str, group: JsonRow, key: str) -> bool:
+        """owner always has every permission; admin/member follow the group's configurable matrix."""
+        if role == "owner":
+            return True
+        permissions = (group or {}).get("permissions") or {}
+        role_permissions = permissions.get(role) or {}
+        return bool(role_permissions.get(key, False))
+
+    def _require_permission(self, role: str, group_id: UUID, key: str, message: str) -> None:
+        if role == "owner":
+            return
+        group = self.groups.get_group(str(group_id))
+        if not self._has_permission(role, group or {}, key):
+            raise PermissionDeniedError(message)
 
     def _require_member(self, group_id: UUID, user_id: UUID) -> JsonRow:
         membership = self.groups.get_membership(str(group_id), str(user_id))

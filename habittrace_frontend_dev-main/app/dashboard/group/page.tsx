@@ -16,9 +16,11 @@ import {
   joinGroup,
   leaveGroup,
   updateGroupMemberRole,
+  updateGroupPermissions,
   type Group,
   type GroupDetail,
   type GroupMember,
+  type GroupPermissions,
   type GroupTask,
   type GroupTaskCreate,
 } from "@/lib/api";
@@ -129,6 +131,8 @@ export default function GroupPage() {
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
   const [deletingGroup, setDeletingGroup] = useState(false);
   const [updatingMemberId, setUpdatingMemberId] = useState<string | null>(null);
+  const [permissionsDraft, setPermissionsDraft] = useState<GroupPermissions | null>(null);
+  const [savingPermissions, setSavingPermissions] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
   const inbox = useToast();
   function notice(next: ToastState) {
@@ -222,6 +226,17 @@ export default function GroupPage() {
   // ── Derived state ───────────────────────────────────────────────────────
   const selectedGroup =
     groups.find((group) => group.id === selectedGroupId) ?? null;
+
+  useEffect(() => {
+    setPermissionsDraft(selectedGroup ? selectedGroup.permissions : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedGroupId, JSON.stringify(selectedGroup?.permissions)]);
+
+  const canDeleteGroup =
+    !!selectedGroup &&
+    (selectedGroup.role === "owner" ||
+      (selectedGroup.role === "admin" && selectedGroup.permissions.admin.delete_group));
+
   const activeDetail =
     detail && detail.group.id === selectedGroupId ? detail : null;
   const tasks = useMemo(() => activeDetail?.tasks ?? [], [activeDetail]);
@@ -435,6 +450,28 @@ export default function GroupPage() {
       });
     } finally {
       setUpdatingMemberId(null);
+    }
+  }
+
+  async function handleSavePermissions() {
+    if (!selectedGroupId || !permissionsDraft || savingPermissions) return;
+    setSavingPermissions(true);
+    try {
+      const updated = await updateGroupPermissions(selectedGroupId, permissionsDraft);
+      setGroups((current) =>
+        current.map((group) =>
+          group.id === selectedGroupId ? { ...group, permissions: updated.permissions } : group,
+        ),
+      );
+      setPermissionsDraft(updated.permissions);
+      notice({ message: "Permissions updated.", tone: "success" });
+    } catch (caught) {
+      notice({
+        message: describeApiError(caught, "We couldn't update the group permissions."),
+        tone: "error",
+      });
+    } finally {
+      setSavingPermissions(false);
     }
   }
 
@@ -1084,7 +1121,73 @@ export default function GroupPage() {
               )}
             </div>
 
-            {selectedGroup && selectedGroup.role !== "member" && (
+            {selectedGroup && selectedGroup.role === "owner" && permissionsDraft && (
+              <div className="bg-white rounded-2xl border border-slate-200 p-5">
+                <div className="font-semibold mb-1">Permissions</div>
+                <div className="text-sm text-slate-500 mb-4">
+                  Choose what admins and members can do in this group. As
+                  owner, you always have every permission.
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-slate-500">
+                        <th className="py-1 pr-3 font-medium">Permission</th>
+                        <th className="py-1 px-3 font-medium">Admin</th>
+                        <th className="py-1 px-3 font-medium">Member</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(
+                        [
+                          ["delete_group", "Delete the group"],
+                          ["manage_member_roles", "Change member roles"],
+                          ["edit_others_tasks", "Edit others' tasks"],
+                          ["delete_others_tasks", "Delete others' tasks"],
+                        ] as const
+                      ).map(([key, label]) => (
+                        <tr key={key} className="border-t border-slate-100">
+                          <td className="py-2 pr-3 text-slate-700">{label}</td>
+                          {(["admin", "member"] as const).map((roleKey) => (
+                            <td key={roleKey} className="py-2 px-3">
+                              <input
+                                checked={permissionsDraft[roleKey][key]}
+                                className="h-4 w-4 rounded border-slate-300"
+                                disabled={savingPermissions}
+                                onChange={(event) =>
+                                  setPermissionsDraft((current) =>
+                                    current
+                                      ? {
+                                          ...current,
+                                          [roleKey]: {
+                                            ...current[roleKey],
+                                            [key]: event.target.checked,
+                                          },
+                                        }
+                                      : current,
+                                  )
+                                }
+                                type="checkbox"
+                              />
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <button
+                  className={`${primaryButton} mt-4`}
+                  disabled={savingPermissions}
+                  onClick={() => void handleSavePermissions()}
+                  type="button"
+                >
+                  {savingPermissions ? "Saving…" : "Save permissions"}
+                </button>
+              </div>
+            )}
+
+            {canDeleteGroup && (
               <div className="bg-white rounded-2xl border border-rose-100 p-5">
                 <div className="font-semibold mb-1">Delete group</div>
                 <div className="text-sm text-slate-500 mb-3">

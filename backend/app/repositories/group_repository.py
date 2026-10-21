@@ -56,6 +56,15 @@ class GroupRepository(BaseRepository):
         )
         return bool(response.data)
 
+    def update_permissions(self, group_id: str, permissions: JsonRow) -> JsonRow | None:
+        response = self._execute(
+            self.db.table(self.groups_table).update({"permissions": permissions}).eq(
+                "id", group_id
+            ),
+            validation_detail="The permissions violate a database constraint.",
+        )
+        return response.data[0] if response.data else None
+
     # ── memberships ─────────────────────────────────────────────────────────
     def add_member(self, *, group_id: str, user_id: str, role: str) -> JsonRow:
         response = self._execute(

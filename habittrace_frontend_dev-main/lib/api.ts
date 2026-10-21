@@ -980,6 +980,23 @@ export type GroupRole = "owner" | "admin" | "member";
 export type GroupTaskStatus = "pending" | "success" | "failed";
 export type GroupTaskPriority = "high" | "medium" | "low";
 
+/** One role's (admin or member) toggles within a group's permission matrix. */
+export interface RolePermissions {
+  delete_group: boolean;
+  manage_member_roles: boolean;
+  edit_others_tasks: boolean;
+  delete_others_tasks: boolean;
+}
+
+/**
+ * A group's configurable admin/member permission matrix. The owner always
+ * has every permission implicitly and is never represented here.
+ */
+export interface GroupPermissions {
+  admin: RolePermissions;
+  member: RolePermissions;
+}
+
 export interface Group {
   id: string;
   owner_id: string;
@@ -988,6 +1005,7 @@ export interface Group {
   created_at: string;
   /** The signed-in user's role in this group. */
   role: GroupRole;
+  permissions: GroupPermissions;
 }
 
 export interface GroupMember {
@@ -1106,6 +1124,17 @@ export async function updateGroupMemberRole(
   return apiFetch<GroupMember>(`/groups/${groupId}/members/${userId}`, {
     method: "PATCH",
     body: JSON.stringify({ role }),
+  });
+}
+
+/** Owner-only: replace the admin/member permission matrix for a group. */
+export async function updateGroupPermissions(
+  groupId: string,
+  permissions: GroupPermissions
+): Promise<Group> {
+  return apiFetch<Group>(`/groups/${groupId}/permissions`, {
+    method: "PATCH",
+    body: JSON.stringify(permissions),
   });
 }
 

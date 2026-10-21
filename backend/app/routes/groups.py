@@ -20,6 +20,7 @@ from ..schemas.group import (
     GroupJoinRequest,
     GroupMemberResponse,
     GroupMemberRoleUpdate,
+    GroupPermissionsUpdate,
     GroupResponse,
     GroupTaskCompletion,
     GroupTaskCreate,
@@ -88,6 +89,16 @@ def update_group_member_role(
     service: GroupServiceDep,
 ):
     return service.set_member_role(user_id, group_id, target_user_id, body)
+
+
+@router.patch("/{group_id}/permissions", response_model=GroupResponse)
+def update_group_permissions(
+    group_id: UUID,
+    body: GroupPermissionsUpdate,
+    user_id: CurrentUserId,
+    service: GroupServiceDep,
+):
+    return service.update_permissions(user_id, group_id, body)
 
 
 @router.get(

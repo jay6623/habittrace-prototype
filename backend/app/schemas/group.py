@@ -16,6 +16,44 @@ GroupTaskStatus = Literal["pending", "success", "failed"]
 GroupTaskPriority = Literal["high", "medium", "low"]
 
 
+class RolePermissions(BaseModel):
+    """One role's (admin or member) toggles within a group's permission matrix."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    delete_group: bool = False
+    manage_member_roles: bool = False
+    edit_others_tasks: bool = False
+    delete_others_tasks: bool = False
+
+
+class GroupPermissions(BaseModel):
+    """A group's configurable admin/member permission matrix.
+
+    The owner always has every permission implicitly and is never represented
+    here. Defaults mirror the behavior groups had before this matrix existed.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    admin: RolePermissions = Field(
+        default_factory=lambda: RolePermissions(
+            delete_group=True,
+            manage_member_roles=False,
+            edit_others_tasks=True,
+            delete_others_tasks=True,
+        )
+    )
+    member: RolePermissions = Field(
+        default_factory=lambda: RolePermissions(
+            delete_group=False,
+            manage_member_roles=False,
+            edit_others_tasks=True,
+            delete_others_tasks=True,
+        )
+    )
+
+
 def _require_non_blank(value: str, field_name: str) -> str:
     stripped = value.strip()
     if not stripped:
@@ -56,6 +94,15 @@ class GroupMemberRoleUpdate(BaseModel):
     role: Literal["admin", "member"]
 
 
+class GroupPermissionsUpdate(BaseModel):
+    """Owner-only: replace the admin/member permission matrix for this group."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    admin: RolePermissions
+    member: RolePermissions
+
+
 class GroupResponse(BaseModel):
     id: str
     owner_id: str
@@ -63,6 +110,7 @@ class GroupResponse(BaseModel):
     invite_code: str
     created_at: str
     role: GroupRole
+    permissions: GroupPermissions = Field(default_factory=GroupPermissions)
 
 
 class GroupMemberResponse(BaseModel):

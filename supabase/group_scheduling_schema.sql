@@ -8,7 +8,24 @@ create table if not exists public.groups (
   owner_id uuid not null references auth.users(id) on delete cascade,
   name text not null check (char_length(name) between 1 and 80),
   invite_code text not null unique check (invite_code ~ '^[A-Z0-9]{8}$'),
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  -- Configurable admin/member permission matrix. The owner always has every
+  -- permission implicitly and is never represented here. These defaults
+  -- mirror the behavior groups had before this matrix existed.
+  permissions jsonb not null default '{
+    "admin": {
+      "delete_group": true,
+      "manage_member_roles": false,
+      "edit_others_tasks": true,
+      "delete_others_tasks": true
+    },
+    "member": {
+      "delete_group": false,
+      "manage_member_roles": false,
+      "edit_others_tasks": true,
+      "delete_others_tasks": true
+    }
+  }'::jsonb
 );
 
 create index if not exists idx_groups_owner on public.groups(owner_id);
