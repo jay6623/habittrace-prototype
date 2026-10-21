@@ -78,7 +78,9 @@ def test_not_completed_blank_is_unknown_not_not_started(authenticated_client, db
 
 
 def test_reported_zero_minutes_and_optional_reason_are_kept(authenticated_client, db):
-    result = _log(authenticated_client, **NOT_COMPLETED, active_minutes=0, failure_reason="interruption")
+    result = _log(
+        authenticated_client, **NOT_COMPLETED, active_minutes=0, failure_reason="interruption"
+    )
     assert result.status_code == 201
     assert db.rows["executions"][0]["active_minutes"] == 0
     assert db.rows["executions"][0]["failure_reason"] == "interruption"
@@ -100,7 +102,8 @@ def test_invalid_optional_times_are_still_rejected(body):
 def test_full_reported_range_still_validates_active_minutes():
     with pytest.raises(ValidationError):
         ExecutionComplete.model_validate({
-            **NOT_COMPLETED, "actual_start_time": _iso(-10), "actual_end_time": _iso(), "active_minutes": 30,
+            **NOT_COMPLETED, "actual_start_time": _iso(-10), "actual_end_time": _iso(),
+            "active_minutes": 30,
         })
 
 
@@ -176,13 +179,19 @@ def test_duration_recommendations_ignore_records_without_a_measured_range():
                      "captured_at": (start - timedelta(hours=1)).isoformat()},
         }
 
-    measured = [observation(actual_start_time=start.isoformat(),
-                            actual_end_time=(start + timedelta(minutes=m)).isoformat()) for m in (34, 36, 38)]
+    measured = [
+        observation(actual_start_time=start.isoformat(),
+                    actual_end_time=(start + timedelta(minutes=m)).isoformat())
+        for m in (34, 36, 38)
+    ]
     unknown = [observation(), observation(actual_end_time=start.isoformat()),
                observation(actual_start_time=start.isoformat())]
-    result = DurationService(_History(measured + unknown)).get(USER_ID, "Read", "Study", 30, now=now)
+    result = DurationService(_History(measured + unknown)).get(
+        USER_ID, "Read", "Study", 30, now=now
+    )
     assert result.available and result.sample_count == 3
-    assert DurationService(_History(unknown)).get(USER_ID, "Read", "Study", 30, now=now).sample_count == 0
+    only_unknown = DurationService(_History(unknown)).get(USER_ID, "Read", "Study", 30, now=now)
+    assert only_unknown.sample_count == 0
 
 
 # ── Editing a logged outcome (PATCH /executions/{id}) ──────────────────────────
@@ -207,7 +216,9 @@ def _revise(client, **body):
 
 def test_editing_reason_keeps_unknown_times_and_reported_minutes(authenticated_client, db):
     _logged(db, active_minutes=20)
-    result = _revise(authenticated_client, **NOT_COMPLETED, failure_reason="interruption", active_minutes=20)
+    result = _revise(
+        authenticated_client, **NOT_COMPLETED, failure_reason="interruption", active_minutes=20
+    )
     assert result.status_code == 200
     stored = db.rows["executions"][0]
     assert stored["failure_reason"] == "interruption"
@@ -235,7 +246,9 @@ def test_editing_legacy_start_only_record_keeps_start_and_unknown_finish(authent
     assert stored["actual_start_time"] == started and stored["actual_end_time"] is None
 
 
-def test_adding_finish_to_legacy_start_is_validated_against_the_stored_start(authenticated_client, db):
+def test_adding_finish_to_legacy_start_is_validated_against_the_stored_start(
+    authenticated_client, db,
+):
     _logged(db, **COMPLETED, completion_ratio=1, actual_start_time=_iso(-90))
     assert _revise(authenticated_client, **COMPLETED, actual_end_time=_iso(-120)).status_code == 422
     assert _revise(authenticated_client, **COMPLETED, actual_end_time=_iso(-30)).status_code == 200
@@ -281,7 +294,9 @@ def test_reported_zero_is_kept_and_not_started_is_a_confirmed_zero():
 
 def test_editing_keeps_an_unknown_interruption_count(authenticated_client, db):
     _logged(db, interruption_count=None)
-    result = _revise(authenticated_client, **NOT_COMPLETED, interruption_count=None, failure_reason="other")
+    result = _revise(
+        authenticated_client, **NOT_COMPLETED, interruption_count=None, failure_reason="other"
+    )
     assert result.status_code == 200
     assert db.rows["executions"][0]["interruption_count"] is None
 
@@ -318,7 +333,9 @@ def _summary(executions):
 
 
 def test_analytics_average_ignores_unreported_interruptions():
-    summary = _summary([{"interruption_count": 4}, {"interruption_count": 0}, {"interruption_count": None}])
+    summary = _summary(
+        [{"interruption_count": 4}, {"interruption_count": 0}, {"interruption_count": None}]
+    )
     assert summary["avg_interruptions"] == 2.0  # (4 + 0) / 2, the unknown is excluded
 
 
