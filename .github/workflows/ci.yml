@@ -17,6 +17,12 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    env:
+      SUPABASE_URL: https://placeholder.supabase.co
+      SUPABASE_SERVICE_KEY: ci-placeholder-service-key
+      SUPABASE_ANON_KEY: ci-placeholder-anon-key
+      AI_SUPABASE_URL: https://placeholder-ai.supabase.co
+      AI_SUPABASE_SERVICE_ROLE_KEY: ci-placeholder-ai-service-key
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
