@@ -16,6 +16,7 @@ import {
   toStoredTime,
   type FailureReasonCode,
 } from "@/lib/mobile-task";
+import { buildRevisionInput, MAX_MINUTES_SPENT } from "@/lib/outcome";
 import Dialog from "@/components/ui/dialog";
 
 type LogResult = "not_started" | "completed" | "partial" | "abandoned";
@@ -74,9 +75,10 @@ export default function LoggedPlanEditForm({
   );
   const [execution, setExecution] = useState<Execution | null>(null);
   const [progress, setProgress] = useState("");
-  const [interruptions, setInterruptions] = useState("0");
+  const [interruptions, setInterruptions] = useState("");
   const [actualStart, setActualStart] = useState("");
   const [actualEnd, setActualEnd] = useState("");
+  const [minutesSpent, setMinutesSpent] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,7 +92,9 @@ export default function LoggedPlanEditForm({
         setExecution(latest);
         setActualStart(localInputTime(latest?.actual_start_time));
         setActualEnd(localInputTime(latest?.actual_end_time));
-        setInterruptions(String(latest?.interruption_count ?? 0));
+        // null = never reported: show blank so saving keeps it unknown.
+        setInterruptions(latest?.interruption_count != null ? String(latest.interruption_count) : "");
+        setMinutesSpent(latest?.active_minutes != null ? String(latest.active_minutes) : "");
         setProgress(latest?.completion_ratio != null ? String(Math.round(latest.completion_ratio * 100)) : "");
         if (latest?.outcome_status) {
           setResult(latest.outcome_status);
@@ -157,28 +161,24 @@ export default function LoggedPlanEditForm({
       setError("Choose the actual outcome. Older failed records do not include a completion percentage.");
       return;
     }
-    if (result !== "completed" && result !== "not_started" && !failureReason) {
-      setError("Choose what got in the way.");
-      return;
-    }
     if (!execution) {
       setError("No saved outcome was found for this plan.");
       return;
     }
-    const percent = Number(progress), count = Number(interruptions);
-    if (result !== "not_started" && (
-      interruptions.trim() === "" || !Number.isInteger(count) || count < 0 || count > 10000
-      || (result === "partial" && (progress.trim() === "" || !Number.isInteger(percent) || percent < 1 || percent > 99))
-    )) {
-      setError("Enter an interruption count and a partial completion percentage from 1 to 99.");
-      return;
-    }
-    const start = new Date(actualStart), end = new Date(actualEnd);
-    if (result !== "not_started" && (
-      !actualStart || !actualEnd || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())
-      || end < start || end.getTime() > Date.now() + 300000
-    )) {
-      setError("Enter valid actual start and finish times.");
+    const revision = buildRevisionInput(
+      {
+        result,
+        actualStart,
+        actualEnd,
+        interruptions,
+        progress,
+        minutesSpent,
+        reason: failureReason,
+      },
+      execution,
+    );
+    if (!revision.ok) {
+      setError(revision.error);
       return;
     }
 
@@ -203,19 +203,7 @@ export default function LoggedPlanEditForm({
       };
 
       await updateTask(task.id, payload);
-      const taskStatus = result === "completed" ? "success" : "failed";
-      await reviseExecution(execution.id, {
-        task_status: taskStatus,
-        outcome_status: result,
-        completion_ratio: result === "completed" ? 1 : result === "partial" ? percent / 100 : 0,
-        stopped_early: result === "partial" || result === "abandoned",
-        failure_reason:
-          result === "completed" ? undefined : failureReason || undefined,
-        interruption_count: result === "not_started" ? 0 : count,
-        actual_start_time: result === "not_started" ? undefined : start.toISOString(),
-        actual_end_time: result === "not_started" ? undefined : end.toISOString(),
-      });
-
+      await reviseExecution(execution.id, revision.input);
 
       notifyDataChanged();
       onSaved();
@@ -378,17 +366,27 @@ export default function LoggedPlanEditForm({
           {result !== "not_started" && (
             <fieldset className="space-y-3">
               <legend className="text-sm font-semibold">Actual execution</legend>
+              <p className="text-xs text-slate-500">
+                Optional. Leave a time blank if you don’t know it; it stays unrecorded.
+              </p>
               <label className="block text-sm">Started
                 <input type="datetime-local" className="field mt-1" value={actualStart}
-                  onChange={(e) => setActualStart(e.target.value)} required />
+                  onChange={(e) => setActualStart(e.target.value)} />
               </label>
               <label className="block text-sm">Finished
                 <input type="datetime-local" className="field mt-1" value={actualEnd}
-                  onChange={(e) => setActualEnd(e.target.value)} required />
+                  onChange={(e) => setActualEnd(e.target.value)} />
               </label>
-              <label className="block text-sm">Times interrupted
+              {result !== "completed" && (
+                <label className="block text-sm">Minutes spent (optional)
+                  <input type="number" min="0" max={MAX_MINUTES_SPENT} step="1" inputMode="numeric"
+                    className="field mt-1" value={minutesSpent}
+                    onChange={(e) => setMinutesSpent(e.target.value)} />
+                </label>
+              )}
+              <label className="block text-sm">Times interrupted (optional)
                 <input type="number" min="0" max="10000" step="1" className="field mt-1"
-                  value={interruptions} onChange={(e) => setInterruptions(e.target.value)} required />
+                  value={interruptions} onChange={(e) => setInterruptions(e.target.value)} />
               </label>
               {result === "partial" && (
                 <label className="block text-sm">Completed (%)
@@ -400,16 +398,15 @@ export default function LoggedPlanEditForm({
           )}
           {result !== "completed" && (
             <label className="block space-y-2 text-sm font-semibold">
-              What got in the way?
+              What got in the way? <span className="font-normal text-slate-500">(optional)</span>
               <select
-                required={result !== "not_started"}
                 className="field"
                 value={failureReason}
                 onChange={(e) =>
                   setFailureReason(e.target.value as FailureReasonCode | "")
                 }
               >
-                <option value="">{result === "not_started" ? "Optional reason" : "Select a reason"}</option>
+                <option value="">Prefer not to say</option>
                 {FAILURE_REASONS.map((reason) => (
                   <option key={reason.code} value={reason.code}>
                     {reason.label}

@@ -68,7 +68,7 @@ class OutcomeResponse(BaseModel):
     actual_end: AwareDatetime | None
     active_minutes: int | None
     completion_ratio: Decimal
-    interruption_count: int
+    interruption_count: int | None  # None: not reported
     stopped_early: bool
     user_note: str | None
     recorded_at: AwareDatetime

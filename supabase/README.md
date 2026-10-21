@@ -130,6 +130,49 @@ where e.ai_outcome_job_id is not null and j.id is null;
 The last query should return no rows. PostgreSQL regression checks are in
 `supabase/tests/execution_outcome_sync.test.mjs`.
 
+### Optional actual times (`execution_optional_times.sql`)
+
+Primary project, after `execution_outcome_sync_schema.sql`. It replaces only the
+two execution trigger functions; no tables, columns, indexes or rows change, and
+it can be re-run. Finished outcomes other than `not_started` may now omit actual
+times, so a plan can be logged without a timer and without inventing timestamps:
+
+| Stored times | Meaning |
+|---|---|
+| both null | Unknown. For Completed, the UI shows the scheduled end as a labelled fallback. |
+| end only | User-reported finish time; no observed start. Not sent to the AI project. |
+| start only | Legacy timer start whose finish was not reported. |
+| both | Timer measurement or manually entered range (existing checks apply). |
+
+`active_minutes` and `interruption_count` null mean unknown (not reported); 0 means
+a reported zero. Not-started outcomes always store 0 for both. Historical values
+are never rewritten. A failure reason is optional (null = not given). Analytics
+and Coach averages use only reported counts and complete start/end ranges. AI
+model features never use actual times or interruptions; labels come from
+`outcome_status`, `completion_ratio` and reasons.
+
+The AI project needs `ai_outcome_nullable_interruptions.sql` (after
+`ai_schema.sql` and `ai_outcome_delivery_schema.sql`) so a null count can be
+delivered; without it those deliveries fail and stay `pending` until it is applied.
+
+Deploy order (back up both projects first):
+1. AI project: `ai_outcome_nullable_interruptions.sql`.
+2. Primary project: `execution_optional_times.sql`.
+3. Backend, then frontend.
+
+Both migrations only relax constraints, so the currently deployed backend and
+frontend keep working after steps 1–2. Read-only pre-check on the primary project:
+`select is_nullable from information_schema.columns where table_schema='public'
+and table_name='executions' and column_name='interruption_count';` must return
+`YES` (it is nullable in `schema.sql`); if not, stop and review.
+
+Rollback: redeploy the previous frontend and backend, then re-run
+`execution_outcome_sync_schema.sql` on the primary project (rows without times
+stay readable but reject further edits until times are supplied). Leave the AI
+migration in place: `set not null` fails while any count is null, and nulls must
+not be rewritten as 0. Run
+`node supabase/tests/execution_optional_times.test.mjs <pglite dist/index.js>`.
+
 ## AI V2 schema
 
 Run `ai_schema.sql` against the isolated AI project. It creates or aligns these tables:

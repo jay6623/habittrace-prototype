@@ -27,7 +27,8 @@ global.fetch = async (url, options) => {
 test('manual partial outcome preserves measured progress and interruptions in one primary write', async () => {
   calls.length = 0;
   const times = { actual_start_time: '2026-09-05T10:00:00Z', actual_end_time: '2026-09-05T11:00:00Z' };
-  await savePlanOutcome(taskId, 'partial', { completion_ratio: .35, interruption_count: 3 }, 'interruption', times);
+  await savePlanOutcome(taskId, { task_status: 'failed', outcome_status: 'partial', completion_ratio: .35,
+    interruption_count: 3, stopped_early: true, failure_reason: 'interruption', ...times });
   assert.equal(calls.length, 1);
   assert.ok(calls[0].url.endsWith('/executions'));
   assert.equal(calls[0].body.completion_ratio, .35);
@@ -39,7 +40,7 @@ test('manual partial outcome preserves measured progress and interruptions in on
 });
 test('not-started record has no invented timestamps, interruption, or failure reason', async () => {
   calls.length = 0;
-  await savePlanOutcome(taskId, 'not_started', { completion_ratio: 0, interruption_count: 0 });
+  await savePlanOutcome(taskId, { task_status: 'failed', outcome_status: 'not_started', completion_ratio: 0, interruption_count: 0 });
   assert.equal(calls[0].body.actual_start_time, null);
   assert.equal(calls[0].body.actual_end_time, null);
   assert.equal(calls[0].body.stopped_early, false);
@@ -47,7 +48,7 @@ test('not-started record has no invented timestamps, interruption, or failure re
 });
 test('active completion uses the existing execution and does not create a second AI request', async () => {
   calls.length = 0;
-  await savePlanOutcome(taskId, 'completed', { completion_ratio: 1, interruption_count: 2 }, undefined, undefined, 'active-id');
+  await savePlanOutcome(taskId, { task_status: 'success', outcome_status: 'completed', completion_ratio: 1, interruption_count: 2 }, 'active-id');
   assert.equal(calls.length, 1);
   assert.ok(calls[0].url.endsWith('/executions/active-id/complete'));
   assert.equal(calls[0].method, 'PATCH');

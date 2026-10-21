@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import QuickAddForm from "@/components/mobile/quick-add-form";
 import Dialog from "@/components/ui/dialog";
-import { toQuickTaskCreate } from "@/lib/mobile-task";
+import {
+  formatScheduledRange,
+  formatTaskTime,
+  toQuickTaskCreate,
+} from "@/lib/mobile-task";
 import { useDataRefresh } from "@/lib/refresh";
 import { createTask, getTasks, type Task } from "@/lib/api";
 import PlanFilters, {
@@ -384,11 +388,11 @@ export default function CalendarPage() {
                     <div
                       key={task.id}
                       className={`mt-1.5 w-full truncate rounded-lg px-2 py-1 text-xs font-medium ${taskChipColor(task)}`}
-                      title={task.title}
+                      title={`${task.title} · ${formatScheduledRange(task.planned_start_time, task.planned_duration_min)}`}
                     >
                       {task.planned_start_time && (
                         <span className="mr-1 opacity-60">
-                          {task.planned_start_time}
+                          {formatTaskTime(task.planned_start_time)}
                         </span>
                       )}
                       {task.title}
@@ -453,8 +457,7 @@ export default function CalendarPage() {
                         <div className="truncate">{task.title}</div>
                         {task.planned_start_time && (
                           <div className="mt-0.5 opacity-60">
-                            {task.planned_start_time} -{" "}
-                            {task.planned_duration_min}m
+                            {formatScheduledRange(task.planned_start_time, task.planned_duration_min)}
                           </div>
                         )}
                       </div>
@@ -511,8 +514,8 @@ export default function CalendarPage() {
                           {task.title}
                         </p>
                         <p className="mt-1 text-xs font-medium text-slate-500">
-                          {task.planned_start_time} · {task.planned_duration_min}{" "}
-                          min · {task.task_category}
+                          {formatScheduledRange(task.planned_start_time, task.planned_duration_min)}{" "}
+                          · {task.task_category}
                         </p>
                       </div>
                       <span
@@ -599,8 +602,8 @@ export default function CalendarPage() {
                   Time
                 </dt>
                 <dd className="mt-1 font-semibold text-slate-900">
-                  {selectedTask.planned_start_time} ·{" "}
-                  {selectedTask.planned_duration_min} min
+                  {formatScheduledRange(selectedTask.planned_start_time, selectedTask.planned_duration_min)}{" "}
+                  · {selectedTask.planned_duration_min} min
                 </dd>
               </div>
               <div className="col-span-2">

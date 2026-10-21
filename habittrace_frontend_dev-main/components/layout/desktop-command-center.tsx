@@ -9,27 +9,25 @@ import {
   getActiveExecutions,
   getOrCreateAIPlanPrediction,
   getTasks,
-  startExecution,
   savePlanOutcome,
-  type OutcomeMeasurements,
+  type ExecutionCompleteInput,
   type Execution,
   type Prediction,
   type Task,
 } from "@/lib/api";
 import {
+  formatScheduledEnd,
+  formatScheduledRange,
   formatTaskTime,
   localDateString,
   taskTimeInMinutes,
   toQuickTaskCreate,
-  type FailureReasonCode,
   type QuickAddDraft,
 } from "@/lib/mobile-task";
+import { outcomeConfirmation } from "@/lib/outcome";
 import { useDataRefresh } from "@/lib/refresh";
 import { useToast } from "@/components/ui/toast";
-import OutcomeSheet, {
-  type MobileResult,
-  type OutcomeTimes,
-} from "@/components/mobile/outcome-sheet";
+import OutcomeSheet from "@/components/mobile/outcome-sheet";
 import QuickAddForm from "@/components/mobile/quick-add-form";
 import PersonalizedOutlookCard from "@/components/personalized-outlook-card";
 import { countUnloggedAttention } from "@/lib/unlogged";
@@ -82,7 +80,6 @@ export default function DesktopCommandCenter() {
   const [error, setError] = useState<string | null>(null);
   const [quickAdd, setQuickAdd] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
-  const [startingId, setStartingId] = useState<string | null>(null);
   const [savingOutcome, setSavingOutcome] = useState(false);
   const [outcomeError, setOutcomeError] = useState<string | null>(null);
   const [aiPredictions, setAiPredictions] = useState<Record<string, Prediction>>({});
@@ -190,46 +187,13 @@ export default function DesktopCommandCenter() {
     notifications.success("Plan added", `${created.title} is now on your timeline.`);
   }
 
-  async function ensureStarted(task: Task) {
-    if (active[task.id]) return active[task.id];
-    const execution = await startExecution(task.id);
-    setActive((current) => ({ ...current, [task.id]: execution }));
-    return execution;
-  }
-
-  async function handleStart(task: Task) {
-    if (startingId || active[task.id]) return;
-    setStartingId(task.id);
-    try {
-      await ensureStarted(task);
-      notifications.success("Focus block started", task.title);
-    } catch {
-      notifications.error("Couldn’t start this plan", "Check your connection and try again.");
-    } finally {
-      setStartingId(null);
-    }
-  }
-
-  async function handleOutcome(
-    result: MobileResult,
-    reason?: FailureReasonCode,
-    times?: OutcomeTimes,
-    measurements?: OutcomeMeasurements,
-  ) {
+  async function handleOutcome(input: ExecutionCompleteInput) {
     if (!selectedTask || savingOutcome) return;
     setSavingOutcome(true);
     setOutcomeError(null);
     try {
-      if (result === "in_progress") {
-        await ensureStarted(selectedTask);
-        setSelectedTask(null);
-        notifications.info("Plan kept in progress", selectedTask.title);
-        return;
-      }
-      const taskStatus = result === "completed" ? "success" : "failed";
-      if (!measurements) throw new Error("Outcome details are required.");
-      await savePlanOutcome(selectedTask.id, result, measurements, reason, times,
-        active[selectedTask.id]?.id);
+      const taskStatus = input.task_status;
+      await savePlanOutcome(selectedTask.id, input, active[selectedTask.id]?.id);
       const finishedTask = selectedTask;
       setTasks((current) =>
         current.map((task) =>
@@ -242,7 +206,13 @@ export default function DesktopCommandCenter() {
         return next;
       });
       setSelectedTask(null);
-      notifications.success("Outcome saved", finishedTask.title);
+      notifications.success(
+        "Outcome saved",
+        `${finishedTask.title}: ${outcomeConfirmation(
+          input,
+          formatScheduledEnd(finishedTask.planned_start_time, finishedTask.planned_duration_min),
+        )}`,
+      );
     } catch {
       setOutcomeError("We couldn’t save this outcome. Check your connection and try again.");
     } finally {
@@ -363,7 +333,7 @@ export default function DesktopCommandCenter() {
                               </span>
                             )}
                           </div>
-                          <p className={`mt-1 text-xs ${isNext ? "text-slate-400" : "text-slate-500"}`}>{task.task_category} · {task.planned_duration_min} min · {taskStatusLabel(task, inProgress)}</p>
+                          <p className={`mt-1 text-xs ${isNext ? "text-slate-400" : "text-slate-500"}`}>{formatScheduledRange(task.planned_start_time, task.planned_duration_min)} · {task.task_category} · {taskStatusLabel(task, inProgress)}</p>
                           {task.notes?.trim() && (
                             <p className={`mt-2 whitespace-pre-wrap text-sm leading-relaxed ${isNext ? "text-slate-300" : "text-slate-600"}`}>
                               {task.notes.trim()}
@@ -377,9 +347,6 @@ export default function DesktopCommandCenter() {
                         </div>
                         {task.task_status === "pending" && (
                           <div className="flex shrink-0 gap-2">
-                            <button disabled={inProgress || startingId === task.id} onClick={() => void handleStart(task)} className={`rounded-lg px-3 py-2 text-xs font-bold ${isNext ? "bg-white text-slate-950 disabled:bg-slate-700 disabled:text-slate-400" : "bg-slate-100 text-slate-800"}`}>
-                              {inProgress ? "Started" : startingId === task.id ? "Starting…" : "Start"}
-                            </button>
                             <button onClick={() => { setOutcomeError(null); setSelectedTask(task); }} className={`rounded-lg px-3 py-2 text-xs font-bold ${isNext ? "bg-white/10 text-white hover:bg-white/20" : "bg-slate-950 text-white"}`}>Outcome</button>
                           </div>
                         )}
@@ -434,11 +401,11 @@ export default function DesktopCommandCenter() {
       {selectedTask && (
         <OutcomeSheet
           task={selectedTask}
-          isActive={Boolean(active[selectedTask.id])}
+          activeStart={active[selectedTask.id]?.actual_start_time ?? null}
           error={outcomeError}
           saving={savingOutcome}
           onDismiss={() => { if (!savingOutcome) setSelectedTask(null); }}
-          onSelect={handleOutcome}
+          onSubmit={handleOutcome}
         />
       )}
     </div>

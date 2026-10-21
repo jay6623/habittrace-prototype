@@ -75,6 +75,8 @@ keys into logs. `to_regclass(...) is not null` means the relation exists.
 | `ai_schema.sql` | AI Supabase; first | AI inputs/outcomes/reasons/models/predictions/recommendations/schedules | **Partial**: guarded tables but constraints/functions are rebuilt | `select to_regclass('public.ai_plan_inputs'), to_regclass('public.ai_plan_outcomes'), to_regclass('public.ai_model_versions');` then run `verify_ai_schema.sql` | AI V2 writes/reads fail. Restore AI-project backup; use a reviewed downgrade, never drop real AI records ad hoc. |
 | `ai_outcome_delivery_schema.sql` | AI Supabase; `ai_schema.sql` | atomic outcome/reason delivery RPC and version locks | Mostly repeatable | `select to_regprocedure('public.deliver_execution_outcome(uuid,uuid,uuid,bigint,jsonb,text)'), to_regclass('public.ai_execution_delivery_versions');` | Primary jobs remain pending; outcomes are not delivered. Restore backup or remove RPC/version table only after backend rollback. |
 | `coach_visualization_metadata.sql` | Primary; `coach_agent_schema.sql` | persisted Coach chart metadata | Idempotent | `select column_name from information_schema.columns where table_schema='public' and table_name='coach_messages' and column_name='metadata';` | Chart-bearing Coach responses cannot persist. Restore backup or drop column after disabling feature. |
+| `ai_outcome_nullable_interruptions.sql` | AI Supabase; `ai_outcome_delivery_schema.sql`; **before** the backend that sends null counts | unknown interruption counts stay null | Repeatable (drop not null) | `select is_nullable from information_schema.columns where table_schema='public' and table_name='ai_plan_outcomes' and column_name='interruption_count';` | Outcomes with an unknown count stay `pending` until applied. Leave in place on rollback; never rewrite nulls as 0. |
+| `execution_optional_times.sql` | Primary; `execution_outcome_sync_schema.sql`; after the AI migration, **before** the backend | completing plans without a timer; unknown times/minutes | Repeatable (replaces two trigger functions only) | `select pg_get_functiondef('public.prepare_execution_ai_sync'::regproc) like '%Actual times are optional%';` | New completions without times are rejected. Rollback: redeploy previous app, re-run `execution_outcome_sync_schema.sql`. |
 
 `verify_ai_schema.sql` is deliberately read-only and should be run after the AI
 schema migration; it is not a migration. `supabase/tests/*.test.mjs` are local
@@ -87,8 +89,10 @@ Supabase projects.
 2. **AI V2 plan/outcome flow:** Primary `task_ai_sync_schema.sql` then
    `execution_outcome_sync_schema.sql`; AI `ai_schema.sql` then
    `ai_outcome_delivery_schema.sql`; run `verify_ai_schema.sql`.
-3. **Coach charts:** Primary `coach_agent_schema.sql` then
+3. **Task completion redesign:** AI `ai_outcome_nullable_interruptions.sql`, then
+   Primary `execution_optional_times.sql`, then backend, then frontend.
+4. **Coach charts:** Primary `coach_agent_schema.sql` then
    `coach_visualization_metadata.sql`.
-4. Apply independent optional Primary migrations (`task_notes`, Calendar, groups,
+5. Apply independent optional Primary migrations (`task_notes`, Calendar, groups,
    avatar, profile sync) only when their corresponding product surface is enabled;
    group add-ons follow `group_scheduling_schema.sql`.

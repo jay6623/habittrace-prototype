@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { createTask, getTasks, type Task } from "@/lib/api";
 import {
-  formatTaskTime,
+  formatScheduledRange,
   localDateString,
   taskTimeInMinutes,
   toQuickTaskCreate,
@@ -353,8 +353,7 @@ export default function MobileCalendar() {
                     {task.title}
                   </p>
                   <p className="mt-1 text-xs font-medium text-slate-500">
-                    {formatTaskTime(task.planned_start_time)} ·{" "}
-                    {task.planned_duration_min} min
+                    {formatScheduledRange(task.planned_start_time, task.planned_duration_min)}
                   </p>
                 </div>
                 <span className="shrink-0 text-[11px] font-bold text-slate-400">

@@ -261,7 +261,7 @@ def test_active_execution_cannot_be_relabelled_as_never_started(authenticated_cl
     assert db.rows["tasks"][0]["task_status"] == "pending"
 
 
-def test_not_started_correction_requires_real_times_before_claiming_completion(
+def test_not_started_correction_to_completed_keeps_unknown_times_unknown(
     authenticated_client, monkeypatch,
 ):
     db = database()
@@ -273,5 +273,7 @@ def test_not_started_correction_requires_real_times_before_claiming_completion(
     result = authenticated_client.patch(f"/executions/{EXECUTION_ID}", json={
         "task_status": "success",
     })
-    assert result.status_code == 422
-    assert db.rows["executions"][0]["outcome_status"] == "not_started"
+    assert result.status_code == 200
+    stored = db.rows["executions"][0]
+    assert stored["outcome_status"] == "completed"
+    assert stored["actual_start_time"] is None and stored["actual_end_time"] is None

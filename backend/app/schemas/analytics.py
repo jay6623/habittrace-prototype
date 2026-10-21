@@ -14,7 +14,7 @@ class AnalyticsSummary(BaseModel):
     success_rate: float  # 0–100
     total_planned_minutes: int
     avg_importance: float
-    avg_interruptions: float
+    avg_interruptions: float | None  # None when no execution reported a count
     most_failed_category: str
     best_time_of_day: str
     failure_by_category: dict[str, int]

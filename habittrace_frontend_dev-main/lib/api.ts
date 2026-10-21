@@ -79,13 +79,15 @@ export interface ExecutionCreate {
   task_id: string;
   actual_start_time: string | null;
   actual_end_time: string | null;
-  interruption_count: number;
+  /** null = not reported (unknown); 0 = reported zero. */
+  interruption_count: number | null;
   stopped_early: boolean;
   task_status: "success" | "failed";
   failure_reason?: string;
   outcome_status?: MobileOutcomeStatus;
   completion_ratio?: number;
   active_minutes?: number | null;
+  actual_end_unknown?: boolean;
 }
 
 export interface Execution {
@@ -94,7 +96,7 @@ export interface Execution {
   user_id: string;
   actual_start_time: string | null;
   actual_end_time: string | null;
-  interruption_count: number;
+  interruption_count: number | null;
   stopped_early: boolean;
   task_status: "success" | "failed" | null;
   failure_reason: string | null;
@@ -108,13 +110,15 @@ export interface Execution {
 export interface ExecutionCompleteInput {
   actual_start_time?: string;
   actual_end_time?: string;
-  interruption_count?: number;
+  interruption_count?: number | null;
   stopped_early?: boolean;
   task_status: "success" | "failed";
   failure_reason?: string;
   outcome_status?: MobileOutcomeStatus;
   completion_ratio?: number;
   active_minutes?: number | null;
+  /** Finish time not reported: the server must not stamp the request time on a running timer. */
+  actual_end_unknown?: boolean;
 }
 
 export type MobileOutcomeStatus = "not_started" | "completed" | "partial" | "abandoned";
@@ -124,30 +128,23 @@ export interface OutcomeMeasurements {
   interruption_count: number;
 }
 
-/** Save one primary result; the server durably delivers it and its reason to AI. */
+/**
+ * Save one primary result; the server durably delivers it and its reason to AI.
+ * A plan with a running (legacy) timer is finished in place so its start is kept.
+ */
 export async function savePlanOutcome(
   taskId: string,
-  result: MobileOutcomeStatus,
-  measurements: OutcomeMeasurements,
-  reason?: string,
-  times?: { actual_start_time: string; actual_end_time: string },
+  input: ExecutionCompleteInput,
   activeExecutionId?: string,
 ): Promise<Execution> {
-  const input: ExecutionCompleteInput = {
-    ...times,
-    ...measurements,
-    outcome_status: result,
-    task_status: result === "completed" ? "success" : "failed",
-    stopped_early: result === "partial" || result === "abandoned",
-    failure_reason: result === "completed" ? undefined : reason,
-  };
   if (activeExecutionId) return completeExecution(activeExecutionId, input);
   return logExecution({
     ...input,
     task_id: taskId,
-    actual_start_time: times?.actual_start_time ?? null,
-    actual_end_time: times?.actual_end_time ?? null,
-    interruption_count: measurements.interruption_count,
+    actual_start_time: input.actual_start_time ?? null,
+    actual_end_time: input.actual_end_time ?? null,
+    // Keep null (unknown); only an omitted field falls back to the legacy default 0.
+    interruption_count: input.interruption_count === undefined ? 0 : input.interruption_count,
     stopped_early: input.stopped_early ?? false,
   });
 }
@@ -300,7 +297,8 @@ export interface AnalyticsSummary {
   success_rate: number;
   total_planned_minutes: number;
   avg_importance: number;
-  avg_interruptions: number;
+  /** null when no execution in the period reported an interruption count. */
+  avg_interruptions: number | null;
   most_failed_category: string;
   best_time_of_day: string;
   failure_by_category: Record<string, number>;
