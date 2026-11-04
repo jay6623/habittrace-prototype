@@ -17,6 +17,7 @@ interface Draft {
   priority: GroupTaskPriority;
   dueDate: string;
   dueTime: string;
+  duration: string;
   assignedTo: string[];
 }
 
@@ -43,6 +44,7 @@ export default function GroupTaskForm({
     priority: "medium",
     dueDate: "",
     dueTime: "",
+    duration: "",
     assignedTo: [],
   });
   const [saving, setSaving] = useState(false);
@@ -81,6 +83,8 @@ export default function GroupTaskForm({
         priority: draft.priority,
         due_date: draft.dueDate || null,
         due_time: draft.dueTime || null,
+        estimated_duration_minutes: draft.duration ? Number(draft.duration) : null,
+        due_timezone_name: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
         assigned_to_ids: draft.assignedTo,
       });
     } catch (caught) {
@@ -240,6 +244,16 @@ export default function GroupTaskForm({
                   value={draft.dueTime}
                 />
               </div>
+            </div>
+
+            <div>
+              <label className={labelClass} htmlFor="group-task-duration">
+                Estimated duration in minutes <span className="font-normal text-slate-400">(optional)</span>
+              </label>
+              <input className={fieldClass} id="group-task-duration" type="number" min={1} max={720}
+                value={draft.duration} placeholder="e.g. 60"
+                onChange={(event) => setDraft((current) => ({ ...current, duration: event.target.value }))} />
+              <p className="mt-1 text-xs text-slate-500">Assignees can adjust this when planning their own work.</p>
             </div>
 
             {error && (

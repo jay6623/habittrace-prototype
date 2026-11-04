@@ -49,9 +49,25 @@ export function formatDueTime(value: string | null): string | null {
   return `${hour12}:${String(minute).padStart(2, "0")} ${suffix}`;
 }
 
-export function formatDue(task: Pick<GroupTask, "due_date" | "due_time">): string | null {
+export function formatDue(task: Pick<GroupTask, "due_date" | "due_time" | "due_timezone_name">): string | null {
   const parts = [formatDueDate(task.due_date), formatDueTime(task.due_time)].filter(Boolean);
+  if (parts.length && task.due_timezone_name) parts.push(task.due_timezone_name);
   return parts.length ? parts.join(" · ") : null;
+}
+
+export function groupDeadlinePassed(
+  task: Pick<GroupTask, "due_date" | "due_time" | "due_timezone_name">, now = new Date(),
+): boolean {
+  if (!task.due_date || !task.due_time) return false;
+  if (!task.due_timezone_name) return now.getTime() >= new Date(`${task.due_date}T${task.due_time}`).getTime();
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: task.due_timezone_name, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+  }).formatToParts(now);
+  const value = (type: string) => parts.find((part) => part.type === type)?.value ?? "00";
+  const local = `${value("year")}-${value("month")}-${value("day")}T${value("hour")}:${value("minute")}:${value("second")}`;
+  const dueTime = task.due_time.length === 5 ? `${task.due_time}:00` : task.due_time;
+  return local >= `${task.due_date}T${dueTime}`;
 }
 
 /**

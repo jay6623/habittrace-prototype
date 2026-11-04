@@ -5,11 +5,14 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
+from ..config import settings
 from ..db.supabase_client import get_supabase, is_supabase_configured
 from ..dependencies.auth import CurrentUserId
+from ..rate_limit import RateLimitSpec, rate_limiter
 from ..repositories.group_repository import GroupRepository
+from ..repositories.personalization_repository import PersonalizationRepository
 from ..schemas.group import (
     GroupAnnouncementCreate,
     GroupAnnouncementReplyCreate,
@@ -20,13 +23,21 @@ from ..schemas.group import (
     GroupJoinRequest,
     GroupMemberResponse,
     GroupMemberRoleUpdate,
+    GroupPersonalPlanRequest,
+    GroupPersonalPreview,
     GroupResponse,
     GroupTaskCompletion,
     GroupTaskCreate,
     GroupTaskResponse,
     GroupTaskUpdate,
 )
+from ..schemas.task import TaskResponse
+from ..services.ai_v2_ml_service import get_ai_v2_ml_service
+from ..services.google_calendar_service import GoogleCalendarService
+from ..services.group_personal_planning_service import GroupPersonalPlanningService
 from ..services.group_service import GroupService
+from ..services.personalization_service import PersonalizationService
+from ..services.task_service import TaskService
 
 router = APIRouter()
 
@@ -41,6 +52,55 @@ def get_group_service() -> GroupService:
 
 
 GroupServiceDep = Annotated[GroupService, Depends(get_group_service)]
+
+
+def get_group_personal_planning_service(groups: GroupServiceDep) -> GroupPersonalPlanningService:
+    db = groups.groups.db
+    return GroupPersonalPlanningService(
+        groups,
+        TaskService(db),
+        get_ai_v2_ml_service(),
+        PersonalizationService(PersonalizationRepository(db)),
+        GoogleCalendarService(db),
+    )
+
+
+PersonalPlanningDep = Annotated[
+    GroupPersonalPlanningService, Depends(get_group_personal_planning_service)
+]
+
+
+@router.post("/{group_id}/tasks/{task_id}/personal-preview", response_model=GroupPersonalPreview)
+def preview_group_personal_plan(
+    group_id: UUID,
+    task_id: UUID,
+    body: GroupPersonalPlanRequest,
+    user_id: CurrentUserId,
+    service: PersonalPlanningDep,
+    response: Response,
+):
+    response.headers["Cache-Control"] = "no-store"
+    rate_limiter.enforce(
+        key=f"group-personal-preview:{user_id}",
+        spec=RateLimitSpec(
+            requests=settings.predict_requests_per_window,
+            window_seconds=settings.rate_limit_window_seconds,
+        ),
+    )
+    return service.preview(user_id, group_id, task_id, body)
+
+
+@router.post("/{group_id}/tasks/{task_id}/personal-plan", response_model=TaskResponse)
+def confirm_group_personal_plan(
+    group_id: UUID,
+    task_id: UUID,
+    body: GroupPersonalPlanRequest,
+    user_id: CurrentUserId,
+    service: PersonalPlanningDep,
+    response: Response,
+):
+    response.headers["Cache-Control"] = "no-store"
+    return service.confirm(user_id, group_id, task_id, body)
 
 
 @router.post("", response_model=GroupResponse, status_code=status.HTTP_201_CREATED)
@@ -94,9 +154,7 @@ def update_group_member_role(
     "/{group_id}/announcements",
     response_model=list[GroupAnnouncementResponse],
 )
-def list_group_announcements(
-    group_id: UUID, user_id: CurrentUserId, service: GroupServiceDep
-):
+def list_group_announcements(group_id: UUID, user_id: CurrentUserId, service: GroupServiceDep):
     return service.list_announcements(user_id, group_id)
 
 

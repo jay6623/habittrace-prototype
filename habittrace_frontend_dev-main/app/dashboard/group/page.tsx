@@ -28,6 +28,7 @@ import {
   memberName,
   readStoredGroupId,
   storeGroupId,
+  groupDeadlinePassed,
 } from "@/lib/group";
 import QuickAddForm from "@/components/mobile/quick-add-form";
 import Dialog from "@/components/ui/dialog";
@@ -44,6 +45,7 @@ import { useToast } from "@/components/ui/toast";
 import GroupAnnouncements from "@/components/group/group-announcements";
 import GroupSetup from "@/components/group/group-setup";
 import GroupTaskForm from "@/components/group/group-task-form";
+import GroupPersonalPlan from "@/components/group/group-personal-plan";
 
 // ── Presentation maps ─────────────────────────────────────────────────────
 type Tab = "tasks" | "members" | "overview";
@@ -71,12 +73,7 @@ const categoryChip: Record<string, string> = {
 };
 
 function deadlinePassed(task: GroupTask): boolean {
-  if (!task.due_date || !task.due_time) return false;
-  const [year, month, day] = task.due_date.split("-").map(Number);
-  const [hour, minute, second] = task.due_time.split(":").map(Number);
-  if (!year || !month || !day || Number.isNaN(hour) || Number.isNaN(minute)) return false;
-  const deadline = new Date(year, month - 1, day, hour, minute, second || 0);
-  return Date.now() >= deadline.getTime();
+  return groupDeadlinePassed(task);
 }
 
 function shownOutcome(task: GroupTask, outcome: "success" | "failed" | null | undefined) {
@@ -118,6 +115,7 @@ export default function GroupPage() {
 
   const [assignment, setAssignment] = useState("all");
   const [copyDraft, setCopyDraft] = useState<QuickAddDraft | null>(null);
+  const [personalPlanTask, setPersonalPlanTask] = useState<GroupTask | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<
     GroupTask | "group" | "leave" | null
   >(null);
@@ -753,7 +751,7 @@ export default function GroupPage() {
                   );
                 return (
                   <div key={task.id} className="px-5 py-4">
-                    <div className="flex items-center gap-4">
+                    <div className="flex flex-wrap items-center gap-4">
                       <div className="flex min-w-0 flex-1 items-start gap-3">
                         <div
                           className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${
@@ -776,6 +774,7 @@ export default function GroupPage() {
                           </div>
                           <div className="mt-1 text-xs text-slate-500">
                             {due ? `Due ${due}` : "No due time"}
+                            {task.estimated_duration_minutes ? ` · ~${task.estimated_duration_minutes} min` : ""}
                           </div>
                           {people.length === 0 ? (
                             <div className="mt-3 text-xs text-slate-500">Unassigned</div>
@@ -801,7 +800,7 @@ export default function GroupPage() {
                           )}
                         </div>
                       </div>
-                      <div className="flex shrink-0 items-center gap-3">
+                      <div className="flex flex-wrap items-center gap-3">
                         {people.length > 0 && (
                           <div className="flex flex-col items-end gap-2">
                             {people.map((assignee) => {
@@ -863,7 +862,11 @@ export default function GroupPage() {
                             })}
                           </div>
                         )}
-                        <button
+                        {userId && taskAssigneeIds(task).includes(userId) && !closed ? (
+                          <button className="btn-secondary" type="button" onClick={() => setPersonalPlanTask(task)}>
+                            My prediction & plan
+                          </button>
+                        ) : <button
                           className="btn-secondary"
                           onClick={() =>
                             setCopyDraft({
@@ -873,7 +876,7 @@ export default function GroupPage() {
                               plannedTime:
                                 task.due_time?.slice(0, 5) ??
                                 createQuickAddDefaults().plannedTime,
-                              durationMinutes: 30,
+                              durationMinutes: task.estimated_duration_minutes ?? 30,
                               category: TASK_CATEGORIES.includes(
                                 task.category as QuickAddDraft["category"],
                               )
@@ -889,7 +892,7 @@ export default function GroupPage() {
                           }
                         >
                           Copy to my plans
-                        </button>
+                        </button>}
                         <button
                           aria-label={`Delete ${task.title}`}
                           className="grid h-7 w-7 place-items-center rounded-lg text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600 disabled:opacity-60"
@@ -1135,6 +1138,11 @@ export default function GroupPage() {
         </div>
       )}
 
+      {userId && personalPlanTask && selectedGroupId === personalPlanTask.group_id && (
+        <GroupPersonalPlan key={`${userId}:${personalPlanTask.id}`} task={personalPlanTask}
+          onClose={() => setPersonalPlanTask(null)}
+          onAdded={() => notice({ tone: "success", message: "Added to your personal plans." })} />
+      )}
       {copyDraft && (
         <QuickAddForm
           initialDraft={copyDraft}

@@ -31,6 +31,8 @@ class TaskService:
             "timezone_name": payload.get("timezone_name", "UTC"),
             "ai_plan_details": payload.get("ai_plan_details", {}),
         }
+        if payload.get("source_group_task_id"):
+            data["source_group_task_id"] = payload["source_group_task_id"]
         result = self.db.table("tasks").insert(data).execute()
         return sync_task_ai_safely(self.db, result.data[0])
 

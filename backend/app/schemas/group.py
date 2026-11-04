@@ -7,7 +7,11 @@ from datetime import date, time
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from ..utils.timezone import get_timezone
+from .ai_prediction import AIPredictResponse
+from .task import TaskResponse
 
 INVITE_CODE_PATTERN = re.compile(r"^[A-Z0-9]{8}$")
 
@@ -109,8 +113,17 @@ class GroupTaskCreate(BaseModel):
     priority: GroupTaskPriority = "medium"
     due_date: date | None = None
     due_time: time | None = None
+    estimated_duration_minutes: int | None = Field(default=None, ge=1, le=720)
+    due_timezone_name: str | None = None
     assigned_to: UUID | None = None
     assigned_to_ids: list[UUID] = Field(default_factory=list, max_length=100)
+
+    @field_validator("due_timezone_name")
+    @classmethod
+    def _due_timezone(cls, value: str | None) -> str | None:
+        if value is not None:
+            get_timezone(value)
+        return value
 
     @field_validator("assigned_to_ids")
     @classmethod
@@ -139,8 +152,17 @@ class GroupTaskUpdate(BaseModel):
     status: GroupTaskStatus | None = None
     due_date: date | None = None
     due_time: time | None = None
+    estimated_duration_minutes: int | None = Field(default=None, ge=1, le=720)
+    due_timezone_name: str | None = None
     assigned_to: UUID | None = None
     assigned_to_ids: list[UUID] | None = Field(None, max_length=100)
+
+    @field_validator("due_timezone_name")
+    @classmethod
+    def _due_timezone(cls, value: str | None) -> str | None:
+        if value is not None:
+            get_timezone(value)
+        return value
 
     @field_validator("assigned_to_ids")
     @classmethod
@@ -174,8 +196,52 @@ class GroupTaskResponse(BaseModel):
     status: GroupTaskStatus
     due_date: str | None = None  # ISO date, e.g. "2026-09-05"
     due_time: str | None = None  # ISO time, e.g. "14:30:00"
+    estimated_duration_minutes: int | None = None
+    due_timezone_name: str | None = None
     created_at: str
     updated_at: str
+
+
+class GroupPersonalPlanRequest(BaseModel):
+    """Only the authenticated assignee supplies their private planning inputs."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    planned_start: AwareDatetime
+    planned_duration_minutes: int = Field(ge=1, le=720)
+    timezone_name: str = "UTC"
+    required_energy: int = Field(default=3, ge=1, le=5)
+    required_focus: int = Field(default=3, ge=1, le=5)
+    current_energy: int = Field(default=3, ge=1, le=5)
+    current_focus: int = Field(default=3, ge=1, le=5)
+
+    @field_validator("timezone_name")
+    @classmethod
+    def _timezone(cls, value: str) -> str:
+        get_timezone(value)
+        return value
+
+    @model_validator(mode="after")
+    def validate_local_start(self) -> GroupPersonalPlanRequest:
+        if self.planned_start.second or self.planned_start.microsecond:
+            raise ValueError("Choose a start time with whole-minute precision.")
+        local = self.planned_start.astimezone(get_timezone(self.timezone_name))
+        if local.replace(fold=0).utcoffset() != local.replace(fold=1).utcoffset():
+            raise ValueError("Choose a time outside the repeated daylight-saving hour.")
+        return self
+
+
+class GroupPersonalCandidate(BaseModel):
+    planned_start: AwareDatetime
+    success_probability: float
+
+
+class GroupPersonalPreview(BaseModel):
+    prediction: AIPredictResponse | None = None
+    conflicts: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    candidates: list[GroupPersonalCandidate] = Field(default_factory=list)
+    personal_task: TaskResponse | None = None
 
 
 class GroupDetailResponse(BaseModel):

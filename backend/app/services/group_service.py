@@ -162,6 +162,17 @@ class GroupService:
             raise ResourceNotFoundError("Group not found.")
 
     # ── group tasks ─────────────────────────────────────────────────────────
+    def get_task_for_assignee(self, user_id: UUID, group_id: UUID, task_id: UUID) -> JsonRow:
+        """Authorize the signed-in assignee before accessing any private planning data."""
+        self._require_member(group_id, user_id)
+        task = self.groups.get_task(str(group_id), str(task_id))
+        if task is None:
+            raise ResourceNotFoundError("Task not found.")
+        task = self._task_for_response(str(group_id), task)
+        if str(user_id) not in task["assigned_to_ids"]:
+            raise PermissionDeniedError("Only an assigned member can plan this task.")
+        return task
+
     def create_task(self, user_id: UUID, group_id: UUID, body: GroupTaskCreate) -> JsonRow:
         self._require_member(group_id, user_id)
         data = _serialize_task_fields(body.model_dump())
@@ -374,7 +385,7 @@ class GroupService:
         parsed_date = date.fromisoformat(str(due_date)[:10])
         parsed_time = time.fromisoformat(str(due_time))
         try:
-            zone = ZoneInfo(timezone_name.strip() or "UTC")
+            zone = ZoneInfo(task.get("due_timezone_name") or timezone_name.strip() or "UTC")
         except ZoneInfoNotFoundError as exc:
             raise DomainValidationError("timezone must be a valid IANA timezone name") from exc
         deadline = datetime.combine(parsed_date, parsed_time, zone)

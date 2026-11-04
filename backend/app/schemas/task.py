@@ -98,6 +98,7 @@ class TaskResponse(BaseModel):
     user_id: str
     title: str
     notes: str | None = None
+    source_group_task_id: str | None = None
     task_category: str
     planned_start_time: str
     planned_date: str

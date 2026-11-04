@@ -31,6 +31,7 @@ export interface Task {
   user_id: string;
   title: string;
   notes?: string | null;
+  source_group_task_id?: string | null;
   task_category: string;
   planned_start_time: string;
   planned_date: string;
@@ -451,7 +452,7 @@ async function apiFetch<T>(
     );
   }
 
-  if (["POST", "PATCH", "PUT", "DELETE"].includes(options.method ?? "GET") && /^\/(tasks|executions|groups)(\/|$)/.test(path)) notifyDataChanged();
+  if (["POST", "PATCH", "PUT", "DELETE"].includes(options.method ?? "GET") && /^\/(tasks|executions|groups)(\/|$)/.test(path) && !path.endsWith("/personal-preview")) notifyDataChanged();
 
   // 204 No Content
   if (res.status === 204) return undefined as T;
@@ -1017,6 +1018,8 @@ export interface GroupTask {
   due_date: string | null;
   /** ISO time, e.g. "14:00:00". */
   due_time: string | null;
+  estimated_duration_minutes?: number | null;
+  due_timezone_name?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -1035,6 +1038,8 @@ export interface GroupTaskCreate {
   due_date?: string | null;
   /** "HH:MM" or "HH:MM:SS". */
   due_time?: string | null;
+  estimated_duration_minutes?: number | null;
+  due_timezone_name?: string | null;
   assigned_to?: string | null;
   assigned_to_ids?: string[];
 }
@@ -1047,8 +1052,49 @@ export interface GroupTaskUpdate {
   status?: GroupTaskStatus;
   due_date?: string | null;
   due_time?: string | null;
+  estimated_duration_minutes?: number | null;
+  due_timezone_name?: string | null;
   assigned_to?: string | null;
   assigned_to_ids?: string[];
+}
+
+export interface GroupPersonalPlanInput {
+  planned_start: string;
+  planned_duration_minutes: number;
+  timezone_name: string;
+  required_energy: number;
+  required_focus: number;
+  current_energy: number;
+  current_focus: number;
+}
+
+export interface GroupPersonalPreview {
+  prediction: {
+    success_probability: number;
+    predicted_failure_reason: string | null;
+    personalization: PersonalizationSummary;
+    recommended_actions: { code: string; title: string; detail: string }[];
+  } | null;
+  conflicts: string[];
+  warnings: string[];
+  candidates: { planned_start: string; success_probability: number }[];
+  personal_task: Task | null;
+}
+
+export function previewGroupPersonalPlan(
+  groupId: string, taskId: string, input: GroupPersonalPlanInput,
+): Promise<GroupPersonalPreview> {
+  return apiFetch(`/groups/${groupId}/tasks/${taskId}/personal-preview`, {
+    method: "POST", body: JSON.stringify(input),
+  });
+}
+
+export function confirmGroupPersonalPlan(
+  groupId: string, taskId: string, input: GroupPersonalPlanInput,
+): Promise<Task> {
+  return apiFetch(`/groups/${groupId}/tasks/${taskId}/personal-plan`, {
+    method: "POST", body: JSON.stringify(input),
+  });
 }
 
 export async function getGroups(): Promise<Group[]> {

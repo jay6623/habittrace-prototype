@@ -15,6 +15,7 @@ This directory contains SQL for two separate data boundaries.
 | `group_scheduling_schema.sql` | Primary application project | Groups, invite-code memberships, and shared group tasks |
 | `group_announcements_schema.sql` | Primary application project | Group announcements and member replies |
 | `group_task_completion_schema.sql` | Primary application project | Per-assignee group task completion |
+| `group_personal_planning_schema.sql` | Primary application project | Shared duration/deadline timezone and private personal-plan links |
 | `profile_avatar.sql` | Primary application project | Optional `profiles.avatar_url` for Groups member photos |
 | `ai_schema.sql` | AI V2 project | AI plan inputs, outcomes, confirmed reasons, model versions, predictions, time recommendations, constraints, triggers, indexes, and RLS |
 | `verify_ai_schema.sql` | AI V2 project | Read-only post-deployment verification queries |
@@ -26,6 +27,44 @@ Run `task_ai_sync_schema.sql` in that same primary project **before deploying
 the server-owned task/AI linking code**. Do not run it in the AI project.
 Run `google_calendar_schema.sql` in the same project when enabling Google Calendar.
 Run `group_scheduling_schema.sql` in the same project to enable group scheduling. Its tables are backend-only: RLS is enabled with no browser policies, and the FastAPI service enforces group membership on every query.
+
+### Private personal planning for group tasks
+
+Before deploying the group prediction UI, apply `group_personal_planning_schema.sql`
+to the **primary** project after `group_scheduling_schema.sql` and
+`task_ai_sync_schema.sql`. Keep the existing `group_task_completion_schema.sql`
+and execution-outcome migrations applied as described below.
+
+Shared tasks gain optional `estimated_duration_minutes` and `due_timezone_name`.
+Existing deadlines without a timezone retain the legacy viewer-timezone interpretation;
+new group tasks record their creator's timezone. A date-only deadline means the
+end of that day for personal planning.
+
+Assigned members use **My prediction & plan** in Groups to review their own
+start time, effort requirements, expected energy/focus, prediction, conflicts,
+and up to three alternative times on the selected day (08:00–22:00).
+`POST /groups/{group_id}/tasks/{task_id}/personal-preview` is read-only and
+returns only the signed-in assignee's data. It uses the existing AI V2 model and
+personal history from the primary database; preview does not require AI DB writes.
+Model/history unavailability leaves confirmation available. Google Calendar
+conflicts are checked when connected; lookup failure is shown as a warning.
+
+`POST /groups/{group_id}/tasks/{task_id}/personal-plan` confirms a user-owned
+`tasks` row with `source_group_task_id`, after rechecking membership, assignment,
+deadline, and conflicts. A unique user/source index prevents duplicate copies
+across retries and devices. Database triggers validate assignment even for direct
+browser inserts. Group responses never include private predictions or linked plans.
+Existing task-to-AI delivery and personal execution tracking handle the new plan.
+Group completion remains a separate explicit action; group outcomes are not
+automatically converted into training labels. Changes to the shared task do not
+automatically rewrite confirmed personal plans. Group/task deletion clears the
+link while preserving the personal plan and its history.
+
+Verify with the isolated PostgreSQL regression script (no production credentials):
+
+```bash
+node supabase/tests/group_personal_planning.test.mjs /path/to/pglite/dist/index.js
+```
 
 The schema manages:
 
