@@ -3,8 +3,8 @@ import SwiftUI
 /// Today tab: the shortest path through plan, start, and record.
 ///
 /// Connects the shared `TaskService` and `AuthManager` to
-/// `TodayContentView`. The only write performed here is the existing
-/// one-shot completion in `TaskService.completeTask`.
+/// `TodayContentView`. Start and Log outcome use the same service calls
+/// as Plans, so both screens reflect the server's state.
 struct TodayView: View {
     @EnvironmentObject private var authManager: AuthManager
     @EnvironmentObject private var taskService: TaskService
@@ -14,8 +14,8 @@ struct TodayView: View {
 
     @State private var showingQuickAdd = false
     @State private var showingCoachPlaceholder = false
-    @State private var taskToComplete: HabitTraceTask?
-    @State private var isCompleting = false
+    @State private var outcomeTarget: HabitTraceTask?
+    @State private var isBusy = false
     @State private var toast: HTToastMessage?
 
     var body: some View {
@@ -26,11 +26,16 @@ struct TodayView: View {
                 isLoading: taskService.isLoading && taskService.tasks.isEmpty,
                 loadErrorMessage: taskService.tasks.isEmpty ? taskService.errorMessage : nil,
                 greetingName: authManager.greetingName,
-                isCompleting: isCompleting,
+                isBusy: isBusy,
                 onQuickAdd: { showingQuickAdd = true },
                 onViewPlans: onViewPlans,
                 onReload: loadTasks,
-                onComplete: { taskToComplete = $0 }
+                onStart: { task in
+                    Task {
+                        await start(task)
+                    }
+                },
+                onLogOutcome: { outcomeTarget = $0 }
             )
             .toolbar(.hidden, for: .navigationBar)
             .askCoachOverlay {
@@ -47,31 +52,18 @@ struct TodayView: View {
             .sheet(isPresented: $showingCoachPlaceholder) {
                 CoachPlaceholderSheet()
             }
-            .confirmationDialog(
-                "Mark this plan as completed?",
-                isPresented: isPresentingCompletion,
-                titleVisibility: .visible,
-                presenting: taskToComplete
-            ) { task in
-                Button("Mark complete") {
-                    Task {
-                        await complete(task)
-                    }
+            .sheet(item: $outcomeTarget) { task in
+                OutcomeSheet(
+                    task: task,
+                    activeExecution: taskService.activeExecutions[task.id]
+                ) { input in
+                    await submitOutcome(for: task, input: input)
                 }
-            } message: { task in
-                Text(task.title)
             }
         }
     }
 
     // MARK: - Actions
-
-    private var isPresentingCompletion: Binding<Bool> {
-        Binding(
-            get: { taskToComplete != nil },
-            set: { if !$0 { taskToComplete = nil } }
-        )
-    }
 
     private func loadTasks() async {
         do {
@@ -85,23 +77,47 @@ struct TodayView: View {
         }
     }
 
-    /// Logs a completed execution through the existing service call and
-    /// reports the real outcome in a toast.
-    private func complete(_ task: HabitTraceTask) async {
-        isCompleting = true
-        defer { isCompleting = false }
+    /// `POST /executions/start` through the shared service; the hero and
+    /// rows switch to In progress only from the server's response.
+    private func start(_ task: HabitTraceTask) async {
+        guard !isBusy else { return }
+        isBusy = true
+        defer { isBusy = false }
 
         do {
             let accessToken = try await authManager.validAccessToken()
-            await taskService.completeTask(accessToken: accessToken, taskId: task.id)
-
-            if let errorMessage = taskService.errorMessage {
-                toast = .error(errorMessage)
-            } else {
-                toast = .success("Marked \"\(task.title)\" complete")
-            }
+            _ = try await taskService.startExecution(accessToken: accessToken, taskId: task.id)
+            toast = .success("Started. Your start time was recorded.")
         } catch {
-            toast = .error(error.localizedDescription)
+            toast = .error(ErrorPresentation.message(for: error))
+        }
+    }
+
+    /// Runs the shared outcome flow; the sheet closes only on success.
+    private func submitOutcome(for task: HabitTraceTask, input: OutcomeInput) async -> OutcomeSheetResult {
+        guard !isBusy else {
+            return .failure("Another action is still in progress. Please wait a moment.")
+        }
+        isBusy = true
+        defer { isBusy = false }
+
+        do {
+            let accessToken = try await authManager.validAccessToken()
+            let result = try await taskService.submitOutcome(
+                accessToken: accessToken,
+                taskID: task.id,
+                input: input
+            )
+
+            switch result {
+            case .started:
+                toast = .success("Plan kept active")
+            case .recorded:
+                toast = .success("Outcome recorded")
+            }
+            return .success
+        } catch {
+            return .failure(ErrorPresentation.message(for: error))
         }
     }
 }

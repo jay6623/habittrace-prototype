@@ -11,12 +11,13 @@ struct TodayContentView: View {
     let isLoading: Bool
     let loadErrorMessage: String?
     let greetingName: String?
-    let isCompleting: Bool
+    let isBusy: Bool
 
     let onQuickAdd: () -> Void
     let onViewPlans: () -> Void
     let onReload: () async -> Void
-    let onComplete: (HabitTraceTask) -> Void
+    let onStart: (HabitTraceTask) -> Void
+    let onLogOutcome: (HabitTraceTask) -> Void
 
     var body: some View {
         TimelineView(.everyMinute) { context in
@@ -39,8 +40,9 @@ struct TodayContentView: View {
                         activeSince: model.upNextActiveSince,
                         hasTasksToday: model.hasTasksToday,
                         isLoading: isLoading,
-                        isCompleting: isCompleting,
-                        onComplete: onComplete
+                        isBusy: isBusy,
+                        onStart: onStart,
+                        onLogOutcome: onLogOutcome
                     )
 
                     Button("+ Quick Add", action: onQuickAdd)
@@ -52,8 +54,9 @@ struct TodayContentView: View {
                     RemainingTodayList(
                         tasks: model.remainingAfterUpNext,
                         runningTaskIDs: model.runningTaskIDs,
-                        isCompleting: isCompleting,
-                        onComplete: onComplete
+                        isBusy: isBusy,
+                        onStart: onStart,
+                        onLogOutcome: onLogOutcome
                     )
                 }
                 .padding(.horizontal, HTSpacing.screenHorizontal)
@@ -96,11 +99,12 @@ struct TodayContentView: View {
         isLoading: false,
         loadErrorMessage: nil,
         greetingName: "Yen",
-        isCompleting: false,
+        isBusy: false,
         onQuickAdd: {},
         onViewPlans: {},
         onReload: {},
-        onComplete: { _ in }
+        onStart: { _ in },
+        onLogOutcome: { _ in }
     )
     .askCoachOverlay {}
 }
@@ -111,11 +115,12 @@ struct TodayContentView: View {
         isLoading: false,
         loadErrorMessage: nil,
         greetingName: nil,
-        isCompleting: false,
+        isBusy: false,
         onQuickAdd: {},
         onViewPlans: {},
         onReload: {},
-        onComplete: { _ in }
+        onStart: { _ in },
+        onLogOutcome: { _ in }
     )
 }
 
@@ -125,11 +130,12 @@ struct TodayContentView: View {
         isLoading: false,
         loadErrorMessage: "The server returned HTTP 503.",
         greetingName: "Yen",
-        isCompleting: false,
+        isBusy: false,
         onQuickAdd: {},
         onViewPlans: {},
         onReload: {},
-        onComplete: { _ in }
+        onStart: { _ in },
+        onLogOutcome: { _ in }
     )
 }
 #endif

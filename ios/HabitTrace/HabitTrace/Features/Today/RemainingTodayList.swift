@@ -1,12 +1,14 @@
 import SwiftUI
 
-/// "Remaining today" section: one card row per pending task.
+/// "Remaining today" section: one card row per pending task, with the
+/// PWA's Start and Log outcome actions.
 struct RemainingTodayList: View {
     let tasks: [HabitTraceTask]
     /// Tasks with an active execution, shown as In progress.
     var runningTaskIDs: Set<String> = []
-    let isCompleting: Bool
-    let onComplete: (HabitTraceTask) -> Void
+    let isBusy: Bool
+    let onStart: (HabitTraceTask) -> Void
+    let onLogOutcome: (HabitTraceTask) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: HTSpacing.md) {
@@ -25,12 +27,22 @@ struct RemainingTodayList: View {
                 .htCard()
             } else {
                 ForEach(tasks) { task in
-                    TaskRowView(task: task, isActive: runningTaskIDs.contains(task.id)) {
-                        Button("Mark complete") {
-                            onComplete(task)
+                    let isRunning = runningTaskIDs.contains(task.id)
+                    TaskRowView(task: task, isActive: isRunning) {
+                        HStack(spacing: HTSpacing.sm) {
+                            if !isRunning {
+                                Button("Start") {
+                                    onStart(task)
+                                }
+                                .buttonStyle(.htPrimary(fullWidth: true))
+                            }
+
+                            Button("Log outcome") {
+                                onLogOutcome(task)
+                            }
+                            .buttonStyle(.htSecondary(fullWidth: true))
                         }
-                        .buttonStyle(.htSecondary(fullWidth: true))
-                        .disabled(isCompleting)
+                        .disabled(isBusy)
                     }
                 }
             }
@@ -44,10 +56,13 @@ struct RemainingTodayList: View {
         VStack(spacing: HTSpacing.xl) {
             RemainingTodayList(
                 tasks: Array(HabitTraceTask.previewTasks.prefix(2)),
-                isCompleting: false
-            ) { _ in }
+                runningTaskIDs: [HabitTraceTask.previewTasks[1].id],
+                isBusy: false,
+                onStart: { _ in },
+                onLogOutcome: { _ in }
+            )
 
-            RemainingTodayList(tasks: [], isCompleting: false) { _ in }
+            RemainingTodayList(tasks: [], isBusy: false, onStart: { _ in }, onLogOutcome: { _ in })
         }
         .padding(HTSpacing.screenHorizontal)
     }

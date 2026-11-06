@@ -7,7 +7,7 @@ import Foundation
 /// defaults. Dates are encoded as ISO 8601 with a UTC offset, which the
 /// server requires. See `OutcomeStatus` for the validation rules the
 /// server enforces on these combinations.
-struct ExecutionOutcomeRequest: Encodable, Equatable {
+nonisolated struct ExecutionOutcomeRequest: Encodable, Equatable, Sendable {
     /// "success" or "failed". Use `OutcomeStatus.taskStatus`.
     var taskStatus: String
     var outcomeStatus: OutcomeStatus?
@@ -25,7 +25,7 @@ struct ExecutionOutcomeRequest: Encodable, Equatable {
 }
 
 /// Body for `POST /executions`: an outcome plus the task it belongs to.
-struct ExecutionLogRequest: Encodable {
+nonisolated struct ExecutionLogRequest: Encodable, Sendable {
     let taskId: String
     /// A UUID string. The PWA uses the task id so a plan is logged once.
     let idempotencyKey: String?

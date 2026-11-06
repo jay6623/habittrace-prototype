@@ -217,12 +217,30 @@ final class PlansViewModel: ObservableObject {
             let lastLoadedAt,
             now().timeIntervalSince(lastLoadedAt) < maxAge
         {
-            // Another screen may have changed execution state meanwhile.
+            // Another screen may have changed execution or task state
+            // meanwhile; mirror the shared, server-confirmed values.
             syncActiveExecutions()
+            syncStatusesFromSharedTasks()
             return
         }
 
         await load()
+    }
+
+    /// Adopts task statuses the shared array already holds from a
+    /// server response made on another screen, such as an outcome
+    /// logged from Today.
+    private func syncStatusesFromSharedTasks() {
+        for (index, task) in tasks.enumerated() {
+            guard
+                let shared = taskService.tasks.first(where: { $0.id == task.id }),
+                let status = shared.taskStatus,
+                status != task.taskStatus
+            else {
+                continue
+            }
+            tasks[index] = task.replacingStatus(status)
+        }
     }
 
     /// Reloads only the active-execution map, for cheap refreshes.
@@ -399,33 +417,97 @@ final class PlansViewModel: ObservableObject {
         }
     }
 
-    /// Records a finished outcome the way the PWA does: completes the
-    /// active execution if there is one, otherwise logs a new execution
-    /// keyed by the task id so repeated taps cannot double-log.
+    /// Validates and submits what the outcome sheet collected.
+    ///
+    /// `OutcomeRequestBuilder` applies the server's rules first, so invalid
+    /// input never reaches the network. "Still working" ensures a start;
+    /// a task with an active execution is completed in place; anything
+    /// else is logged with the task id as the idempotency key. State is
+    /// updated only from the server's response.
     @discardableResult
-    func recordOutcome(taskID: String, outcome: ExecutionOutcomeRequest) async -> HabitTraceExecution? {
+    func submitOutcome(taskID: String, input: OutcomeInput) async -> HabitTraceExecution? {
+        // Validate first so invalid input never counts as a mutation.
+        do {
+            _ = try OutcomeRequestBuilder.build(
+                input,
+                taskID: taskID,
+                activeExecution: activeExecutions[taskID],
+                now: now()
+            )
+        } catch {
+            actionErrorMessage = Self.presentableMessage(for: error)
+            return nil
+        }
+
+        // "Still working" on a running plan needs no request at all.
+        if input.result == .stillWorking, let running = activeExecutions[taskID] {
+            return running
+        }
+
         guard beginMutation() else { return nil }
         defer { endMutation() }
 
         do {
             let token = try await accessToken()
-            let execution: HabitTraceExecution
+            let result = try await taskService.submitOutcome(
+                accessToken: token,
+                taskID: taskID,
+                input: input,
+                now: now()
+            )
 
-            if let active = activeExecutions[taskID] {
-                execution = try await taskService.completeExecution(
-                    accessToken: token,
-                    executionId: active.id,
-                    outcome: outcome
-                )
-            } else {
-                execution = try await taskService.logExecution(
-                    accessToken: token,
-                    taskId: taskID,
-                    outcome: outcome,
-                    idempotencyKey: taskID
-                )
+            switch result {
+            case .started(let execution):
+                syncActiveExecutions()
+                return execution
+            case .recorded(let execution):
+                applyFinished(execution)
+                return execution
             }
+        } catch {
+            actionErrorMessage = Self.presentableMessage(for: error)
 
+            // 409 means the server disagrees about the plan's state.
+            if (error as? APIError)?.statusCode == 409 {
+                await load()
+            }
+            return nil
+        }
+    }
+
+    /// Records a finished outcome the way the PWA does: completes the
+    /// active execution if there is one, otherwise logs a new execution
+    /// keyed by the task id so repeated taps cannot double-log.
+    @discardableResult
+    func recordOutcome(taskID: String, outcome: ExecutionOutcomeRequest) async -> HabitTraceExecution? {
+        if let active = activeExecutions[taskID] {
+            return await completeExecution(executionID: active.id, outcome: outcome)
+        }
+        return await logExecution(
+            taskID: taskID,
+            outcome: outcome,
+            idempotencyKey: OutcomeRequestBuilder.idempotencyKey(for: taskID)
+        )
+    }
+
+    /// `POST /executions` for a task with no active execution.
+    @discardableResult
+    func logExecution(
+        taskID: String,
+        outcome: ExecutionOutcomeRequest,
+        idempotencyKey: String?
+    ) async -> HabitTraceExecution? {
+        guard beginMutation() else { return nil }
+        defer { endMutation() }
+
+        do {
+            let token = try await accessToken()
+            let execution = try await taskService.logExecution(
+                accessToken: token,
+                taskId: taskID,
+                outcome: outcome,
+                idempotencyKey: idempotencyKey
+            )
             applyFinished(execution)
             return execution
         } catch {
@@ -539,38 +621,8 @@ final class PlansViewModel: ObservableObject {
 
     // MARK: - Errors
 
-    /// A message suitable for the UI. Backend `detail` text is kept
-    /// because it carries validation rules such as "Completed tasks
-    /// cannot be started"; transport failures get plain wording.
+    /// A message suitable for the UI. See `ErrorPresentation`.
     static func presentableMessage(for error: Error) -> String {
-        if let apiError = error as? APIError {
-            switch apiError {
-            case .httpStatus(let code, let detail):
-                if let detail, !detail.isEmpty {
-                    return detail
-                }
-                switch code {
-                case 401: return "Your session has expired. Sign in again."
-                case 404: return "This plan no longer exists."
-                case 500...599: return "The server had a problem. Please try again."
-                default: return "The request failed (HTTP \(code))."
-                }
-            case .invalidResponse:
-                return "The server returned an unexpected response."
-            case .decoding:
-                return "The server response couldn't be read."
-            }
-        }
-
-        if let urlError = error as? URLError {
-            switch urlError.code {
-            case .notConnectedToInternet, .networkConnectionLost, .cannotConnectToHost, .timedOut:
-                return "You're offline or the server can't be reached."
-            default:
-                break
-            }
-        }
-
-        return error.localizedDescription
+        ErrorPresentation.message(for: error)
     }
 }

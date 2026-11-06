@@ -25,6 +25,7 @@ struct PlansScreen: View {
 
     @State private var showingDatePicker = false
     @State private var planFormRequest: PlanFormRequest?
+    @State private var outcomeTarget: PlanListItem?
     @State private var pendingAction: PendingAction?
     @State private var planToDelete: PlanListItem?
     @State private var toast: HTToastMessage?
@@ -90,6 +91,14 @@ struct PlansScreen: View {
             .sheet(item: $planFormRequest) { request in
                 PlanFormSheet(request: request, viewModel: viewModel) { _ in
                     toast = .success("Plan saved")
+                }
+            }
+            .sheet(item: $outcomeTarget) { item in
+                OutcomeSheet(
+                    task: item.task,
+                    activeExecution: viewModel.activeExecution(for: item.id)
+                ) { input in
+                    await submitOutcome(for: item, input: input)
                 }
             }
             .sheet(item: $pendingAction) { pending in
@@ -163,9 +172,24 @@ struct PlansScreen: View {
             planToDelete = item
         case .edit:
             presentEditForm(for: item)
-        case .logOutcome, .editLogged:
+        case .logOutcome:
+            outcomeTarget = item
+        case .editLogged:
             pendingAction = PendingAction(action: action, item: item)
         }
+    }
+
+    /// Runs the shared outcome flow and reports back to the sheet, which
+    /// closes only on success. Toast wording follows the PWA.
+    private func submitOutcome(for item: PlanListItem, input: OutcomeInput) async -> OutcomeSheetResult {
+        if await viewModel.submitOutcome(taskID: item.id, input: input) != nil {
+            toast = .success(input.result == .stillWorking ? "Plan kept active" : "Outcome recorded")
+            return .success
+        }
+
+        let message = viewModel.actionErrorMessage ?? "Couldn’t save this outcome. Please try again."
+        viewModel.actionErrorMessage = nil
+        return .failure(message)
     }
 
     private func delete(_ item: PlanListItem) async {
