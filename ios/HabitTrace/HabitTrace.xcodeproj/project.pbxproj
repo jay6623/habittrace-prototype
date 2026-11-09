@@ -33,9 +33,22 @@
 		217E17FA306C253E00A438E0 /* HabitTraceUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HabitTraceUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		21F0467630A1D63100803B62 /* Exceptions for "HabitTrace" folder in "HabitTrace" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 217E17E2306C253B00A438E0 /* HabitTrace */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		217E17E5306C253B00A438E0 /* HabitTrace */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				21F0467630A1D63100803B62 /* Exceptions for "HabitTrace" folder in "HabitTrace" target */,
+			);
 			path = HabitTrace;
 			sourceTree = "<group>";
 		};
@@ -385,6 +398,7 @@
 				DEVELOPMENT_TEAM = 8HRCKR6829;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = HabitTrace/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -417,6 +431,7 @@
 				DEVELOPMENT_TEAM = 8HRCKR6829;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = HabitTrace/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

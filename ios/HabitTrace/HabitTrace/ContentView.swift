@@ -4,6 +4,8 @@ struct ContentView: View {
     @EnvironmentObject private var authManager: AuthManager
     @EnvironmentObject private var taskService: TaskService
 
+    @State private var showingPasswordReset = false
+
     var body: some View {
         Group {
             if authManager.isLoading {
@@ -11,7 +13,7 @@ struct ContentView: View {
             } else if authManager.isAuthenticated {
                 MainTabView()
             } else {
-                LoginView()
+                AuthFlowView()
             }
         }
         // The shared service outlives sign-in and sign-out. Clear it whenever
@@ -20,6 +22,26 @@ struct ContentView: View {
             if previous != current {
                 taskService.reset()
             }
+        }
+        // OAuth and password-recovery links return through the app's URL
+        // scheme; Supabase exchanges them for a session here.
+        .onOpenURL { url in
+            Task {
+                await handle(url)
+            }
+        }
+        .sheet(isPresented: $showingPasswordReset) {
+            ResetPasswordView()
+        }
+    }
+
+    private func handle(_ url: URL) async {
+        do {
+            if try await authManager.handleDeepLink(url) == .passwordRecovery {
+                showingPasswordReset = true
+            }
+        } catch {
+            authManager.errorMessage = error.localizedDescription
         }
     }
 }

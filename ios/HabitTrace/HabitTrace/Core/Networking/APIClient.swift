@@ -196,14 +196,14 @@ struct APIClient {
 
     // MARK: - Transport
 
-    private enum Method: String {
+    enum Method: String {
         case get = "GET"
         case post = "POST"
         case patch = "PATCH"
         case delete = "DELETE"
     }
 
-    private func makeRequest(
+    func makeRequest(
         _ method: Method,
         path: String,
         query: [URLQueryItem] = [],
@@ -230,7 +230,7 @@ struct APIClient {
         return request
     }
 
-    private func makeRequest(
+    func makeRequest(
         _ method: Method,
         path: String,
         body: some Encodable,
@@ -243,7 +243,7 @@ struct APIClient {
     }
 
     /// Sends the request and decodes a JSON response.
-    private func send<Response: Decodable>(_ request: URLRequest) async throws -> Response {
+    func send<Response: Decodable>(_ request: URLRequest) async throws -> Response {
         let data = try await perform(request)
 
         do {
@@ -254,7 +254,7 @@ struct APIClient {
     }
 
     /// Sends the request and returns the raw body after checking the status.
-    private func perform(_ request: URLRequest) async throws -> Data {
+    func perform(_ request: URLRequest) async throws -> Data {
         let (data, response) = try await session.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -292,13 +292,13 @@ struct APIClient {
         return nil
     }
 
-    private func makeDecoder() -> JSONDecoder {
+    func makeDecoder() -> JSONDecoder {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         return decoder
     }
 
-    private func makeEncoder() -> JSONEncoder {
+    func makeEncoder() -> JSONEncoder {
         let encoder = JSONEncoder()
         encoder.keyEncodingStrategy = .convertToSnakeCase
         encoder.dateEncodingStrategy = .iso8601
