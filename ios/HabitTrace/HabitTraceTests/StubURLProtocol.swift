@@ -16,6 +16,18 @@ nonisolated final class StubURLProtocol: URLProtocol {
         let query: String?
         let bodyData: Data?
 
+        /// Query string parsed into a dictionary (last value wins).
+        var queryParameters: [String: String] {
+            guard let query else { return [:] }
+            var result: [String: String] = [:]
+            for pair in query.split(separator: "&") {
+                let parts = pair.split(separator: "=", maxSplits: 1).map(String.init)
+                result[parts[0].removingPercentEncoding ?? parts[0]] =
+                    parts.count > 1 ? (parts[1].removingPercentEncoding ?? parts[1]) : ""
+            }
+            return result
+        }
+
         /// Decoded JSON body, when the request had one.
         var body: [String: Any]? {
             guard let bodyData, !bodyData.isEmpty else { return nil }

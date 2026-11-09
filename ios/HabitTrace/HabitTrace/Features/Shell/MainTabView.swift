@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Five-tab shell shown to authenticated users.
+/// Six-tab shell shown to authenticated users.
 struct MainTabView: View {
     @State private var selectedTab: AppTab = .today
 
@@ -14,12 +14,16 @@ struct MainTabView: View {
                 PlansView()
             }
 
+            Tab(AppTab.calendar.title, systemImage: AppTab.calendar.systemImage, value: .calendar) {
+                CalendarView()
+            }
+
             Tab(AppTab.groups.title, systemImage: AppTab.groups.systemImage, value: .groups) {
                 GroupsView()
             }
 
             Tab(AppTab.insights.title, systemImage: AppTab.insights.systemImage, value: .insights) {
-                InsightsView()
+                InsightsView(onPlanSomething: { selectedTab = .plans })
             }
 
             Tab(AppTab.settings.title, systemImage: AppTab.settings.systemImage, value: .settings) {
@@ -28,10 +32,4 @@ struct MainTabView: View {
         }
         .tint(HTColor.brand)
     }
-}
-
-#Preview {
-    MainTabView()
-        .environmentObject(AuthManager())
-        .environmentObject(TaskService())
 }
