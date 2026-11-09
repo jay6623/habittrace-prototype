@@ -9,17 +9,21 @@ struct PlansHeader: View {
     let isShowingToday: Bool
     let isLoading: Bool
 
+    /// Past plans still waiting for an outcome; shown as a badge.
+    var unloggedCount = 0
+
     let onPrevious: () -> Void
     let onNext: () -> Void
     let onToday: () -> Void
     let onPickDate: () -> Void
     let onAddPlan: () -> Void
+    var onOpenUnlogged: () -> Void = {}
 
     var body: some View {
         VStack(alignment: .leading, spacing: HTSpacing.md) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: HTSpacing.xs) {
-                    Text("Plans")
+                    Text("Your plans")
                         .htPageTitle()
 
                     Text("Make room for what matters today.")
@@ -38,6 +42,26 @@ struct PlansHeader: View {
             }
 
             dayNavigator
+
+            Button {
+                onOpenUnlogged()
+            } label: {
+                HStack(spacing: HTSpacing.sm) {
+                    Image(systemName: "clock.badge.exclamationmark")
+                    Text("Unlogged")
+                    if unloggedCount > 0 {
+                        Text(unloggedCount > 99 ? "99+" : "\(unloggedCount)")
+                            .font(.htEyebrow)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, HTSpacing.sm)
+                            .padding(.vertical, 2)
+                            .background(HTColor.danger600)
+                            .clipShape(Capsule())
+                    }
+                }
+            }
+            .buttonStyle(.htSecondary)
+            .accessibilityLabel(unloggedCount > 0 ? "Unlogged plans, \(unloggedCount)" : "Unlogged plans")
         }
     }
 

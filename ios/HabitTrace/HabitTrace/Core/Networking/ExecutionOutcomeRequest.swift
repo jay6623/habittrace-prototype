@@ -1,27 +1,84 @@
 import Foundation
 
 /// Body for `POST /executions`, `PATCH /executions/{id}/complete`, and
-/// `PATCH /executions/{id}` (revise). Mirrors the backend's `ExecutionTimes`.
+/// `PATCH /executions/{id}` (revise). Mirrors the backend's `ExecutionTimes`
+/// at main (ae6521c), where every fact may be unknown.
 ///
-/// `nil` fields are omitted from the JSON so the server applies its own
-/// defaults. Dates are encoded as ISO 8601 with a UTC offset, which the
-/// server requires. See `OutcomeStatus` for the validation rules the
-/// server enforces on these combinations.
+/// Encoding rules follow the PWA exactly:
+/// - `interruption_count` is always present; nil is sent as JSON null,
+///   which the server stores as "not reported" (an omitted key would be
+///   read as 0).
+/// - `failure_reason`, `active_minutes`, and both times are omitted when nil.
+/// - `actual_end_unknown` is sent only when true, telling the server not to
+///   stamp the request time as the finish of a running timer.
 nonisolated struct ExecutionOutcomeRequest: Encodable, Equatable, Sendable {
     /// "success" or "failed". Use `OutcomeStatus.taskStatus`.
     var taskStatus: String
     var outcomeStatus: OutcomeStatus?
-    /// 0...1. Required strictly between 0 and 1 for `partial`.
+    /// 0...1. Strictly between 0 and 1 for `partial`.
     var completionRatio: Double?
-    var interruptionCount: Int = 0
-    var stoppedEarly: Bool = false
-    /// Required for failed outcomes other than `notStarted`.
+    /// nil means not reported.
+    var interruptionCount: Int?
+    var stoppedEarly = false
     var failureReason: FailureReason?
+    /// Minutes actually spent; nil means unknown.
     var activeMinutes: Int?
-    /// Both times or neither. Omit when completing an active execution so
-    /// the server uses its recorded start and the current time.
     var actualStartTime: Date?
     var actualEndTime: Date?
+    var actualEndUnknown = false
+
+    init(
+        taskStatus: String,
+        outcomeStatus: OutcomeStatus? = nil,
+        completionRatio: Double? = nil,
+        interruptionCount: Int? = nil,
+        stoppedEarly: Bool = false,
+        failureReason: FailureReason? = nil,
+        activeMinutes: Int? = nil,
+        actualStartTime: Date? = nil,
+        actualEndTime: Date? = nil,
+        actualEndUnknown: Bool = false
+    ) {
+        self.taskStatus = taskStatus
+        self.outcomeStatus = outcomeStatus
+        self.completionRatio = completionRatio
+        self.interruptionCount = interruptionCount
+        self.stoppedEarly = stoppedEarly
+        self.failureReason = failureReason
+        self.activeMinutes = activeMinutes
+        self.actualStartTime = actualStartTime
+        self.actualEndTime = actualEndTime
+        self.actualEndUnknown = actualEndUnknown
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case taskStatus
+        case outcomeStatus
+        case completionRatio
+        case interruptionCount
+        case stoppedEarly
+        case failureReason
+        case activeMinutes
+        case actualStartTime
+        case actualEndTime
+        case actualEndUnknown
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(taskStatus, forKey: .taskStatus)
+        try container.encodeIfPresent(outcomeStatus, forKey: .outcomeStatus)
+        try container.encodeIfPresent(completionRatio, forKey: .completionRatio)
+        try container.encode(interruptionCount, forKey: .interruptionCount)
+        try container.encode(stoppedEarly, forKey: .stoppedEarly)
+        try container.encodeIfPresent(failureReason, forKey: .failureReason)
+        try container.encodeIfPresent(activeMinutes, forKey: .activeMinutes)
+        try container.encodeIfPresent(actualStartTime, forKey: .actualStartTime)
+        try container.encodeIfPresent(actualEndTime, forKey: .actualEndTime)
+        if actualEndUnknown {
+            try container.encode(true, forKey: .actualEndUnknown)
+        }
+    }
 }
 
 /// Body for `POST /executions`: an outcome plus the task it belongs to.
@@ -29,27 +86,17 @@ nonisolated struct ExecutionLogRequest: Encodable, Sendable {
     let taskId: String
     /// A UUID string. The PWA uses the task id so a plan is logged once.
     let idempotencyKey: String?
-    let taskStatus: String
-    let outcomeStatus: OutcomeStatus?
-    let completionRatio: Double?
-    let interruptionCount: Int
-    let stoppedEarly: Bool
-    let failureReason: FailureReason?
-    let activeMinutes: Int?
-    let actualStartTime: Date?
-    let actualEndTime: Date?
+    let outcome: ExecutionOutcomeRequest
 
-    init(taskId: String, idempotencyKey: String?, outcome: ExecutionOutcomeRequest) {
-        self.taskId = taskId
-        self.idempotencyKey = idempotencyKey
-        taskStatus = outcome.taskStatus
-        outcomeStatus = outcome.outcomeStatus
-        completionRatio = outcome.completionRatio
-        interruptionCount = outcome.interruptionCount
-        stoppedEarly = outcome.stoppedEarly
-        failureReason = outcome.failureReason
-        activeMinutes = outcome.activeMinutes
-        actualStartTime = outcome.actualStartTime
-        actualEndTime = outcome.actualEndTime
+    private enum ExtraKeys: String, CodingKey {
+        case taskId
+        case idempotencyKey
+    }
+
+    func encode(to encoder: Encoder) throws {
+        try outcome.encode(to: encoder)
+        var container = encoder.container(keyedBy: ExtraKeys.self)
+        try container.encode(taskId, forKey: .taskId)
+        try container.encodeIfPresent(idempotencyKey, forKey: .idempotencyKey)
     }
 }

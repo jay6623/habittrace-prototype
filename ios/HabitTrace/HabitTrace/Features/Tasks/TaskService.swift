@@ -332,34 +332,19 @@ final class TaskService: ObservableObject {
         return execution
     }
 
-    /// What an outcome submission did on the server.
-    enum OutcomeSubmissionResult: Equatable {
-        /// "Still working": the plan is (or already was) running.
-        case started(HabitTraceExecution)
-        /// A finished outcome was recorded.
-        case recorded(HabitTraceExecution)
-
-        var execution: HabitTraceExecution {
-            switch self {
-            case .started(let execution), .recorded(let execution): execution
-            }
-        }
-    }
-
-    /// The single outcome entry point shared by Plans and Today.
+    /// The single outcome entry point shared by Plans, Today, and Unlogged.
     ///
     /// Builds and validates the request against the server's rules using
-    /// the task's active execution from the shared map, then routes it:
-    /// "Still working" ensures a start, an active execution is completed
-    /// in place, anything else is logged with the task id as the
-    /// idempotency key. Throws `OutcomeValidationError` before any
-    /// network call when the input is invalid.
+    /// the task's active execution from the shared map, then either
+    /// completes that execution in place or logs a new one keyed by the
+    /// task id. Throws `OutcomeValidationError` before any network call
+    /// when the input is invalid. Returns the server's execution record.
     func submitOutcome(
         accessToken: String,
         taskID: String,
         input: OutcomeInput,
         now: Date = .now
-    ) async throws -> OutcomeSubmissionResult {
+    ) async throws -> HabitTraceExecution {
         let submission = try OutcomeRequestBuilder.build(
             input,
             taskID: taskID,
@@ -368,27 +353,27 @@ final class TaskService: ObservableObject {
         )
 
         switch submission {
-        case .keepActive:
-            if let running = activeExecutions[taskID] {
-                return .started(running)
-            }
-            return .started(try await startExecution(accessToken: accessToken, taskId: taskID))
-
         case .completeActive(let executionID, let request):
-            return .recorded(try await completeExecution(
+            return try await completeExecution(
                 accessToken: accessToken,
                 executionId: executionID,
                 outcome: request
-            ))
-
+            )
         case .log(let id, let idempotencyKey, let request):
-            return .recorded(try await logExecution(
+            return try await logExecution(
                 accessToken: accessToken,
                 taskId: id,
                 outcome: request,
                 idempotencyKey: idempotencyKey
-            ))
+            )
         }
+    }
+
+    /// The newest finished execution for a task, for logged plan editing.
+    /// Executions arrive newest first from the server.
+    func latestFinishedExecution(accessToken: String, taskID: String) async throws -> HabitTraceExecution? {
+        try await fetchExecutions(accessToken: accessToken)
+            .first { $0.taskId == taskID && $0.taskStatus != nil }
     }
 
     /// Revises a finished execution and reconciles the task's status.

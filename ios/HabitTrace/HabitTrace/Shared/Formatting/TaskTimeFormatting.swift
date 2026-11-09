@@ -63,7 +63,7 @@ enum TaskTimeFormatting {
     /// Parses an ISO 8601 timestamp as returned for execution times, with
     /// or without fractional seconds, for example
     /// "2026-10-09T15:00:00+00:00" or "2026-10-09T15:00:00.123456Z".
-    static func date(fromISO8601 timestamp: String) -> Date? {
+    nonisolated static func date(fromISO8601 timestamp: String) -> Date? {
         let fractional = ISO8601DateFormatter()
         fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         if let date = fractional.date(from: timestamp) {
@@ -128,6 +128,30 @@ enum TaskTimeFormatting {
         }
 
         return "\(hours) hr \(remainder) min"
+    }
+
+    /// An end time with "(next day)" or "(+N days)" appended when it falls
+    /// on a later calendar day than the start.
+    static func scheduledEndText(start: Date, end: Date, calendar: Calendar = .current) -> String {
+        let text = displayTime(end)
+        let startDay = calendar.startOfDay(for: start)
+        let endDay = calendar.startOfDay(for: end)
+        let days = calendar.dateComponents([.day], from: startDay, to: endDay).day ?? 0
+        switch days {
+        case 0: return text
+        case 1: return "\(text) (next day)"
+        default: return "\(text) (+\(days) days)"
+        }
+    }
+
+    /// Short date-time such as "Nov 9, 3:04 PM".
+    static func shortDateTime(_ date: Date) -> String {
+        date.formatted(.dateTime.month(.abbreviated).day().hour().minute())
+    }
+
+    /// Medium date such as "Mon, Nov 9, 2026".
+    static func mediumDate(_ date: Date) -> String {
+        date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day().year())
     }
 
     /// Compact duration matching the PWA's `formatPlannedMinutes`:

@@ -18,6 +18,7 @@ struct TodayContentView: View {
     let onReload: () async -> Void
     let onStart: (HabitTraceTask) -> Void
     let onLogOutcome: (HabitTraceTask) -> Void
+    var onOpenUnlogged: () -> Void = {}
 
     var body: some View {
         TimelineView(.everyMinute) { context in
@@ -31,7 +32,7 @@ struct TodayContentView: View {
                         loadErrorCard(loadErrorMessage)
                     }
 
-                    TodayStatsGrid(model: model)
+                    TodayStatsGrid(model: model, onOpenUnlogged: onOpenUnlogged)
 
                     PersonalizedOutlookCard(outlook: .sample)
 

@@ -32,6 +32,8 @@ struct HabitTraceTask: Decodable, Identifiable, Equatable {
     var aiPlanInputId: String?
     /// "unlinked", "pending", or "synced".
     var aiSyncStatus: String?
+    /// Set when this personal plan was created from a group task.
+    var sourceGroupTaskId: String?
 
     /// Minutes since midnight parsed from `plannedStartTime`, if valid.
     var startMinutes: Int? {
@@ -59,7 +61,30 @@ struct HabitTraceTask: Decodable, Identifiable, Equatable {
             totalTasksToday: totalTasksToday,
             timezoneName: timezoneName,
             aiPlanInputId: aiPlanInputId,
-            aiSyncStatus: aiSyncStatus
+            aiSyncStatus: aiSyncStatus,
+            sourceGroupTaskId: sourceGroupTaskId
         )
+    }
+
+    /// Planned start and end as dates on the planned day.
+    var plannedWindow: (start: Date, end: Date)? {
+        guard let start = TaskTimeFormatting.plannedStart(date: plannedDate, time: plannedStartTime) else {
+            return nil
+        }
+        let duration = TimeInterval(plannedDurationMin ?? 0) * 60
+        return (start, start.addingTimeInterval(duration))
+    }
+
+    /// "7:15 PM – 8:00 PM", with "(next day)" or "(+N days)" when the plan
+    /// crosses midnight. Mirrors the PWA's `formatScheduledRange`.
+    var scheduledRangeText: String? {
+        guard let window = plannedWindow else { return nil }
+        return "\(TaskTimeFormatting.displayTime(window.start)) – \(TaskTimeFormatting.scheduledEndText(start: window.start, end: window.end))"
+    }
+
+    /// The scheduled end alone, with the day suffix when it rolls over.
+    var scheduledEndText: String? {
+        guard let window = plannedWindow else { return nil }
+        return TaskTimeFormatting.scheduledEndText(start: window.start, end: window.end)
     }
 }

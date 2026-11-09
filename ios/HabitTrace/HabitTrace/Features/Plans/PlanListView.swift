@@ -46,14 +46,21 @@ struct PlansEmptyStateView: View {
             case .noMatches:
                 HTEmptyState(
                     title: "No plans match this filter",
-                    message: "Choose another status to see your plans.",
+                    message: "Choose another status, category, or priority to see your plans.",
                     systemImage: "line.3.horizontal.decrease.circle"
                 )
 
-                Button("Show all plans") {
-                    onShowAll()
+                HStack(spacing: HTSpacing.sm) {
+                    Button("Show all plans") {
+                        onShowAll()
+                    }
+                    .buttonStyle(.htSecondary)
+
+                    Button("Add a plan") {
+                        onAddPlan()
+                    }
+                    .buttonStyle(.htPrimary)
                 }
-                .buttonStyle(.htSecondary)
             }
         }
         .frame(maxWidth: .infinity)

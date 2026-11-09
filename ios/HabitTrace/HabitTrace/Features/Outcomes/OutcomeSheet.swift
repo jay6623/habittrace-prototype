@@ -6,15 +6,10 @@ enum OutcomeSheetResult: Equatable {
     case failure(String)
 }
 
-/// Native equivalent of the PWA's outcome sheet.
-///
-/// Step one offers Completed, Partly completed, Not this time, and Still
-/// working, plus "I didn't start this plan" for plans with no recorded
-/// start. Partly completed and Not this time move to a reason step with
-/// an explicit Save button. Completed and Still working submit on tap.
-/// Validation reuses `OutcomeRequestBuilder` through `OutcomeDraft`; the
-/// owner performs the submission and reports back, and the sheet closes
-/// only on success, keeping the user's input otherwise.
+/// Native equivalent of the PWA's outcome sheet at main: pick Completed or
+/// Not completed, fill in optional details, then Submit. Validation reuses
+/// `OutcomeRequestBuilder` through `OutcomeDraft`; the owner performs the
+/// submission and reports back, and the sheet closes only on success.
 struct OutcomeSheet: View {
     let task: HabitTraceTask
     let activeExecution: HabitTraceExecution?
@@ -24,11 +19,7 @@ struct OutcomeSheet: View {
     @State private var draft: OutcomeDraft
     @State private var isSaving = false
     @State private var errorMessage: String?
-    /// Text shown in the percent field. Kept separately from the draft so
-    /// clamping can write back to the field even when the clamped value
-    /// equals what the draft already holds.
-    @State private var percentText = ""
-    @FocusState private var percentFieldFocused: Bool
+    @FocusState private var minutesFieldFocused: Bool
 
     private let columns = [
         GridItem(.flexible(), spacing: HTSpacing.md),
@@ -44,7 +35,7 @@ struct OutcomeSheet: View {
         self.task = task
         self.activeExecution = activeExecution
         self.onSubmit = onSubmit
-        _draft = State(initialValue: OutcomeDraft(task: task, activeExecution: activeExecution, now: now))
+        _draft = State(initialValue: OutcomeDraft(activeStart: activeExecution?.actualStartDate, now: now))
     }
 
     var body: some View {
@@ -55,10 +46,12 @@ struct OutcomeSheet: View {
                         .font(.htBody)
                         .foregroundStyle(HTColor.textMuted)
 
-                    interruptionsCard
+                    choiceGrid
 
-                    if !draft.isActive {
-                        timesCard
+                    switch draft.choice {
+                    case .completed: completedFields
+                    case .notCompleted: notCompletedFields
+                    case nil: EmptyView()
                     }
 
                     if let errorMessage {
@@ -70,18 +63,13 @@ struct OutcomeSheet: View {
                             .accessibilityAddTraits(.updatesFrequently)
                     }
 
-                    switch draft.step {
-                    case .choose:
-                        choiceGrid
-                        if draft.offersNotStarted {
-                            Button("I didn't start this plan") {
-                                submit(.notStarted)
-                            }
-                            .buttonStyle(.htSecondary(fullWidth: true))
-                        }
-                    case .reason(let choice):
-                        reasonStep(choice)
+                    Button {
+                        submit()
+                    } label: {
+                        Text(isSaving ? "Saving…" : "Submit")
                     }
+                    .buttonStyle(.htPrimary(fullWidth: true))
+                    .disabled(!draft.canSubmit || isSaving)
                 }
                 .padding(.horizontal, HTSpacing.screenHorizontal)
                 .padding(.top, HTSpacing.lg)
@@ -97,26 +85,12 @@ struct OutcomeSheet: View {
                         dismiss()
                     }
                 }
-
-                // The number pad has no return key; give it a way to close
-                // so the Save button below the field is reachable.
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
                     Button("Done") {
-                        percentFieldFocused = false
+                        minutesFieldFocused = false
                     }
                 }
-            }
-            .onChange(of: percentText) { _, value in
-                let clamped = String(value.filter(\.isNumber).prefix(2))
-                if clamped != value {
-                    percentText = clamped
-                    return
-                }
-                draft.setCompletionPercentText(clamped)
-            }
-            .onChange(of: draft.step) { _, _ in
-                percentText = draft.completionPercentText
             }
             .disabled(isSaving)
             .overlay {
@@ -133,168 +107,143 @@ struct OutcomeSheet: View {
     // MARK: - Pieces
 
     private var subtitle: String {
-        draft.isActive
-            ? "Your start time is recorded. How did it go?"
-            : "How did it go? You can record progress even when the plan changed."
-    }
-
-    private var interruptionsCard: some View {
-        HStack(alignment: .center, spacing: HTSpacing.md) {
-            VStack(alignment: .leading, spacing: HTSpacing.xs) {
-                Text("Times interrupted")
-                    .font(.htBodyStrong)
-                    .foregroundStyle(HTColor.textPrimary)
-
-                Text("Each time you were pulled away.")
-                    .font(.htCaption)
-                    .foregroundStyle(HTColor.textMuted)
-            }
-
-            Spacer(minLength: HTSpacing.sm)
-
-            Stepper(value: $draft.interruptionCount, in: OutcomeRequestBuilder.interruptionRange) {
-                Text("\(draft.interruptionCount)")
-                    .font(.htCardTitle)
-                    .monospacedDigit()
-                    .frame(minWidth: 28, alignment: .trailing)
-            }
-            .fixedSize()
-            .accessibilityLabel("Times interrupted")
-            .accessibilityValue("\(draft.interruptionCount)")
+        var text = "Scheduled \(task.scheduledRangeText ?? "—")"
+        if let start = activeExecution?.actualStartDate {
+            text += " · started \(TaskTimeFormatting.displayTime(start))"
         }
-        .htCard()
-    }
-
-    private var timesCard: some View {
-        VStack(alignment: .leading, spacing: HTSpacing.md) {
-            VStack(alignment: .leading, spacing: HTSpacing.xs) {
-                Text("Forgot to start the timer?")
-                    .font(.htBodyStrong)
-                    .foregroundStyle(HTColor.textPrimary)
-
-                Text("Enter your actual times to record a past outcome. Choose “Still working” to start now.")
-                    .font(.htCaption)
-                    .foregroundStyle(HTColor.textMuted)
-            }
-
-            DatePicker(
-                "Started",
-                selection: $draft.actualStart,
-                in: ...draft.actualEnd,
-                displayedComponents: [.date, .hourAndMinute]
-            )
-            .font(.htBody)
-
-            DatePicker(
-                "Finished",
-                selection: $draft.actualEnd,
-                in: ...Date.now.addingTimeInterval(OutcomeRequestBuilder.futureTolerance),
-                displayedComponents: [.date, .hourAndMinute]
-            )
-            .font(.htBody)
-        }
-        .htCard()
+        return text
     }
 
     private var choiceGrid: some View {
         LazyVGrid(columns: columns, spacing: HTSpacing.md) {
             OutcomeOptionButton(
                 title: "Completed",
-                detail: "I finished my plan",
+                detail: "I finished this plan",
                 tint: HTColor.success50,
-                border: HTColor.success100
-            ) {
-                submit(.completed)
-            }
-
-            OutcomeOptionButton(
-                title: "Partly completed",
-                detail: "I made some progress",
-                tint: HTColor.warning50,
-                border: HTColor.warning100
+                border: HTColor.success100,
+                isSelected: draft.choice == .completed
             ) {
                 errorMessage = nil
-                draft.choose(.partial)
+                draft.choice = .completed
             }
 
             OutcomeOptionButton(
-                title: "Not this time",
-                detail: "I couldn’t finish",
+                title: "Not completed",
+                detail: "I didn’t finish this plan",
                 tint: HTColor.surfaceSecondary,
-                border: HTColor.border
+                border: HTColor.border,
+                isSelected: draft.choice == .notCompleted
             ) {
                 errorMessage = nil
-                draft.choose(.abandoned)
-            }
-
-            OutcomeOptionButton(
-                title: "Still working",
-                detail: "Keep the plan active",
-                tint: HTColor.info50,
-                border: HTColor.info100
-            ) {
-                submit(.stillWorking)
+                draft.choice = .notCompleted
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Outcome")
     }
 
-    private func reasonStep(_ choice: OutcomeDraft.ReasonChoice) -> some View {
+    private var completedFields: some View {
         VStack(alignment: .leading, spacing: HTSpacing.md) {
-            Button {
-                errorMessage = nil
-                draft.goBack()
-            } label: {
-                Label("Back", systemImage: "chevron.left")
-            }
-            .buttonStyle(.htSecondary)
-
-            Text(choice.title)
-                .htSectionTitle()
-
-            if choice == .partial {
-                VStack(alignment: .leading, spacing: HTSpacing.sm) {
-                    Text("How much did you complete? (%)")
+            Toggle(isOn: $draft.recordsFinishTime) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("What time did you actually finish?")
                         .font(.htBodyStrong)
                         .foregroundStyle(HTColor.textPrimary)
+                    Text("(optional)")
+                        .font(.htCaption)
+                        .foregroundStyle(HTColor.textMuted)
+                }
+            }
+            .onChange(of: draft.recordsFinishTime) { _, _ in errorMessage = nil }
 
-                    HStack {
-                        TextField("Enter 1–99", text: $percentText)
-                            .keyboardType(.numberPad)
-                            .focused($percentFieldFocused)
-                            .font(.htBody)
-                            .accessibilityLabel("Percent completed")
+            if draft.recordsFinishTime {
+                DatePicker(
+                    "Finished",
+                    selection: $draft.finishedAt,
+                    in: ...Date.now.addingTimeInterval(OutcomeRequestBuilder.futureTolerance),
+                    displayedComponents: [.date, .hourAndMinute]
+                )
+                .font(.htBody)
+                .onChange(of: draft.finishedAt) { _, _ in errorMessage = nil }
+            }
 
-                        Text("%")
+            Text(finishHelpText)
+                .font(.htCaption)
+                .foregroundStyle(HTColor.textMuted)
+        }
+        .htCard()
+    }
+
+    private var finishHelpText: String {
+        if let end = task.scheduledEndText {
+            return "Leave blank to show the scheduled end (\(end)). It won’t be saved as your actual finish time."
+        }
+        return "Leave blank if you don’t know."
+    }
+
+    private var notCompletedFields: some View {
+        VStack(alignment: .leading, spacing: HTSpacing.md) {
+            if !draft.isActive {
+                Toggle("I didn’t start this task", isOn: Binding(
+                    get: { draft.didNotStart },
+                    set: { draft.setDidNotStart($0); errorMessage = nil }
+                ))
+                .font(.htBodyStrong)
+            }
+
+            if !draft.didNotStart {
+                VStack(alignment: .leading, spacing: HTSpacing.xs) {
+                    HStack(alignment: .firstTextBaseline, spacing: HTSpacing.xs) {
+                        Text("How many minutes did you spend on this task?")
+                            .font(.htBodyStrong)
+                            .foregroundStyle(HTColor.textPrimary)
+                        Text("(optional)")
+                            .font(.htCaption)
                             .foregroundStyle(HTColor.textMuted)
                     }
-                }
-                .htCard()
-            }
 
-            Text("What got in the way?")
-                .font(.htBodyStrong)
-                .foregroundStyle(HTColor.textPrimary)
+                    HStack {
+                        TextField("Minutes", text: Binding(
+                            get: { draft.minutesSpentText },
+                            set: { draft.setMinutesSpentText($0); errorMessage = nil }
+                        ))
+                        .keyboardType(.numberPad)
+                        .focused($minutesFieldFocused)
+                        .font(.htBody)
+                        .accessibilityLabel("Minutes spent")
 
-            LazyVGrid(columns: columns, spacing: HTSpacing.sm) {
-                ForEach(FailureReason.allCases) { reason in
-                    let isSelected = draft.selectedReason == reason
-                    Button(reason.label) {
-                        draft.selectedReason = reason
-                        percentFieldFocused = false
+                        Text("min")
+                            .foregroundStyle(HTColor.textMuted)
                     }
-                    .buttonStyle(OutcomeReasonButtonStyle(isSelected: isSelected))
-                    .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+
+                    Text("Leave blank if you’re not sure; it stays unrecorded.")
+                        .font(.htCaption)
+                        .foregroundStyle(HTColor.textMuted)
                 }
             }
 
-            Button("Save outcome") {
-                if let result = draft.reasonStepResult {
-                    submit(result)
+            VStack(alignment: .leading, spacing: HTSpacing.xs) {
+                HStack(alignment: .firstTextBaseline, spacing: HTSpacing.xs) {
+                    Text("What got in the way?")
+                        .font(.htBodyStrong)
+                        .foregroundStyle(HTColor.textPrimary)
+                    Text("(optional)")
+                        .font(.htCaption)
+                        .foregroundStyle(HTColor.textMuted)
                 }
+
+                Picker("What got in the way?", selection: $draft.reason) {
+                    Text("Prefer not to say").tag(FailureReason?.none)
+                    ForEach(FailureReason.allCases) { reason in
+                        Text(reason.label).tag(FailureReason?.some(reason))
+                    }
+                }
+                .pickerStyle(.menu)
+                .tint(HTColor.textPrimary)
+                .onChange(of: draft.reason) { _, _ in errorMessage = nil }
             }
-            .buttonStyle(.htPrimary(fullWidth: true))
-            .disabled(!draft.canSaveReasonStep(taskID: task.id, activeExecution: activeExecution))
         }
+        .htCard()
     }
 
     private var savingOverlay: some View {
@@ -317,24 +266,24 @@ struct OutcomeSheet: View {
 
     // MARK: - Submission
 
-    private func submit(_ result: OutcomeResult) {
+    private func submit() {
         Task {
-            await performSubmit(result)
+            await performSubmit()
         }
     }
 
-    private func performSubmit(_ result: OutcomeResult) async {
+    private func performSubmit() async {
         guard !isSaving else { return }
         errorMessage = nil
-        percentFieldFocused = false
+        minutesFieldFocused = false
 
-        if let message = draft.validationError(for: result, taskID: task.id, activeExecution: activeExecution) {
+        if let message = draft.validationError() {
             errorMessage = message
             return
         }
 
         isSaving = true
-        let outcome = await onSubmit(draft.input(for: result))
+        let outcome = await onSubmit(draft.input)
         isSaving = false
 
         switch outcome {
@@ -353,6 +302,7 @@ private struct OutcomeOptionButton: View {
     let detail: String
     let tint: Color
     let border: Color
+    let isSelected: Bool
     let action: () -> Void
 
     var body: some View {
@@ -360,48 +310,33 @@ private struct OutcomeOptionButton: View {
             action()
         } label: {
             VStack(alignment: .leading, spacing: HTSpacing.xs) {
-                Text(title)
-                    .font(.htBodyStrong)
-                    .foregroundStyle(HTColor.textPrimary)
+                HStack {
+                    Text(title)
+                        .font(.htBodyStrong)
+                        .foregroundStyle(HTColor.textPrimary)
+                    Spacer(minLength: 0)
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(isSelected ? HTColor.brand : HTColor.borderStrong)
+                }
 
                 Text(detail)
                     .font(.htCaption)
                     .foregroundStyle(HTColor.textSecondary)
                     .multilineTextAlignment(.leading)
             }
-            .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
+            .frame(maxWidth: .infinity, minHeight: 88, alignment: .topLeading)
             .padding(HTSpacing.md)
             .background(tint)
             .clipShape(.rect(cornerRadius: HTRadius.lg, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: HTRadius.lg, style: .continuous)
-                    .strokeBorder(border, lineWidth: 1)
+                    .strokeBorder(isSelected ? HTColor.brand : border, lineWidth: isSelected ? 2 : 1)
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(title). \(detail)")
-    }
-}
-
-private struct OutcomeReasonButtonStyle: ButtonStyle {
-    let isSelected: Bool
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.htCaptionStrong)
-            .multilineTextAlignment(.leading)
-            .foregroundStyle(isSelected ? .white : HTColor.textPrimary)
-            .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
-            .padding(.horizontal, HTSpacing.md)
-            .padding(.vertical, HTSpacing.sm)
-            .background(isSelected ? HTColor.brand : HTColor.surface)
-            .clipShape(.rect(cornerRadius: HTRadius.md, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: HTRadius.md, style: .continuous)
-                    .strokeBorder(isSelected ? HTColor.brand : HTColor.border, lineWidth: 1)
-            }
-            .opacity(configuration.isPressed ? 0.8 : 1)
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 }
 
@@ -415,9 +350,9 @@ private struct OutcomeReasonButtonStyle: ButtonStyle {
     let running = HabitTraceExecution(
         id: "ex", taskId: task.id, userId: "u",
         actualStartTime: ISO8601DateFormatter().string(from: .now.addingTimeInterval(-900)),
-        actualEndTime: nil, interruptionCount: 0, stoppedEarly: false,
+        actualEndTime: nil, interruptionCount: nil, stoppedEarly: false,
         taskStatus: nil, failureReason: nil, createdAt: "c"
     )
-    OutcomeSheet(task: task, activeExecution: running) { _ in .failure("Couldn't save this outcome. Please try again.") }
+    OutcomeSheet(task: task, activeExecution: running) { _ in .failure("Couldn’t save this outcome. Please try again.") }
 }
 #endif

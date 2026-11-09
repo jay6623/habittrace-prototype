@@ -45,7 +45,7 @@ struct TaskHeroCard<Actions: View>: View {
                     .lineLimit(3)
 
                 HTMetaText(
-                    startTimeText,
+                    task.scheduledRangeText ?? startTimeText,
                     durationText,
                     task.taskCategory ?? "",
                     color: .white.opacity(0.7)

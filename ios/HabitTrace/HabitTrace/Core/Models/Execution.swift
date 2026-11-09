@@ -3,16 +3,16 @@ import Foundation
 /// An execution record, matching the backend's `ExecutionResponse`.
 ///
 /// Active executions have a start time but no end time and no task status.
-/// `not_started` outcomes have neither time. `completion_ratio` is a Decimal
-/// on the server and may be serialized as a JSON string, so it is decoded
-/// tolerantly.
+/// `not_started` outcomes have neither time. `interruption_count` is nil
+/// when it was never reported; 0 is a reported zero. `completion_ratio` is
+/// a Decimal on the server and may be serialized as a JSON string.
 struct HabitTraceExecution: Codable, Identifiable, Equatable {
     let id: String
     let taskId: String
     let userId: String
     let actualStartTime: String?
     let actualEndTime: String?
-    let interruptionCount: Int
+    let interruptionCount: Int?
     let stoppedEarly: Bool
     /// "success", "failed", or nil while the execution is still active.
     let taskStatus: String?
@@ -30,6 +30,14 @@ struct HabitTraceExecution: Codable, Identifiable, Equatable {
 
     var failureReasonCode: FailureReason? {
         failureReason.flatMap(FailureReason.init(rawValue:))
+    }
+
+    var actualStartDate: Date? {
+        actualStartTime.flatMap(TaskTimeFormatting.date(fromISO8601:))
+    }
+
+    var actualEndDate: Date? {
+        actualEndTime.flatMap(TaskTimeFormatting.date(fromISO8601:))
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -57,7 +65,7 @@ struct HabitTraceExecution: Codable, Identifiable, Equatable {
         userId = try container.decode(String.self, forKey: .userId)
         actualStartTime = try container.decodeIfPresent(String.self, forKey: .actualStartTime)
         actualEndTime = try container.decodeIfPresent(String.self, forKey: .actualEndTime)
-        interruptionCount = try container.decodeIfPresent(Int.self, forKey: .interruptionCount) ?? 0
+        interruptionCount = try container.decodeIfPresent(Int.self, forKey: .interruptionCount)
         stoppedEarly = try container.decodeIfPresent(Bool.self, forKey: .stoppedEarly) ?? false
         taskStatus = try container.decodeIfPresent(String.self, forKey: .taskStatus)
         failureReason = try container.decodeIfPresent(String.self, forKey: .failureReason)
@@ -65,11 +73,9 @@ struct HabitTraceExecution: Codable, Identifiable, Equatable {
         aiOutcomeSyncStatus = try container.decodeIfPresent(String.self, forKey: .aiOutcomeSyncStatus)
         createdAt = try container.decode(String.self, forKey: .createdAt)
 
-        // Unknown future outcome values decode as nil rather than failing the record.
         let rawOutcome = try container.decodeIfPresent(String.self, forKey: .outcomeStatus)
         outcomeStatus = rawOutcome.flatMap(OutcomeStatus.init(rawValue:))
 
-        // Decimal may arrive as a number or as a string such as "0.50000".
         if let number = try? container.decodeIfPresent(Double.self, forKey: .completionRatio) {
             completionRatio = number
         } else if let text = try? container.decodeIfPresent(String.self, forKey: .completionRatio) {
@@ -85,7 +91,7 @@ struct HabitTraceExecution: Codable, Identifiable, Equatable {
         userId: String,
         actualStartTime: String?,
         actualEndTime: String?,
-        interruptionCount: Int,
+        interruptionCount: Int?,
         stoppedEarly: Bool,
         taskStatus: String?,
         failureReason: String?,

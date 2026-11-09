@@ -14,19 +14,17 @@ struct PlansView: View {
     }
 }
 
-/// The Plans screen: header, summary, filter, and the day's plans.
-///
-/// Renders `PlansViewModel` state and forwards actions. Start, Delete,
-/// Add plan, and Edit plan call the view model; Log outcome and the
-/// logged edit flow present a placeholder until their sheets exist.
+/// The Plans screen: header, summary, filters, and the day's plans.
 struct PlansScreen: View {
     @EnvironmentObject private var authManager: AuthManager
+    @EnvironmentObject private var taskService: TaskService
     @StateObject private var viewModel: PlansViewModel
 
     @State private var showingDatePicker = false
+    @State private var showingUnlogged = false
     @State private var planFormRequest: PlanFormRequest?
     @State private var outcomeTarget: PlanListItem?
-    @State private var pendingAction: PendingAction?
+    @State private var loggedEditTarget: PlanListItem?
     @State private var planToDelete: PlanListItem?
     @State private var toast: HTToastMessage?
 
@@ -50,18 +48,24 @@ struct PlansScreen: View {
                         selectedDate: viewModel.selectedDate,
                         isShowingToday: viewModel.isShowingToday,
                         isLoading: viewModel.isLoading,
+                        unloggedCount: unloggedCount,
                         onPrevious: viewModel.showPreviousDay,
                         onNext: viewModel.showNextDay,
                         onToday: viewModel.showToday,
                         onPickDate: { showingDatePicker = true },
-                        onAddPlan: presentNewPlanForm
+                        onAddPlan: presentNewPlanForm,
+                        onOpenUnlogged: { showingUnlogged = true }
                     )
 
                     PlansSummaryStrip(summary: viewModel.summary)
                         .redacted(reason: isAwaitingSelectedDay ? .placeholder : [])
                         .accessibilityHidden(isAwaitingSelectedDay)
 
-                    PlansFilterView(selection: $viewModel.selectedFilter)
+                    PlansFilterView(
+                        selection: $viewModel.selectedFilter,
+                        category: $viewModel.categoryFilter,
+                        priority: $viewModel.priorityFilter
+                    )
 
                     content
                 }
@@ -88,8 +92,13 @@ struct PlansScreen: View {
                     viewModel.select(date: date)
                 }
             }
+            .sheet(isPresented: $showingUnlogged, onDismiss: { Task { await viewModel.load() } }) {
+                UnloggedView()
+                    .environmentObject(authManager)
+                    .environmentObject(taskService)
+            }
             .sheet(item: $planFormRequest) { request in
-                PlanFormSheet(request: request, viewModel: viewModel) { _ in
+                PlanFormSheet(request: request, actions: planFormActions(for: request)) { _ in
                     toast = .success("Plan saved")
                 }
             }
@@ -101,8 +110,10 @@ struct PlansScreen: View {
                     await submitOutcome(for: item, input: input)
                 }
             }
-            .sheet(item: $pendingAction) { pending in
-                PlanActionPlaceholderSheet(action: pending.action, planTitle: pending.item.task.title)
+            .sheet(item: $loggedEditTarget) { item in
+                LoggedPlanEditSheet(task: item.task, viewModel: viewModel) {
+                    toast = .success("Logged plan updated")
+                }
             }
             .confirmationDialog(
                 "Delete this plan?",
@@ -124,12 +135,15 @@ struct PlansScreen: View {
 
     // MARK: - Content states
 
-    /// True until the selected day's data has loaded: before the first
-    /// request starts, during the first load, and during a date change.
-    /// Summary tiles are redacted and the list shows the loading card so
-    /// neither zeros nor another day's plans are presented as this day's.
     private var isAwaitingSelectedDay: Bool {
         viewModel.loadErrorMessage == nil && viewModel.isShowingStaleContent
+    }
+
+    private var unloggedCount: Int {
+        let today = TaskTimeFormatting.isoDate(from: .now)
+        return taskService.tasks.filter { task in
+            task.taskStatus == "pending" && (task.plannedDate ?? today) < today
+        }.count
     }
 
     @ViewBuilder
@@ -146,7 +160,7 @@ struct PlansScreen: View {
             PlansEmptyStateView(
                 state: emptyState,
                 onAddPlan: presentNewPlanForm,
-                onShowAll: { viewModel.selectedFilter = .all }
+                onShowAll: viewModel.clearFilters
             )
         } else {
             PlanListView(
@@ -175,15 +189,16 @@ struct PlansScreen: View {
         case .logOutcome:
             outcomeTarget = item
         case .editLogged:
-            pendingAction = PendingAction(action: action, item: item)
+            loggedEditTarget = item
         }
     }
 
     /// Runs the shared outcome flow and reports back to the sheet, which
     /// closes only on success. Toast wording follows the PWA.
     private func submitOutcome(for item: PlanListItem, input: OutcomeInput) async -> OutcomeSheetResult {
-        if await viewModel.submitOutcome(taskID: item.id, input: input) != nil {
-            toast = .success(input.result == .stillWorking ? "Plan kept active" : "Outcome recorded")
+        if let execution = await viewModel.submitOutcome(taskID: item.id, input: input) {
+            let detail = OutcomeRequestBuilder.confirmation(for: execution, scheduledEnd: item.task.scheduledEndText)
+            toast = .success("Outcome saved. \(detail)")
             return .success
         }
 
@@ -198,8 +213,6 @@ struct PlansScreen: View {
         }
     }
 
-    /// New plan on the selected day at the next quarter hour, using the
-    /// user's saved default duration when one exists.
     private func presentNewPlanForm() {
         let draft = PlanDraft.new(
             on: viewModel.selectedDate,
@@ -216,17 +229,33 @@ struct PlansScreen: View {
         planFormRequest = PlanFormRequest(draft: draft, editingTaskID: item.id)
     }
 
+    private func planFormActions(for request: PlanFormRequest) -> PlanFormActions {
+        PlanFormActions(
+            overlappingPlans: { draft, excludingTaskID in
+                try await viewModel.overlappingPlans(for: draft, excludingTaskID: excludingTaskID)
+            },
+            save: { draft in
+                let saved: HabitTraceTask?
+                if let taskID = request.editingTaskID {
+                    saved = await viewModel.updatePlan(taskID: taskID, with: draft)
+                } else {
+                    saved = await viewModel.createPlan(from: draft)
+                }
+                if let saved {
+                    return .saved(saved)
+                }
+                let message = viewModel.actionErrorMessage ?? "Couldn't save this plan. Please try again."
+                viewModel.actionErrorMessage = nil
+                return .failed(message)
+            }
+        )
+    }
+
     private var isPresentingDelete: Binding<Bool> {
         Binding(
             get: { planToDelete != nil },
             set: { if !$0 { planToDelete = nil } }
         )
-    }
-
-    private struct PendingAction: Identifiable {
-        let action: PlanAction
-        let item: PlanListItem
-        var id: String { "\(item.id)-\(action)" }
     }
 }
 
@@ -234,7 +263,7 @@ struct PlansScreen: View {
 
 /// Graphical calendar. The selection is committed with Done so browsing
 /// months does not trigger a load per tap.
-private struct PlansDatePickerSheet: View {
+struct PlansDatePickerSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft: Date
     let onSelect: (Date) -> Void
@@ -272,51 +301,5 @@ private struct PlansDatePickerSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
-    }
-}
-
-// MARK: - Placeholder for flows that arrive in later checkpoints
-
-private struct PlanActionPlaceholderSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    let action: PlanAction
-    let planTitle: String
-
-    var body: some View {
-        NavigationStack {
-            VStack {
-                HTEmptyState(
-                    title: title,
-                    message: "This flow for “\(planTitle)” is coming in the next checkpoint. Nothing has been changed.",
-                    systemImage: "hammer"
-                )
-                .htCard()
-                .padding(HTSpacing.screenHorizontal)
-
-                Spacer()
-            }
-            .frame(maxWidth: .infinity)
-            .background(HTColor.surfaceMuted)
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                }
-            }
-        }
-        .presentationDetents([.medium])
-    }
-
-    private var title: String {
-        switch action {
-        case .logOutcome: "Log outcome"
-        case .edit: "Edit plan"
-        case .editLogged: "Edit logged outcome"
-        case .start: "Start"
-        case .delete: "Delete"
-        }
     }
 }

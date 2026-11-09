@@ -11,15 +11,30 @@ struct PlanFormRequest: Identifiable {
     var isEditing: Bool { editingTaskID != nil }
 }
 
+/// What a plan save produced.
+enum PlanSaveResult {
+    case saved(HabitTraceTask)
+    case failed(String)
+}
+
+/// The two operations the form needs from its owner, so Plans and Today
+/// can back it with their own state without the form knowing either.
+struct PlanFormActions {
+    /// Fresh overlap check for the draft's day, excluding the edited task.
+    var overlappingPlans: (PlanDraft, String?) async throws -> [HabitTraceTask]
+    /// Creates or updates; the owner decides which from the request.
+    var save: (PlanDraft) async -> PlanSaveResult
+}
+
 /// Native equivalent of the PWA's Quick Add form, in create and edit modes.
 ///
-/// Fields and validation live in `PlanDraft`. Saving goes through
-/// `PlansViewModel`, which checks overlaps with a fresh fetch, then
-/// creates or updates and reconciles the list.
+/// Fields and validation live in `PlanDraft`. Saving goes through the
+/// owner's `PlanFormActions`, which check overlaps with a fresh fetch,
+/// then create or update and reconcile their own state.
 struct PlanFormSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @ObservedObject var viewModel: PlansViewModel
     let request: PlanFormRequest
+    let actions: PlanFormActions
     let onSaved: (HabitTraceTask) -> Void
 
     @State private var draft: PlanDraft
@@ -34,11 +49,11 @@ struct PlanFormSheet: View {
 
     init(
         request: PlanFormRequest,
-        viewModel: PlansViewModel,
+        actions: PlanFormActions,
         onSaved: @escaping (HabitTraceTask) -> Void
     ) {
         self.request = request
-        self.viewModel = viewModel
+        self.actions = actions
         self.onSaved = onSaved
         _draft = State(initialValue: request.draft)
 
@@ -291,7 +306,7 @@ struct PlanFormSheet: View {
     }
 
     private var canSave: Bool {
-        validationMessage == nil && !isSaving && !viewModel.isBusy
+        validationMessage == nil && !isSaving
     }
 
     private func priorityLabel(_ level: Int) -> String {
@@ -314,10 +329,7 @@ struct PlanFormSheet: View {
         defer { isSaving = false }
 
         do {
-            let found = try await viewModel.overlappingPlans(
-                for: draft,
-                excludingTaskID: request.editingTaskID
-            )
+            let found = try await actions.overlappingPlans(draft, request.editingTaskID)
 
             if found.isEmpty {
                 await save()
@@ -335,20 +347,13 @@ struct PlanFormSheet: View {
         defer { isSaving = false }
         conflicts = nil
 
-        let saved: HabitTraceTask?
-        if let taskID = request.editingTaskID {
-            saved = await viewModel.updatePlan(taskID: taskID, with: draft)
-        } else {
-            saved = await viewModel.createPlan(from: draft)
-        }
-
-        if let saved {
-            onSaved(saved)
+        switch await actions.save(draft) {
+        case .saved(let task):
+            onSaved(task)
             dismiss()
-        } else {
+        case .failed(let message):
             // Surface the failure inside the sheet instead of the screen toast.
-            saveErrorMessage = viewModel.actionErrorMessage ?? "Couldn't save this plan. Please try again."
-            viewModel.actionErrorMessage = nil
+            saveErrorMessage = message
         }
     }
 
@@ -365,10 +370,15 @@ struct PlanFormSheet: View {
 }
 
 #if DEBUG
+private let previewActions = PlanFormActions(
+    overlappingPlans: { _, _ in [] },
+    save: { _ in .failed("Preview only") }
+)
+
 #Preview("New plan") {
     PlanFormSheet(
         request: PlanFormRequest(draft: PlanDraft.new(on: .now), editingTaskID: nil),
-        viewModel: PlansViewModel(taskService: TaskService(), accessTokenProvider: { "" }),
+        actions: previewActions,
         onSaved: { _ in }
     )
 }
@@ -377,7 +387,7 @@ struct PlanFormSheet: View {
     let task = HabitTraceTask.previewTasks[0]
     PlanFormSheet(
         request: PlanFormRequest(draft: PlanDraft(task: task) ?? PlanDraft.new(on: .now), editingTaskID: task.id),
-        viewModel: PlansViewModel(taskService: TaskService(), accessTokenProvider: { "" }),
+        actions: previewActions,
         onSaved: { _ in }
     )
 }

@@ -17,6 +17,9 @@ final class PlansViewModel: ObservableObject {
     /// Start of the selected day in the current calendar.
     @Published private(set) var selectedDate: Date
     @Published var selectedFilter: PlansFilter = .all
+    /// PWA plan filters: nil means "All categories" / "All priorities".
+    @Published var categoryFilter: TaskCategory?
+    @Published var priorityFilter: Int?
     /// Tasks planned on `selectedDate`, sorted by `PlanOrdering`.
     @Published private(set) var tasks: [HabitTraceTask] = []
     /// Active execution per task id, across all dates.
@@ -82,9 +85,23 @@ final class PlansViewModel: ObservableObject {
         return tasks.map { PlanListItem(task: $0, activeExecution: activeExecutions[$0.id]) }
     }
 
-    /// Plans that pass `selectedFilter`.
+    /// Plans that pass the status, category, and priority filters.
     var filteredItems: [PlanListItem] {
-        items.filter { selectedFilter.includes($0.status) }
+        items.filter { item in
+            selectedFilter.includes(item.status)
+                && (categoryFilter == nil || TaskCategory.normalized(item.task.taskCategory) == categoryFilter)
+                && (priorityFilter == nil || item.task.importance == priorityFilter)
+        }
+    }
+
+    var hasActiveFilters: Bool {
+        selectedFilter != .all || categoryFilter != nil || priorityFilter != nil
+    }
+
+    func clearFilters() {
+        selectedFilter = .all
+        categoryFilter = nil
+        priorityFilter = nil
     }
 
     /// Computed over all plans on the day, never the filtered subset.
@@ -439,31 +456,19 @@ final class PlansViewModel: ObservableObject {
             return nil
         }
 
-        // "Still working" on a running plan needs no request at all.
-        if input.result == .stillWorking, let running = activeExecutions[taskID] {
-            return running
-        }
-
         guard beginMutation() else { return nil }
         defer { endMutation() }
 
         do {
             let token = try await accessToken()
-            let result = try await taskService.submitOutcome(
+            let execution = try await taskService.submitOutcome(
                 accessToken: token,
                 taskID: taskID,
                 input: input,
                 now: now()
             )
-
-            switch result {
-            case .started(let execution):
-                syncActiveExecutions()
-                return execution
-            case .recorded(let execution):
-                applyFinished(execution)
-                return execution
-            }
+            applyFinished(execution)
+            return execution
         } catch {
             actionErrorMessage = Self.presentableMessage(for: error)
 
@@ -472,6 +477,52 @@ final class PlansViewModel: ObservableObject {
                 await load()
             }
             return nil
+        }
+    }
+
+    /// "Edit logged plan": updates the plan's fields, then revises its
+    /// recorded execution. The two calls are sequential, as in the PWA; if
+    /// the second fails the plan edit has already been saved.
+    @discardableResult
+    func updateLoggedPlan(
+        taskID: String,
+        draft: PlanDraft,
+        executionID: String,
+        revision: ExecutionOutcomeRequest
+    ) async -> Bool {
+        guard beginMutation() else { return false }
+        defer { endMutation() }
+
+        let existing = tasks.first { $0.id == taskID }
+
+        do {
+            let token = try await accessToken()
+
+            let updated = try await taskService.editTask(
+                accessToken: token,
+                taskId: taskID,
+                title: draft.trimmedTitle,
+                notes: draft.normalizedNotes,
+                taskCategory: TaskCategory.normalized(existing?.taskCategory).rawValue,
+                plannedStartTime: draft.storedStartTime,
+                plannedDate: draft.dateKey,
+                plannedDurationMin: draft.durationMinutes,
+                importance: existing?.importance ?? 3,
+                energyLevel: existing?.energyLevel ?? 3,
+                focusLevel: existing?.focusLevel ?? 3
+            )
+            reconcile(updated)
+
+            let execution = try await taskService.reviseExecution(
+                accessToken: token,
+                executionId: executionID,
+                outcome: revision
+            )
+            applyFinished(execution)
+            return true
+        } catch {
+            actionErrorMessage = Self.presentableMessage(for: error)
+            return false
         }
     }
 
@@ -559,11 +610,9 @@ final class PlansViewModel: ObservableObject {
     }
 
     /// The newest finished execution for a task, for logged plan editing.
-    /// Executions arrive newest first from the server.
     func latestFinishedExecution(for taskID: String) async throws -> HabitTraceExecution? {
         let token = try await accessToken()
-        let executions = try await taskService.fetchExecutions(accessToken: token)
-        return executions.first { $0.taskId == taskID && $0.taskStatus != nil }
+        return try await taskService.latestFinishedExecution(accessToken: token, taskID: taskID)
     }
 
     // MARK: - Reconciliation

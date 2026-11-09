@@ -12,7 +12,7 @@ struct TodayViewModel {
     let completedCount: Int
     /// Today's pending tasks, sorted by start time.
     let remainingTasks: [HabitTraceTask]
-    /// Sum of `planned_duration_min` across today's tasks.
+    /// Sum of `planned_duration_min` across today's pending tasks.
     let plannedMinutes: Int
     /// Pending tasks planned for a day before today.
     let unloggedCount: Int
@@ -45,7 +45,8 @@ struct TodayViewModel {
             .filter { TaskDisplayStatus(taskStatus: $0.taskStatus) == .pending }
             .sorted { Self.startMinutes($0) < Self.startMinutes($1) }
 
-        plannedMinutes = todayTasks.reduce(0) { $0 + ($1.plannedDurationMin ?? 0) }
+        // The PWA counts planned minutes over today's pending plans only.
+        plannedMinutes = remainingTasks.reduce(0) { $0 + ($1.plannedDurationMin ?? 0) }
 
         unloggedCount = tasks.filter { task in
             guard

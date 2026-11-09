@@ -3,8 +3,8 @@ import SwiftUI
 /// Today tab: the shortest path through plan, start, and record.
 ///
 /// Connects the shared `TaskService` and `AuthManager` to
-/// `TodayContentView`. Start and Log outcome use the same service calls
-/// as Plans, so both screens reflect the server's state.
+/// `TodayContentView`. Quick Add, Start, and Log outcome use the same
+/// service calls as Plans, so both screens reflect the server's state.
 struct TodayView: View {
     @EnvironmentObject private var authManager: AuthManager
     @EnvironmentObject private var taskService: TaskService
@@ -12,8 +12,9 @@ struct TodayView: View {
     /// Called when the user asks to view or reschedule plans.
     var onViewPlans: () -> Void = {}
 
-    @State private var showingQuickAdd = false
-    @State private var showingCoachPlaceholder = false
+    @State private var planFormRequest: PlanFormRequest?
+    @State private var showingCoach = false
+    @State private var showingUnlogged = false
     @State private var outcomeTarget: HabitTraceTask?
     @State private var isBusy = false
     @State private var toast: HTToastMessage?
@@ -27,7 +28,7 @@ struct TodayView: View {
                 loadErrorMessage: taskService.tasks.isEmpty ? taskService.errorMessage : nil,
                 greetingName: authManager.greetingName,
                 isBusy: isBusy,
-                onQuickAdd: { showingQuickAdd = true },
+                onQuickAdd: presentQuickAdd,
                 onViewPlans: onViewPlans,
                 onReload: loadTasks,
                 onStart: { task in
@@ -35,22 +36,35 @@ struct TodayView: View {
                         await start(task)
                     }
                 },
-                onLogOutcome: { outcomeTarget = $0 }
+                onLogOutcome: { outcomeTarget = $0 },
+                onOpenUnlogged: { showingUnlogged = true }
             )
             .toolbar(.hidden, for: .navigationBar)
             .askCoachOverlay {
-                showingCoachPlaceholder = true
+                showingCoach = true
             }
             .htToast($toast)
             .task {
                 await loadTasks()
             }
-            .sheet(isPresented: $showingQuickAdd) {
-                CreateTaskView(taskService: taskService)
-                    .environmentObject(authManager)
+            .sheet(item: $planFormRequest) { request in
+                PlanFormSheet(
+                    request: request,
+                    actions: .creating(with: taskService, accessToken: authManager.validAccessToken)
+                ) { task in
+                    let today = TaskTimeFormatting.isoDate(from: .now)
+                    toast = .success(task.plannedDate == today
+                        ? "Plan added to today's list."
+                        : "Plan saved for \(task.plannedDate ?? today).")
+                }
             }
-            .sheet(isPresented: $showingCoachPlaceholder) {
+            .sheet(isPresented: $showingCoach) {
                 CoachPlaceholderSheet()
+            }
+            .sheet(isPresented: $showingUnlogged, onDismiss: { Task { await loadTasks() } }) {
+                UnloggedView()
+                    .environmentObject(authManager)
+                    .environmentObject(taskService)
             }
             .sheet(item: $outcomeTarget) { task in
                 OutcomeSheet(
@@ -64,6 +78,11 @@ struct TodayView: View {
     }
 
     // MARK: - Actions
+
+    private func presentQuickAdd() {
+        let draft = PlanDraft.new(on: .now, defaultDuration: authManager.defaultPlanDurationMinutes ?? 30)
+        planFormRequest = PlanFormRequest(draft: draft, editingTaskID: nil)
+    }
 
     private func loadTasks() async {
         do {
@@ -103,18 +122,13 @@ struct TodayView: View {
 
         do {
             let accessToken = try await authManager.validAccessToken()
-            let result = try await taskService.submitOutcome(
+            let execution = try await taskService.submitOutcome(
                 accessToken: accessToken,
                 taskID: task.id,
                 input: input
             )
-
-            switch result {
-            case .started:
-                toast = .success("Plan kept active")
-            case .recorded:
-                toast = .success("Outcome recorded")
-            }
+            let detail = OutcomeRequestBuilder.confirmation(for: execution, scheduledEnd: task.scheduledEndText)
+            toast = .success("Outcome saved. \(detail)")
             return .success
         } catch {
             return .failure(ErrorPresentation.message(for: error))

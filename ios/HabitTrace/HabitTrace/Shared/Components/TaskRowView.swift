@@ -82,7 +82,7 @@ struct TaskRowView<Actions: View>: View {
     }
 
     private var metaLine: some View {
-        HTMetaText(durationText, dateText)
+        HTMetaText(task.scheduledRangeText ?? "", durationText, dateText)
     }
 
     private var startTimeText: String {

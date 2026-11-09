@@ -1,8 +1,10 @@
 import SwiftUI
 
-/// Two-by-two grid of the PWA's four Today metrics.
+/// Two-by-two grid of the PWA's four Today metrics. The Unlogged tile
+/// opens the unlogged list, as in the PWA.
 struct TodayStatsGrid: View {
     let model: TodayViewModel
+    var onOpenUnlogged: () -> Void = {}
 
     private let columns = [
         GridItem(.flexible(), spacing: HTSpacing.md),
@@ -26,12 +28,18 @@ struct TodayStatsGrid: View {
                 value: "\(model.plannedMinutes)"
             )
 
-            HTStatTile(
-                title: "Unlogged",
-                value: "\(model.unloggedCount)",
-                caption: model.unloggedCount > 0 ? "From earlier days" : nil,
-                style: model.unloggedCount > 0 ? .attention : .neutral
-            )
+            Button {
+                onOpenUnlogged()
+            } label: {
+                HTStatTile(
+                    title: "Unlogged",
+                    value: "\(model.unloggedCount)",
+                    caption: model.unloggedCount > 0 ? "Tap to log them" : "All caught up",
+                    style: model.unloggedCount > 0 ? .attention : .neutral
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Opens past plans that still need an outcome")
         }
     }
 }

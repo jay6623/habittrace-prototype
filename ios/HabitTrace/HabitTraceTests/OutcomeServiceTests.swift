@@ -6,9 +6,8 @@ import Testing
 // stub-backed suites; indentation is kept flat to keep the diff readable.
 extension StubbedNetworkSuites {
 
-/// `TaskService.submitOutcome`, the entry point Today uses directly and
-/// Plans delegates to. Verifies routing, reconciliation of the shared task
-/// array and active map, and that validation happens before the network.
+/// `TaskService.submitOutcome`, the entry point Today and Unlogged use
+/// directly and Plans delegates to.
 @MainActor
 @Suite
 struct OutcomeServiceTests {
@@ -28,8 +27,8 @@ struct OutcomeServiceTests {
     private var activeExecutionObject: [String: Any] {
         [
             "id": executionID, "task_id": taskID, "user_id": "user",
-            "actual_start_time": "2026-10-11T15:00:00+00:00", "actual_end_time": NSNull(),
-            "interruption_count": 0, "stopped_early": false,
+            "actual_start_time": "2026-11-09T15:00:00+00:00", "actual_end_time": NSNull(),
+            "interruption_count": NSNull(), "stopped_early": false,
             "task_status": NSNull(), "failure_reason": NSNull(), "created_at": "c",
         ]
     }
@@ -37,17 +36,14 @@ struct OutcomeServiceTests {
     private func finishedData(id: String, status: String, outcome: String) -> Data {
         StubURLProtocol.encode([
             "id": id, "task_id": taskID, "user_id": "user",
-            "actual_start_time": "2026-10-11T15:00:00+00:00",
-            "actual_end_time": "2026-10-11T15:30:00+00:00",
-            "interruption_count": 0, "stopped_early": status == "failed",
+            "actual_start_time": NSNull(), "actual_end_time": NSNull(),
+            "interruption_count": NSNull(), "stopped_early": status == "failed",
             "task_status": status, "failure_reason": NSNull(),
             "outcome_status": outcome, "completion_ratio": status == "success" ? "1" : "0",
             "created_at": "c",
         ])
     }
 
-    /// A service with the task loaded into the shared array and, optionally,
-    /// an active execution in the shared map.
     private func makeService(active: Bool) async throws -> TaskService {
         let service = TaskService(apiClient: APIClient(session: StubURLProtocol.makeSession()))
         let tasks = taskListData
@@ -76,11 +72,8 @@ struct OutcomeServiceTests {
             request.method == "PATCH" && request.path == path ? .json(200, finished) : .detail(500, "unexpected")
         }
 
-        let result = try await service.submitOutcome(accessToken: "token", taskID: taskID, input: OutcomeInput(result: .completed))
+        let execution = try await service.submitOutcome(accessToken: "token", taskID: taskID, input: OutcomeInput(choice: .completed))
 
-        guard case .recorded(let execution) = result else {
-            Issue.record("expected recorded"); return
-        }
         #expect(execution.id == executionID)
         #expect(service.activeExecutions[taskID] == nil)
         #expect(service.tasks.first?.taskStatus == "success")
@@ -89,85 +82,70 @@ struct OutcomeServiceTests {
 
     @Test func unstartedTaskLogsWithIdempotencyKey() async throws {
         let service = try await makeService(active: false)
-        let finished = finishedData(id: "exec-log", status: "failed", outcome: "partial")
+        let finished = finishedData(id: "exec-log", status: "failed", outcome: "abandoned")
         StubURLProtocol.install { request in
             request.method == "POST" && request.path == "/executions" ? .json(201, finished) : .detail(500, "unexpected")
         }
 
-        let input = OutcomeInput(
-            result: .partial(percent: 60),
-            failureReason: .scheduleOverload,
-            interruptionCount: 2,
-            actualStart: Date().addingTimeInterval(-3600),
-            actualEnd: Date().addingTimeInterval(-120)
+        _ = try await service.submitOutcome(
+            accessToken: "token", taskID: taskID,
+            input: OutcomeInput(choice: .notCompleted, minutesSpent: 15, reason: .scheduleOverload)
         )
-        let result = try await service.submitOutcome(accessToken: "token", taskID: taskID, input: input)
 
-        guard case .recorded = result else {
-            Issue.record("expected recorded"); return
-        }
         let body = try #require(StubURLProtocol.recordedRequests.first?.body)
         #expect(body["idempotency_key"] as? String == taskID)
-        #expect(body["completion_ratio"] as? Double == 0.6)
+        #expect(body["completion_ratio"] as? Double == 0)
+        #expect(body["active_minutes"] as? Int == 15)
         #expect(body["failure_reason"] as? String == "schedule_overload")
         #expect(service.tasks.first?.taskStatus == "failed")
         StubURLProtocol.reset()
     }
 
-    @Test func stillWorkingStartsWhenNotRunning() async throws {
-        let service = try await makeService(active: false)
-        let started = StubURLProtocol.encode(activeExecutionObject)
-        StubURLProtocol.install { request in
-            request.method == "POST" && request.path == "/executions/start" ? .json(201, started) : .detail(500, "unexpected")
-        }
-
-        let result = try await service.submitOutcome(accessToken: "token", taskID: taskID, input: OutcomeInput(result: .stillWorking))
-
-        guard case .started(let execution) = result else {
-            Issue.record("expected started"); return
-        }
-        #expect(execution.id == executionID)
-        #expect(service.activeExecutions[taskID]?.id == executionID)
-        #expect(service.tasks.first?.taskStatus == "pending", "no finished outcome is recorded")
-        StubURLProtocol.reset()
-    }
-
-    @Test func stillWorkingWhenRunningMakesNoRequest() async throws {
+    @Test func invalidInputThrowsBeforeAnyRequest() async throws {
         let service = try await makeService(active: true)
         StubURLProtocol.install { _ in .detail(500, "should not be called") }
 
-        let result = try await service.submitOutcome(accessToken: "token", taskID: taskID, input: OutcomeInput(result: .stillWorking))
-
-        #expect(result == .started(service.activeExecutions[taskID]!))
-        #expect(StubURLProtocol.recordedRequests.isEmpty)
-        StubURLProtocol.reset()
-    }
-
-    @Test func invalidInputThrowsBeforeAnyRequest() async throws {
-        let service = try await makeService(active: false)
-        StubURLProtocol.install { _ in .detail(500, "should not be called") }
-
-        await #expect(throws: OutcomeValidationError.missingActualTimes) {
-            try await service.submitOutcome(accessToken: "token", taskID: taskID, input: OutcomeInput(result: .completed))
+        await #expect(throws: OutcomeValidationError.notStartedWhileActive) {
+            try await service.submitOutcome(
+                accessToken: "token", taskID: taskID,
+                input: OutcomeInput(choice: .notCompleted, didNotStart: true)
+            )
         }
         #expect(StubURLProtocol.recordedRequests.isEmpty)
-        #expect(service.tasks.first?.taskStatus == "pending")
+        #expect(service.activeExecutions[taskID] != nil)
         StubURLProtocol.reset()
     }
 
     @Test func serverFailureLeavesSharedStateUntouched() async throws {
         let service = try await makeService(active: true)
-        StubURLProtocol.install { _ in .detail(422, "Specify the actual partial completion_ratio between 0 and 1") }
+        StubURLProtocol.install { _ in .detail(422, "Active minutes cannot exceed elapsed time") }
 
         await #expect(throws: APIError.self) {
-            try await service.submitOutcome(
-                accessToken: "token",
-                taskID: taskID,
-                input: OutcomeInput(result: .abandoned, failureReason: .other)
-            )
+            try await service.submitOutcome(accessToken: "token", taskID: taskID, input: OutcomeInput(choice: .notCompleted, minutesSpent: 500))
         }
         #expect(service.activeExecutions[taskID] != nil)
         #expect(service.tasks.first?.taskStatus == "pending")
+        StubURLProtocol.reset()
+    }
+
+    @Test func latestFinishedExecutionPicksNewestWithStatus() async throws {
+        let service = try await makeService(active: false)
+        let list = StubURLProtocol.encode([
+            activeExecutionObject,
+            ["id": "newest-finished", "task_id": taskID, "user_id": "user", "actual_start_time": NSNull(), "actual_end_time": NSNull(),
+             "interruption_count": 2, "stopped_early": true, "task_status": "failed", "failure_reason": "other",
+             "outcome_status": "abandoned", "completion_ratio": "0", "created_at": "c"],
+            ["id": "older-finished", "task_id": taskID, "user_id": "user", "actual_start_time": NSNull(), "actual_end_time": NSNull(),
+             "interruption_count": NSNull(), "stopped_early": false, "task_status": "success", "failure_reason": NSNull(),
+             "outcome_status": "completed", "completion_ratio": "1", "created_at": "c"],
+        ])
+        StubURLProtocol.install { request in
+            request.method == "GET" && request.path == "/executions" ? .json(200, list) : .detail(500, "unexpected")
+        }
+
+        let latest = try await service.latestFinishedExecution(accessToken: "token", taskID: taskID)
+        #expect(latest?.id == "newest-finished")
+        #expect(latest?.interruptionCount == 2)
         StubURLProtocol.reset()
     }
 }
