@@ -16,7 +16,9 @@ final class TaskService: ObservableObject {
     @Published private(set) var isLoading = false
     @Published var errorMessage: String?
 
-    private let apiClient: APIClient
+    /// Internal so feature extensions (e.g. duration suggestions) can add
+    /// endpoints without widening this file.
+    let apiClient: APIClient
 
     init(apiClient: APIClient = APIClient()) {
         self.apiClient = apiClient

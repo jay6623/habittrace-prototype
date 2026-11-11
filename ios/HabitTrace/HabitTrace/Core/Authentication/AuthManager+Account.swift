@@ -10,8 +10,8 @@ extension AuthManager {
     /// Custom scheme registered in the target's Info.plist. Both URLs must
     /// be allow-listed under Authentication → URL Configuration in the
     /// Supabase project for OAuth and password-reset links to return here.
-    static let authCallbackURL = URL(string: "habittrace://auth-callback")!
-    static let passwordResetURL = URL(string: "habittrace://reset-password")!
+    nonisolated static let authCallbackURL = URL(string: "habittrace://auth-callback")!
+    nonisolated static let passwordResetURL = URL(string: "habittrace://reset-password")!
 
     enum AccountError: LocalizedError {
         case notSignedIn
@@ -106,22 +106,35 @@ extension AuthManager {
         return response.session == nil
     }
 
-    /// Google sign-in through the system web auth session. Always shows
-    /// the account chooser, as the PWA does.
+    /// Google sign-in through the system web auth session
+    /// (`ASWebAuthenticationSession`, PKCE). Always shows the account
+    /// chooser, as the PWA does.
+    ///
+    /// Supabase only redirects to `authCallbackURL` when that exact URL is
+    /// allow-listed in the project's Redirect URLs. Otherwise it falls back
+    /// to the Site URL (the PWA), the sheet never receives the `habittrace`
+    /// scheme, and this call waits until the user dismisses the sheet.
     func signInWithGoogle() async throws {
-        _ = try await client.auth.signInWithOAuth(
+        let session = try await client.auth.signInWithOAuth(
             provider: .google,
             redirectTo: Self.authCallbackURL,
             queryParams: [(name: "prompt", value: "select_account")]
         )
+        adopt(session: session)
     }
 
     /// Completes OAuth or password-recovery links opened from Mail or Safari.
     func handleDeepLink(_ url: URL) async throws -> DeepLinkResult {
-        _ = try await client.auth.session(from: url)
-        let isRecovery = url.host() == Self.passwordResetURL.host()
+        let session = try await client.auth.session(from: url)
+        adopt(session: session)
+        return Self.isPasswordRecoveryLink(url) ? .passwordRecovery : .signedIn
+    }
+
+    /// True for links that should open the password-reset form instead of
+    /// landing on the dashboard.
+    nonisolated static func isPasswordRecoveryLink(_ url: URL) -> Bool {
+        url.host() == Self.passwordResetURL.host()
             || url.absoluteString.contains("type=recovery")
-        return isRecovery ? .passwordRecovery : .signedIn
     }
 
     // MARK: - Password

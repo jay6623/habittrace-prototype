@@ -6,7 +6,10 @@ import Foundation
 /// `"2:00 PM"` and `"14:00"`. The PWA writes the 12-hour form, so new tasks
 /// from iOS use the same form to keep the data consistent. `planned_date`
 /// is always `"yyyy-MM-dd"`.
-enum TaskTimeFormatting {
+///
+/// Every helper is pure, so the type is `nonisolated` and usable from
+/// model code, intents, and tests off the main actor.
+nonisolated enum TaskTimeFormatting {
     // MARK: Parsing
 
     /// Minutes since midnight for a stored time, or `nil` if unparseable.
@@ -63,7 +66,7 @@ enum TaskTimeFormatting {
     /// Parses an ISO 8601 timestamp as returned for execution times, with
     /// or without fractional seconds, for example
     /// "2026-10-09T15:00:00+00:00" or "2026-10-09T15:00:00.123456Z".
-    nonisolated static func date(fromISO8601 timestamp: String) -> Date? {
+    static func date(fromISO8601 timestamp: String) -> Date? {
         let fractional = ISO8601DateFormatter()
         fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         if let date = fractional.date(from: timestamp) {

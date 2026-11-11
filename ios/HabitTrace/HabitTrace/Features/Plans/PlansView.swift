@@ -22,6 +22,7 @@ struct PlansScreen: View {
 
     @State private var showingDatePicker = false
     @State private var showingUnlogged = false
+    @State private var showingScheduler = false
     @State private var planFormRequest: PlanFormRequest?
     @State private var outcomeTarget: PlanListItem?
     @State private var loggedEditTarget: PlanListItem?
@@ -54,7 +55,8 @@ struct PlansScreen: View {
                         onToday: viewModel.showToday,
                         onPickDate: { showingDatePicker = true },
                         onAddPlan: presentNewPlanForm,
-                        onOpenUnlogged: { showingUnlogged = true }
+                        onOpenUnlogged: { showingUnlogged = true },
+                        onOpenScheduler: { showingScheduler = true }
                     )
 
                     PlansSummaryStrip(summary: viewModel.summary)
@@ -96,6 +98,20 @@ struct PlansScreen: View {
                 UnloggedView()
                     .environmentObject(authManager)
                     .environmentObject(taskService)
+            }
+            .sheet(isPresented: $showingScheduler, onDismiss: { Task { await viewModel.load() } }) {
+                NavigationStack {
+                    SchedulerHubView(initialDate: viewModel.selectedDate)
+                        .navigationTitle("Plans")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Done") { showingScheduler = false }
+                            }
+                        }
+                }
+                .environmentObject(authManager)
+                .environmentObject(taskService)
             }
             .sheet(item: $planFormRequest) { request in
                 PlanFormSheet(request: request, actions: planFormActions(for: request)) { _ in
@@ -247,6 +263,14 @@ struct PlansScreen: View {
                 let message = viewModel.actionErrorMessage ?? "Couldn't save this plan. Please try again."
                 viewModel.actionErrorMessage = nil
                 return .failed(message)
+            },
+            durationRecommendation: { draft, excludingTaskID in
+                let token = try await authManager.validAccessToken()
+                return try await taskService.durationRecommendation(
+                    accessToken: token,
+                    draft: draft,
+                    excludingTaskID: excludingTaskID
+                )
             }
         )
     }

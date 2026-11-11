@@ -59,7 +59,9 @@ struct TodayView: View {
                 }
             }
             .sheet(isPresented: $showingCoach) {
-                CoachPlaceholderSheet()
+                CoachChatView()
+                    .environmentObject(authManager)
+                    .environmentObject(taskService)
             }
             .sheet(isPresented: $showingUnlogged, onDismiss: { Task { await loadTasks() } }) {
                 UnloggedView()
@@ -133,39 +135,6 @@ struct TodayView: View {
         } catch {
             return .failure(ErrorPresentation.message(for: error))
         }
-    }
-}
-
-/// Placeholder presented by the Ask Coach button until the chat API is wired.
-private struct CoachPlaceholderSheet: View {
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            VStack {
-                HTEmptyState(
-                    title: "AI coach isn't available yet",
-                    message: "Ask for a plan, find a better time, or get a nudge. This arrives in a later update.",
-                    systemImage: "sparkles"
-                )
-                .htCard()
-                .padding(HTSpacing.screenHorizontal)
-
-                Spacer()
-            }
-            .frame(maxWidth: .infinity)
-            .background(HTColor.surfaceMuted)
-            .navigationTitle("AI Coach")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                }
-            }
-        }
-        .presentationDetents([.medium])
     }
 }
 

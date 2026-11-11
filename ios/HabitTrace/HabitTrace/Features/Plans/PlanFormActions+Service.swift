@@ -41,7 +41,33 @@ extension PlanFormActions {
                 } catch {
                     return .failed(ErrorPresentation.message(for: error))
                 }
+            },
+            durationRecommendation: { draft, excludingTaskID in
+                let token = try await accessToken()
+                return try await taskService.durationRecommendation(
+                    accessToken: token,
+                    draft: draft,
+                    excludingTaskID: excludingTaskID
+                )
             }
+        )
+    }
+}
+
+extension TaskService {
+    /// `GET /analytics/duration-recommendation` for a draft's title,
+    /// category, and planned length.
+    func durationRecommendation(
+        accessToken: String,
+        draft: PlanDraft,
+        excludingTaskID: String?
+    ) async throws -> DurationRecommendation {
+        try await apiClient.fetchDurationRecommendation(
+            accessToken: accessToken,
+            title: draft.trimmedTitle,
+            category: draft.category.rawValue,
+            plannedMinutes: draft.durationMinutes,
+            excludeTaskID: excludingTaskID
         )
     }
 }

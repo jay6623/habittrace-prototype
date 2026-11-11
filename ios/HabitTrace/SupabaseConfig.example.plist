@@ -18,7 +18,14 @@
 	<string>YOUR-PUBLISHABLE-ANON-KEY</string>
 	<!-- Optional. Overrides the API base URL (default http://127.0.0.1:8000)
 	     for every launch, including from the home screen. The
-	     HABITTRACE_API_URL environment variable takes precedence. -->
+	     HABITTRACE_API_URL environment variable takes precedence.
+
+	     Simulator: a loopback URL such as http://127.0.0.1:8001 works.
+	     Physical iPhone: use the deployed HTTPS backend, with no trailing
+	     slash, e.g. https://habittrace-api.onrender.com. A loopback URL is
+	     replaced with that production URL on real devices, and a plain
+	     http:// URL to any other host is upgraded to https:// so App
+	     Transport Security accepts it. -->
 	<key>API_BASE_URL</key>
 	<string>http://127.0.0.1:8000</string>
 </dict>

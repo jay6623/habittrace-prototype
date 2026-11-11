@@ -18,6 +18,9 @@ struct PlansHeader: View {
     let onPickDate: () -> Void
     let onAddPlan: () -> Void
     var onOpenUnlogged: () -> Void = {}
+    /// Opens the scheduler ("Find a time" / "Generate day"), mirroring the
+    /// PWA's plan tabs.
+    var onOpenScheduler: () -> Void = {}
 
     var body: some View {
         VStack(alignment: .leading, spacing: HTSpacing.md) {
@@ -43,25 +46,35 @@ struct PlansHeader: View {
 
             dayNavigator
 
-            Button {
-                onOpenUnlogged()
-            } label: {
-                HStack(spacing: HTSpacing.sm) {
-                    Image(systemName: "clock.badge.exclamationmark")
-                    Text("Unlogged")
-                    if unloggedCount > 0 {
-                        Text(unloggedCount > 99 ? "99+" : "\(unloggedCount)")
-                            .font(.htEyebrow)
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, HTSpacing.sm)
-                            .padding(.vertical, 2)
-                            .background(HTColor.danger600)
-                            .clipShape(Capsule())
+            HStack(spacing: HTSpacing.sm) {
+                Button {
+                    onOpenUnlogged()
+                } label: {
+                    HStack(spacing: HTSpacing.sm) {
+                        Image(systemName: "clock.badge.exclamationmark")
+                        Text("Unlogged")
+                        if unloggedCount > 0 {
+                            Text(unloggedCount > 99 ? "99+" : "\(unloggedCount)")
+                                .font(.htEyebrow)
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, HTSpacing.sm)
+                                .padding(.vertical, 2)
+                                .background(HTColor.danger600)
+                                .clipShape(Capsule())
+                        }
                     }
                 }
+                .buttonStyle(.htSecondary)
+                .accessibilityLabel(unloggedCount > 0 ? "Unlogged plans, \(unloggedCount)" : "Unlogged plans")
+
+                Button {
+                    onOpenScheduler()
+                } label: {
+                    Label("Find a time", systemImage: "sparkles.rectangle.stack")
+                }
+                .buttonStyle(.htSecondary)
+                .accessibilityHint("Opens the scheduler to find a time or generate your day")
             }
-            .buttonStyle(.htSecondary)
-            .accessibilityLabel(unloggedCount > 0 ? "Unlogged plans, \(unloggedCount)" : "Unlogged plans")
         }
     }
 

@@ -61,6 +61,15 @@ final class AuthManager: ObservableObject {
         isLoading = false
     }
 
+    /// Publishes a session obtained outside the auth-state stream, such as
+    /// the one returned by an OAuth callback, so the UI switches at once
+    /// instead of waiting for the stream to deliver the same event.
+    func adopt(session newSession: Session) {
+        session = newSession
+        isLoading = false
+        errorMessage = nil
+    }
+
     func signOut() async {
         errorMessage = nil
 

@@ -6,7 +6,7 @@ import Foundation
 /// Field names follow the backend's snake_case schemas through the
 /// coding strategies in `makeDecoder()` and `makeEncoder()`.
 struct APIClient {
-    private let session: URLSession
+    let session: URLSession
 
     nonisolated init(session: URLSession = .shared) {
         self.session = session
@@ -271,7 +271,7 @@ struct APIClient {
     /// Extracts the backend's `{"detail": "..."}` message when present.
     /// FastAPI validation errors send `detail` as an array; those are
     /// flattened to their messages.
-    private static func errorDetail(in data: Data) -> String? {
+    static func errorDetail(in data: Data) -> String? {
         guard
             let object = try? JSONSerialization.jsonObject(with: data),
             let dictionary = object as? [String: Any],

@@ -24,6 +24,9 @@ struct PlanFormActions {
     var overlappingPlans: (PlanDraft, String?) async throws -> [HabitTraceTask]
     /// Creates or updates; the owner decides which from the request.
     var save: (PlanDraft) async -> PlanSaveResult
+    /// History-based duration suggestion for the draft, excluding the
+    /// edited task. Nil hides "Suggest from my history".
+    var durationRecommendation: ((PlanDraft, String?) async throws -> DurationRecommendation)? = nil
 }
 
 /// Native equivalent of the PWA's Quick Add form, in create and edit modes.
@@ -44,6 +47,12 @@ struct PlanFormSheet: View {
     @State private var isSaving = false
     @State private var saveErrorMessage: String?
     @State private var conflicts: [HabitTraceTask]?
+
+    /// "Suggest from my history" state, mirroring the PWA's Quick Add.
+    @State private var isCheckingHistory = false
+    @State private var suggestion: DurationRecommendation?
+    @State private var suggestionErrorMessage: String?
+    @State private var isApplyingSuggestion = false
 
     private let calendar = Calendar.current
 
@@ -201,11 +210,93 @@ struct PlanFormSheet: View {
                         .foregroundStyle(HTColor.textMuted)
                 }
             }
+
+            if actions.durationRecommendation != nil {
+                suggestionRow
+            }
         } header: {
             Text("How long?")
         } footer: {
             Text("Between 5 and 480 minutes.")
         }
+        .onChange(of: draft.title) { _, _ in clearSuggestion() }
+        .onChange(of: draft.category) { _, _ in clearSuggestion() }
+        .onChange(of: draft.durationMinutes) { _, _ in clearSuggestion() }
+    }
+
+    @ViewBuilder
+    private var suggestionRow: some View {
+        VStack(alignment: .leading, spacing: HTSpacing.sm) {
+            Button {
+                Task { await checkHistory() }
+            } label: {
+                HStack(spacing: HTSpacing.xs) {
+                    if isCheckingHistory {
+                        ProgressView().controlSize(.small)
+                    }
+                    Text(isCheckingHistory ? "Checking history…" : "Suggest from my history")
+                }
+            }
+            .buttonStyle(.htSecondary)
+            .disabled(isCheckingHistory || draft.trimmedTitle.isEmpty || isSaving)
+
+            if let suggestionErrorMessage {
+                Text(suggestionErrorMessage)
+                    .font(.htCaption)
+                    .foregroundStyle(HTColor.danger700)
+            } else if let suggestion {
+                if suggestion.available, let minutes = suggestion.recommendedMinutes {
+                    if let explanation = suggestion.explanation {
+                        Text(explanation)
+                            .font(.htCaption)
+                            .foregroundStyle(HTColor.textSecondary)
+                    }
+                    Button("Use \(minutes)m") {
+                        applySuggestion(minutes)
+                    }
+                    .buttonStyle(.htChip(isSelected: draft.durationMinutes == minutes))
+                } else {
+                    Text("Not enough comparable history yet. Keep your estimate; suggestions need 3 completions with the same name and category, or 5 similar plans.")
+                        .font(.htCaption)
+                        .foregroundStyle(HTColor.textSecondary)
+                }
+            }
+        }
+        .padding(.vertical, HTSpacing.xs)
+    }
+
+    private func checkHistory() async {
+        guard let recommend = actions.durationRecommendation else { return }
+        isCheckingHistory = true
+        suggestionErrorMessage = nil
+        defer { isCheckingHistory = false }
+        do {
+            suggestion = try await recommend(draft, request.editingTaskID)
+        } catch {
+            suggestion = nil
+            suggestionErrorMessage = "Duration suggestions are unavailable. You can still save your plan."
+        }
+    }
+
+    /// Applies the suggested length, switching to the custom field when the
+    /// value is not one of the presets, as the PWA does. The suggestion
+    /// stays visible; only user edits clear it.
+    private func applySuggestion(_ minutes: Int) {
+        isApplyingSuggestion = true
+        defer { isApplyingSuggestion = false }
+        if PlanDraft.durationPresets.contains(minutes) {
+            selectPreset(minutes)
+        } else {
+            usesCustomDuration = true
+            customDurationText = String(minutes)
+            draft.durationMinutes = minutes
+        }
+    }
+
+    private func clearSuggestion() {
+        guard !isApplyingSuggestion else { return }
+        suggestion = nil
+        suggestionErrorMessage = nil
     }
 
     private var detailsSection: some View {
