@@ -837,6 +837,47 @@ export async function getPersonalizedInsights(
   return apiFetch<PersonalizedInsights>(`/analytics/personalized-insights?${params}`);
 }
 
+// ── XP & levels ──────────────────────────────────────────────────────────────
+
+export type XpOutcome = "completed" | "partial" | "not_started" | "abandoned" | "failed";
+
+/** XP one plan earned from its latest recorded outcome. */
+export interface XpEvent {
+  task_id: string;
+  title: string;
+  task_category: string;
+  planned_date: string;
+  outcome: XpOutcome;
+  completion_ratio: number;
+  logging_xp: number;
+  completion_xp: number;
+  xp: number;
+}
+
+export interface XpSummary {
+  total_xp: number;
+  level: number;
+  level_title: string;
+  level_start_xp: number;
+  next_level_xp: number;
+  xp_into_level: number;
+  xp_to_next_level: number;
+  /** 0..1 progress within the current level. */
+  progress: number;
+  xp_this_week: number;
+  outcomes_logged: number;
+  plans_completed: number;
+  daily_xp: { date: string; xp: number }[];
+  recent: XpEvent[];
+}
+
+export async function getXpSummary(): Promise<XpSummary> {
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  return apiFetch<XpSummary>(
+    `/gamification/summary?${new URLSearchParams({ timezone })}`,
+  );
+}
+
 // ── Chat (streaming SSE) ─────────────────────────────────────────────────────
 
 export interface ChatMessage {

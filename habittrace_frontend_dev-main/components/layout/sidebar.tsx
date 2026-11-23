@@ -8,6 +8,7 @@ export const navigation = [
   { href: "/dashboard/calendar", label: "Calendar", icon: "▣" },
   { href: "/dashboard/group", label: "Groups", icon: "◎" },
   { href: "/dashboard/analytics", label: "Insights", icon: "↗" },
+  { href: "/dashboard/levels", label: "Levels", icon: "★" },
   { href: "/dashboard/settings", label: "Settings", icon: "⚙" },
 ];
 export function navActive(path: string, href: string) {
