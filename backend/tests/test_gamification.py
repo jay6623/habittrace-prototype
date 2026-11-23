@@ -158,20 +158,27 @@ def test_summary_totals_levels_week_window_and_recent_order():
                       completion_ratio=0),
         ],
     )
-    assert result["total_xp"] == 22 + 12 + 2
-    assert result["xp_this_week"] == 22 + 12
+    # The first completed plan also unlocks "First step" (+25 bonus on its day).
+    assert result["plan_xp"] == 22 + 12 + 2
+    assert result["bonus_xp"] == 25
+    assert result["total_xp"] == 61
+    assert result["xp_this_week"] == 22 + 25 + 12
     assert result["outcomes_logged"] == 3
     assert result["plans_completed"] == 1
     assert result["level"] == 1
     assert result["level_start_xp"] == 0
     assert result["next_level_xp"] == 100
-    assert result["xp_into_level"] == 36
-    assert result["xp_to_next_level"] == 64
-    assert result["progress"] == 0.36
+    assert result["xp_into_level"] == 61
+    assert result["xp_to_next_level"] == 39
+    assert result["progress"] == 0.61
     assert [e["title"] for e in result["recent"]] == ["Half", "Done", "Skipped"]
     assert len(result["daily_xp"]) == 14
     assert result["daily_xp"][-1] == {"date": "2026-11-11", "xp": 12}
-    assert result["daily_xp"][-2] == {"date": "2026-11-10", "xp": 22}
+    assert result["daily_xp"][-2] == {"date": "2026-11-10", "xp": 22 + 25}
+    assert result["badges_unlocked"] == 1
+    assert result["recent_unlocks"][0]["title"] == "First step"
+    # Yesterday's completion keeps a 1-day streak alive until today ends.
+    assert result["streak"] == {"current": 1, "longest": 1, "active_today": False}
     assert all(not key.startswith("_") for key in result["recent"][0])
 
 
@@ -181,7 +188,7 @@ def test_summary_is_scoped_to_the_owner_and_skips_orphaned_results():
     orphan = execution(task(), created_at="2026-11-11T10:00:00+00:00")
     result = summary([mine, theirs], [execution(mine), execution(theirs), orphan])
     assert result["outcomes_logged"] == 1
-    assert result["total_xp"] == 22
+    assert result["plan_xp"] == 22
 
 
 def test_empty_history_starts_at_level_one():
@@ -190,6 +197,9 @@ def test_empty_history_starts_at_level_one():
     assert result["level"] == 1
     assert result["progress"] == 0
     assert result["recent"] == []
+    assert result["badges_unlocked"] == 0
+    assert result["recent_unlocks"] == []
+    assert result["streak"] == {"current": 0, "longest": 0, "active_today": False}
     assert all(day["xp"] == 0 for day in result["daily_xp"])
 
 
@@ -212,8 +222,13 @@ def test_endpoint_returns_summary_and_validates_timezone(authenticated_client):
     )
     assert response.status_code == 200
     body = response.json()
-    assert body["total_xp"] == 22
+    assert body["plan_xp"] == 22
+    assert body["total_xp"] == 22 + 25
     assert body["level"] == 1
+    assert len(body["achievements"]) == body["badges_total"]
+    assert {m["id"] for m in body["milestones"]} == {
+        "plans_completed", "focus_hours", "outcomes_logged"
+    }
     assert body["recent"][0]["task_id"] == plan["id"]
     bad = authenticated_client.get("/gamification/summary", params={"timezone": "Mars/Base"})
     assert bad.status_code == 422

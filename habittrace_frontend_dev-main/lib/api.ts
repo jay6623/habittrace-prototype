@@ -854,8 +854,40 @@ export interface XpEvent {
   xp: number;
 }
 
+export interface Achievement {
+  id: string;
+  title: string;
+  description: string;
+  icon: string;
+  kind: "achievement" | "streak";
+  bonus_xp: number;
+  target: number;
+  progress: number;
+  unlocked: boolean;
+  unlocked_on: string | null;
+}
+
+export interface MilestoneTier {
+  target: number;
+  bonus_xp: number;
+  unlocked: boolean;
+  unlocked_on: string | null;
+}
+
+export interface Milestone {
+  id: string;
+  title: string;
+  unit: string;
+  value: number;
+  tiers: MilestoneTier[];
+}
+
 export interface XpSummary {
   total_xp: number;
+  /** XP from plan outcomes. */
+  plan_xp: number;
+  /** Bonus XP from unlocked achievements and milestones. */
+  bonus_xp: number;
   level: number;
   level_title: string;
   level_start_xp: number;
@@ -869,6 +901,13 @@ export interface XpSummary {
   plans_completed: number;
   daily_xp: { date: string; xp: number }[];
   recent: XpEvent[];
+  /** A day counts when at least one plan planned for it was completed. */
+  streak: { current: number; longest: number; active_today: boolean };
+  badges_unlocked: number;
+  badges_total: number;
+  achievements: Achievement[];
+  milestones: Milestone[];
+  recent_unlocks: { title: string; icon: string; bonus_xp: number; unlocked_on: string }[];
 }
 
 export async function getXpSummary(): Promise<XpSummary> {

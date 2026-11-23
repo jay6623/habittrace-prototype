@@ -12,7 +12,9 @@ PAGE_SIZE = 1000
 # Bound one request's work: 20 pages is 20,000 plans or outcomes.
 MAX_PAGES = 20
 
-TASK_COLUMNS = "id,title,task_category,planned_date,planned_duration_min,importance"
+# "*" rather than a column list: source_group_task_id only exists after the
+# group personal-planning migration, and naming a missing column fails the query.
+TASK_COLUMNS = "*"
 EXECUTION_COLUMNS = "id,task_id,task_status,outcome_status,completion_ratio,created_at"
 
 

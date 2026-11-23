@@ -1,4 +1,4 @@
-"""Response contracts for XP and levels."""
+"""Response contracts for XP, levels, streaks, achievements and milestones."""
 
 from __future__ import annotations
 
@@ -28,8 +28,51 @@ class DailyXp(BaseModel):
     xp: int
 
 
+class StreakInfo(BaseModel):
+    current: int
+    longest: int
+    active_today: bool  # a plan has already been completed today
+
+
+class Achievement(BaseModel):
+    id: str
+    title: str
+    description: str
+    icon: str
+    kind: Literal["achievement", "streak"]
+    bonus_xp: int
+    target: int
+    progress: int
+    unlocked: bool
+    unlocked_on: str | None = None
+
+
+class MilestoneTier(BaseModel):
+    target: int
+    bonus_xp: int
+    unlocked: bool
+    unlocked_on: str | None = None
+
+
+class Milestone(BaseModel):
+    id: str
+    title: str
+    unit: str
+    value: float
+    tiers: list[MilestoneTier]
+
+
+class Unlock(BaseModel):
+    title: str
+    icon: str
+    bonus_xp: int
+    unlocked_on: str
+
+
 class XpSummary(BaseModel):
     total_xp: int
+    plan_xp: int
+    bonus_xp: int
     level: int
     level_title: str
     level_start_xp: int
@@ -42,3 +85,9 @@ class XpSummary(BaseModel):
     plans_completed: int
     daily_xp: list[DailyXp]
     recent: list[XpEvent]
+    streak: StreakInfo
+    badges_unlocked: int
+    badges_total: int
+    achievements: list[Achievement]
+    milestones: list[Milestone]
+    recent_unlocks: list[Unlock]

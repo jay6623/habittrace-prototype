@@ -11,6 +11,8 @@ Rules (also shown to users on the Levels page):
     scaled by how much of the plan was done: completed = 100%, partial = its
     completion ratio, not started / abandoned / failed = 0%.
   * The duration bonus is 1 XP per full 15 planned minutes, capped at 8.
+  * Unlocking an achievement or milestone adds its bonus XP on the day it was
+    earned (see gamification_rewards).
   * Reaching level n needs 50 * n * (n - 1) total XP, so each level asks for
     100 XP more than the one before (100, 200, 300, ...).
 """
@@ -25,6 +27,7 @@ from typing import Any
 from uuid import UUID
 
 from ..repositories.gamification_repository import GamificationRepository
+from .gamification_rewards import evaluate_rewards
 
 LOGGING_XP = 2
 BASE_XP = 10
@@ -180,11 +183,14 @@ class GamificationService:
                 }
             )
 
-        total_xp = sum(event["xp"] for event in events)
+        rewards = evaluate_rewards(events, tasks, today)
+        plan_xp = sum(event["xp"] for event in events)
+        bonus_xp = sum(rewards["bonus_by_day"].values())
+        total_xp = plan_xp + bonus_xp
         level = level_for_xp(total_xp)
         start, next_start = level_start_xp(level), level_start_xp(level + 1)
 
-        by_day: dict[str, int] = {}
+        by_day: dict[str, int] = dict(rewards["bonus_by_day"])
         for event in events:
             by_day[event["planned_date"]] = by_day.get(event["planned_date"], 0) + event["xp"]
         week_start = today - timedelta(days=WEEK_DAYS - 1)
@@ -198,6 +204,8 @@ class GamificationService:
 
         return {
             "total_xp": total_xp,
+            "plan_xp": plan_xp,
+            "bonus_xp": bonus_xp,
             "level": level,
             "level_title": level_title(level),
             "level_start_xp": start,
@@ -217,4 +225,10 @@ class GamificationService:
                 for day in chart_days
             ],
             "recent": recent,
+            "streak": rewards["streak"],
+            "badges_unlocked": sum(1 for a in rewards["achievements"] if a["unlocked"]),
+            "badges_total": len(rewards["achievements"]),
+            "achievements": rewards["achievements"],
+            "milestones": rewards["milestones"],
+            "recent_unlocks": rewards["recent_unlocks"],
         }
