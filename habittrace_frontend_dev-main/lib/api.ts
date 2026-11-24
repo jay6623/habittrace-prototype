@@ -837,6 +837,86 @@ export async function getPersonalizedInsights(
   return apiFetch<PersonalizedInsights>(`/analytics/personalized-insights?${params}`);
 }
 
+// ── XP & levels ──────────────────────────────────────────────────────────────
+
+export type XpOutcome = "completed" | "partial" | "not_started" | "abandoned" | "failed";
+
+/** XP one plan earned from its latest recorded outcome. */
+export interface XpEvent {
+  task_id: string;
+  title: string;
+  task_category: string;
+  planned_date: string;
+  outcome: XpOutcome;
+  completion_ratio: number;
+  logging_xp: number;
+  completion_xp: number;
+  xp: number;
+}
+
+export interface Achievement {
+  id: string;
+  title: string;
+  description: string;
+  icon: string;
+  kind: "achievement" | "streak";
+  bonus_xp: number;
+  target: number;
+  progress: number;
+  unlocked: boolean;
+  unlocked_on: string | null;
+}
+
+export interface MilestoneTier {
+  target: number;
+  bonus_xp: number;
+  unlocked: boolean;
+  unlocked_on: string | null;
+}
+
+export interface Milestone {
+  id: string;
+  title: string;
+  unit: string;
+  value: number;
+  tiers: MilestoneTier[];
+}
+
+export interface XpSummary {
+  total_xp: number;
+  /** XP from plan outcomes. */
+  plan_xp: number;
+  /** Bonus XP from unlocked achievements and milestones. */
+  bonus_xp: number;
+  level: number;
+  level_title: string;
+  level_start_xp: number;
+  next_level_xp: number;
+  xp_into_level: number;
+  xp_to_next_level: number;
+  /** 0..1 progress within the current level. */
+  progress: number;
+  xp_this_week: number;
+  outcomes_logged: number;
+  plans_completed: number;
+  daily_xp: { date: string; xp: number }[];
+  recent: XpEvent[];
+  /** A day counts when at least one plan planned for it was completed. */
+  streak: { current: number; longest: number; active_today: boolean };
+  badges_unlocked: number;
+  badges_total: number;
+  achievements: Achievement[];
+  milestones: Milestone[];
+  recent_unlocks: { title: string; icon: string; bonus_xp: number; unlocked_on: string }[];
+}
+
+export async function getXpSummary(): Promise<XpSummary> {
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  return apiFetch<XpSummary>(
+    `/gamification/summary?${new URLSearchParams({ timezone })}`,
+  );
+}
+
 // ── Chat (streaming SSE) ─────────────────────────────────────────────────────
 
 export interface ChatMessage {

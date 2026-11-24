@@ -23,6 +23,7 @@ from .routes import (
     analytics,
     chat,
     executions,
+    gamification,
     google_calendar,
     groups,
     health,
@@ -103,4 +104,5 @@ app.include_router(
 )
 app.include_router(account.router, prefix="/account", tags=["account"])
 app.include_router(groups.router, prefix="/groups", tags=["groups"])
+app.include_router(gamification.router, prefix="/gamification", tags=["gamification"])
 app.include_router(ai_v2_router)
