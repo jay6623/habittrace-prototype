@@ -93,10 +93,7 @@ class GroupService:
         self._close_missed_outcomes(str(group_id), tasks, timezone_name)
         assignment_rows = self.groups.list_task_assignees(str(group_id))
         assignee_ids = [str(row["user_id"]) for row in assignment_rows]
-        profiles = self.groups.get_profiles(
-            [str(row["user_id"]) for row in members]
-            + assignee_ids
-        )
+        profiles = self.groups.get_profiles([str(row["user_id"]) for row in members] + assignee_ids)
         assignments_by_task: dict[str, list[str]] = {}
         for row in assignment_rows:
             assignments_by_task.setdefault(str(row["task_id"]), []).append(str(row["user_id"]))
@@ -116,6 +113,7 @@ class GroupService:
                     assignments_by_task.get(str(task["id"]), []),
                     profiles,
                     self._outcomes_for(assignment_rows, str(task["id"])),
+                    self._progress_for(assignment_rows, str(task["id"])),
                 )
                 for task in tasks
             ],
@@ -288,9 +286,7 @@ class GroupService:
         )
         return self._with_author(created, *self._author_context([created]))
 
-    def _with_threads(
-        self, announcements: list[JsonRow], replies: list[JsonRow]
-    ) -> list[JsonRow]:
+    def _with_threads(self, announcements: list[JsonRow], replies: list[JsonRow]) -> list[JsonRow]:
         profiles, roles = self._author_context([*announcements, *replies])
         replies_by_announcement: dict[str, list[JsonRow]] = {}
         for reply in replies:
@@ -305,9 +301,7 @@ class GroupService:
             for announcement in announcements
         ]
 
-    def _author_context(
-        self, rows: list[JsonRow]
-    ) -> tuple[dict[str, JsonRow], dict[str, str]]:
+    def _author_context(self, rows: list[JsonRow]) -> tuple[dict[str, JsonRow], dict[str, str]]:
         author_ids = [str(row["author_id"]) for row in rows]
         group_ids = {str(row["group_id"]) for row in rows}
         roles: dict[str, str] = {}
@@ -317,9 +311,7 @@ class GroupService:
         return self.groups.get_profiles(author_ids), roles
 
     @staticmethod
-    def _with_author(
-        row: JsonRow, profiles: dict[str, JsonRow], roles: dict[str, str]
-    ) -> JsonRow:
+    def _with_author(row: JsonRow, profiles: dict[str, JsonRow], roles: dict[str, str]) -> JsonRow:
         author_id = str(row["author_id"])
         profile = profiles.get(author_id, {})
         return {
@@ -398,6 +390,7 @@ class GroupService:
             task,
             assignee_ids,
             outcomes=self._outcomes_for(rows, str(task["id"])),
+            progress=self._progress_for(rows, str(task["id"])),
         )
 
     @staticmethod
@@ -408,12 +401,32 @@ class GroupService:
             if str(row["task_id"]) == task_id
         }
 
+    @staticmethod
+    def _progress_for(rows: list[JsonRow], task_id: str) -> dict[str, str | None]:
+        return {
+            str(r["user_id"]): r.get("shared_progress")
+            for r in rows
+            if str(r["task_id"]) == task_id
+        }
+
+    def share_progress(
+        self, user_id: UUID, group_id: UUID, task_id: UUID, value: str | None
+    ) -> JsonRow:
+        task = self.get_task_for_assignee(user_id, group_id, task_id)
+        updated = self.groups.set_assignee_progress(
+            str(group_id), str(task_id), str(user_id), value
+        )
+        if updated is None:
+            raise ResourceNotFoundError("Task assignment not found.")
+        return self._task_for_response(str(group_id), task)
+
     def _with_assignees(
         self,
         task: JsonRow,
         assignee_ids: list[str],
         profiles: dict[str, JsonRow] | None = None,
         outcomes: dict[str, str | None] | None = None,
+        progress: dict[str, str | None] | None = None,
     ) -> JsonRow:
         if profiles is None:
             profiles = self.groups.get_profiles(assignee_ids)
@@ -424,6 +437,7 @@ class GroupService:
                 "display_name": profiles.get(assignee_id, {}).get("display_name"),
                 "avatar_url": profiles.get(assignee_id, {}).get("avatar_url"),
                 "outcome": outcomes.get(assignee_id),
+                "shared_progress": (progress or {}).get(assignee_id),
             }
             for assignee_id in assignee_ids
         ]

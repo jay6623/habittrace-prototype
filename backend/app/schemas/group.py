@@ -82,6 +82,7 @@ class GroupTaskAssigneeResponse(BaseModel):
     display_name: str | None = None
     avatar_url: str | None = None
     outcome: Literal["success", "failed"] | None = None
+    shared_progress: Literal["planned", "in_progress", "needs_help"] | None = None
 
 
 class GroupTaskCompletion(BaseModel):
@@ -207,6 +208,10 @@ class GroupPersonalPlanRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    personal_task_id: UUID | None = None
+    block_key: UUID = UUID("00000000-0000-4000-8000-000000000001")
+    search_days: int = Field(default=14, ge=1, le=31)
+    expected_source_updated_at: str | None = None
     planned_start: AwareDatetime
     planned_duration_minutes: int = Field(ge=1, le=720)
     timezone_name: str = "UTC"
@@ -233,7 +238,9 @@ class GroupPersonalPlanRequest(BaseModel):
 
 class GroupPersonalCandidate(BaseModel):
     planned_start: AwareDatetime
-    success_probability: float
+    success_probability: float | None = None
+    daily_planned_minutes: int
+    deadline_slack_minutes: int | None = None
 
 
 class GroupPersonalPreview(BaseModel):
@@ -242,6 +249,8 @@ class GroupPersonalPreview(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     candidates: list[GroupPersonalCandidate] = Field(default_factory=list)
     personal_task: TaskResponse | None = None
+    search_start: str | None = None
+    search_end: str | None = None
 
 
 class GroupDetailResponse(BaseModel):
@@ -301,3 +310,34 @@ class GroupAnnouncementResponse(BaseModel):
     body: str
     created_at: str
     replies: list[GroupAnnouncementReplyResponse] = Field(default_factory=list)
+
+
+class GroupProgressUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    shared_progress: Literal["planned", "in_progress", "needs_help"] | None = None
+
+
+class GroupLinkedCompletion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirmed: Literal[True]
+
+
+class GroupPersonalBlock(BaseModel):
+    task: TaskResponse
+    source_changed: bool
+    finishes_after_deadline: bool
+
+
+class GroupPersonalContext(BaseModel):
+    group_task: GroupTaskResponse
+    blocks: list[GroupPersonalBlock]
+    planned_minutes: int
+    completed_minutes: int
+    remaining_minutes: int | None
+    can_share_completion: bool
+    shared_outcome: Literal["success", "failed"] | None = None
+
+
+class GroupSourceAcknowledge(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_source_updated_at: str

@@ -21,11 +21,15 @@ from ..schemas.group import (
     GroupCreate,
     GroupDetailResponse,
     GroupJoinRequest,
+    GroupLinkedCompletion,
     GroupMemberResponse,
     GroupMemberRoleUpdate,
+    GroupPersonalContext,
     GroupPersonalPlanRequest,
     GroupPersonalPreview,
+    GroupProgressUpdate,
     GroupResponse,
+    GroupSourceAcknowledge,
     GroupTaskCompletion,
     GroupTaskCreate,
     GroupTaskResponse,
@@ -68,6 +72,61 @@ def get_group_personal_planning_service(groups: GroupServiceDep) -> GroupPersona
 PersonalPlanningDep = Annotated[
     GroupPersonalPlanningService, Depends(get_group_personal_planning_service)
 ]
+
+
+@router.get("/personal-review", response_model=list[GroupPersonalContext])
+def personal_reviews(user_id: CurrentUserId, service: PersonalPlanningDep, response: Response):
+    response.headers["Cache-Control"] = "no-store"
+    return service.reviews(user_id)
+
+
+@router.get("/{group_id}/tasks/{task_id}/personal-plans", response_model=GroupPersonalContext)
+def personal_context(
+    group_id: UUID,
+    task_id: UUID,
+    user_id: CurrentUserId,
+    service: PersonalPlanningDep,
+    response: Response,
+):
+    response.headers["Cache-Control"] = "no-store"
+    return service.context(user_id, group_id, task_id)
+
+
+@router.post("/{group_id}/tasks/{task_id}/acknowledge-source", response_model=GroupPersonalContext)
+def acknowledge_source(
+    body: GroupSourceAcknowledge,
+    group_id: UUID,
+    task_id: UUID,
+    user_id: CurrentUserId,
+    service: PersonalPlanningDep,
+    response: Response,
+):
+    response.headers["Cache-Control"] = "no-store"
+    return service.acknowledge(user_id, group_id, task_id, body.expected_source_updated_at)
+
+
+@router.post("/{group_id}/tasks/{task_id}/linked-completion", response_model=GroupPersonalContext)
+def share_linked_completion(
+    group_id: UUID,
+    task_id: UUID,
+    body: GroupLinkedCompletion,
+    user_id: CurrentUserId,
+    service: PersonalPlanningDep,
+    response: Response,
+):
+    response.headers["Cache-Control"] = "no-store"
+    return service.share_completion(user_id, group_id, task_id)
+
+
+@router.patch("/{group_id}/tasks/{task_id}/progress", response_model=GroupTaskResponse)
+def share_task_progress(
+    group_id: UUID,
+    task_id: UUID,
+    body: GroupProgressUpdate,
+    user_id: CurrentUserId,
+    service: GroupServiceDep,
+):
+    return service.share_progress(user_id, group_id, task_id, body.shared_progress)
 
 
 @router.post("/{group_id}/tasks/{task_id}/personal-preview", response_model=GroupPersonalPreview)

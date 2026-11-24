@@ -32,6 +32,7 @@ export interface Task {
   title: string;
   notes?: string | null;
   source_group_task_id?: string | null;
+  group_block_key?: string | null;
   task_category: string;
   planned_start_time: string;
   planned_date: string;
@@ -1089,6 +1090,7 @@ export interface GroupTask {
     display_name: string | null;
     avatar_url?: string | null;
     outcome: "success" | "failed" | null;
+    shared_progress?: GroupSharedProgress;
   }[];
   title: string;
   category: string;
@@ -1138,7 +1140,13 @@ export interface GroupTaskUpdate {
   assigned_to_ids?: string[];
 }
 
+export type GroupSharedProgress = "planned" | "in_progress" | "needs_help" | null;
+
 export interface GroupPersonalPlanInput {
+  personal_task_id?: string;
+  block_key?: string;
+  search_days?: number;
+  expected_source_updated_at?: string;
   planned_start: string;
   planned_duration_minutes: number;
   timezone_name: string;
@@ -1157,8 +1165,55 @@ export interface GroupPersonalPreview {
   } | null;
   conflicts: string[];
   warnings: string[];
-  candidates: { planned_start: string; success_probability: number }[];
+  candidates: {
+    planned_start: string;
+    success_probability: number | null;
+    daily_planned_minutes: number;
+    deadline_slack_minutes: number | null;
+  }[];
+  search_start: string | null;
+  search_end: string | null;
   personal_task: Task | null;
+}
+
+export interface GroupPersonalContext {
+  group_task: GroupTask;
+  blocks: { task: Task; source_changed: boolean; finishes_after_deadline: boolean }[];
+  planned_minutes: number;
+  completed_minutes: number;
+  remaining_minutes: number | null;
+  can_share_completion: boolean;
+  shared_outcome: "success" | "failed" | null;
+}
+
+export function getGroupPersonalContext(groupId: string, taskId: string): Promise<GroupPersonalContext> {
+  return apiFetch(`/groups/${groupId}/tasks/${taskId}/personal-plans`);
+}
+
+export function getGroupPersonalReviews(): Promise<GroupPersonalContext[]> {
+  return apiFetch("/groups/personal-review");
+}
+
+export function acknowledgeGroupSource(
+  groupId: string, taskId: string, sourceVersion: string,
+): Promise<GroupPersonalContext> {
+  return apiFetch(`/groups/${groupId}/tasks/${taskId}/acknowledge-source`, {
+    method: "POST", body: JSON.stringify({ expected_source_updated_at: sourceVersion }),
+  });
+}
+
+export function shareGroupLinkedCompletion(groupId: string, taskId: string): Promise<GroupPersonalContext> {
+  return apiFetch(`/groups/${groupId}/tasks/${taskId}/linked-completion`, {
+    method: "POST", body: JSON.stringify({ confirmed: true }),
+  });
+}
+
+export function shareGroupProgress(
+  groupId: string, taskId: string, sharedProgress: GroupSharedProgress,
+): Promise<GroupTask> {
+  return apiFetch(`/groups/${groupId}/tasks/${taskId}/progress`, {
+    method: "PATCH", body: JSON.stringify({ shared_progress: sharedProgress }),
+  });
 }
 
 export function previewGroupPersonalPlan(

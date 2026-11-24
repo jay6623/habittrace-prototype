@@ -192,9 +192,7 @@ class GroupRepository(BaseRepository):
         )
         return list(response.data or [])
 
-    def replace_task_assignees(
-        self, group_id: str, task_id: str, user_ids: list[str]
-    ) -> None:
+    def replace_task_assignees(self, group_id: str, task_id: str, user_ids: list[str]) -> None:
         self._execute(
             self.db.table(self.assignees_table)
             .delete()
@@ -209,6 +207,19 @@ class GroupRepository(BaseRepository):
                     ),
                     validation_detail="The task assignees violate a database constraint.",
                 )
+
+    def set_assignee_progress(
+        self, group_id: str, task_id: str, user_id: str, value: str | None
+    ) -> JsonRow | None:
+        response = self._execute(
+            self.db.table(self.assignees_table)
+            .update({"shared_progress": value})
+            .eq("group_id", group_id)
+            .eq("task_id", task_id)
+            .eq("user_id", user_id),
+            validation_detail="Choose a supported shared status.",
+        )
+        return response.data[0] if response.data else None
 
     def set_assignee_outcome(
         self, group_id: str, task_id: str, user_id: str, outcome: str, logged_at: str

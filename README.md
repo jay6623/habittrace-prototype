@@ -253,6 +253,12 @@ All routes below except `/health` require a valid Supabase bearer token.
 | `GET` | `/analytics/plan-health` | Read today's plan health and risks |
 | `POST` | `/chat` | Stream AI Coach events over SSE |
 
+Group planning includes private multi-day time suggestions, pending-block rescheduling,
+source-deadline review, multiple work blocks per shared task, explicit completion
+sharing, and opt-in shared progress. Apply the primary DB upgrade in
+[supabase/README.md](supabase/README.md#private-personal-planning-for-group-tasks)
+before using the extended UI.
+
 AI V2 routes use the `/api/v2/ai` prefix and cover immutable plan snapshots, one outcome per snapshot, confirmed failure reasons, persisted predictions, and ranked time recommendations. See the OpenAPI page for complete request and response contracts.
 
 ## Google Calendar integration

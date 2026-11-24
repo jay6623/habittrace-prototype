@@ -33,6 +33,10 @@ class TaskService:
         }
         if payload.get("source_group_task_id"):
             data["source_group_task_id"] = payload["source_group_task_id"]
+            data["group_block_key"] = payload.get(
+                "group_block_key", "00000000-0000-4000-8000-000000000001"
+            )
+            data["group_source_snapshot"] = payload.get("group_source_snapshot", {})
         result = self.db.table("tasks").insert(data).execute()
         return sync_task_ai_safely(self.db, result.data[0])
 
@@ -51,13 +55,15 @@ class TaskService:
         return sync_task_ai_safely(self.db, result.data[0]) if result.data else None
 
     # ── Update ──────────────────────────────────────────────────────────
-    def update(self, user_id: str, task_id: str, payload: dict) -> dict | None:
+    def update(
+        self, user_id: str, task_id: str, payload: dict, *, require_pending: bool = False
+    ) -> dict | None:
         if not payload:
             return self.get(user_id, task_id)
-        result = (
-            self.db.table("tasks").update(payload)
-            .eq("id", task_id).eq("user_id", user_id).execute()
-        )
+        query = self.db.table("tasks").update(payload).eq("id", task_id).eq("user_id", user_id)
+        if require_pending:
+            query = query.eq("task_status", "pending")
+        result = query.execute()
         return sync_task_ai_safely(self.db, result.data[0]) if result.data else None
 
     def update_status(self, user_id: str, task_id: str, status: str) -> dict | None:

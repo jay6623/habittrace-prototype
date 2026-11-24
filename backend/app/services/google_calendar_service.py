@@ -160,27 +160,34 @@ class GoogleCalendarService:
         connection = self._get_connection(user_id)
         if not connection:
             return []
-        query = urlencode(
-            {
-                "timeMin": window_start.isoformat(),
-                "timeMax": window_end.isoformat(),
-                "singleEvents": "true",
-                "orderBy": "startTime",
-                "maxResults": "250",
-            }
-        )
-        response, _connection = self._calendar_request(
-            connection,
-            "GET",
-            f"/calendars/primary/events?{query}",
-        )
-        if response.status_code >= 400:
-            self._raise_google_error(response)
+        params = {
+            "timeMin": window_start.isoformat(),
+            "timeMax": window_end.isoformat(),
+            "singleEvents": "true",
+            "orderBy": "startTime",
+            "maxResults": "250",
+        }
+        items = []
+        for _ in range(20):
+            response, connection = self._calendar_request(
+                connection,
+                "GET",
+                f"/calendars/primary/events?{urlencode(params)}",
+            )
+            if response.status_code >= 400:
+                self._raise_google_error(response)
+            data = response.json()
+            items.extend(data.get("items", []))
+            if not data.get("nextPageToken"):
+                break
+            params["pageToken"] = data["nextPageToken"]
+        else:
+            raise GoogleCalendarError("Calendar has too many events to check this window.")
 
         timezone_name = str(connection.get("timezone") or "UTC")
         zone = ZoneInfo(timezone_name)
         events: list[dict] = []
-        for event in response.json().get("items", []):
+        for event in items:
             if event.get("status") == "cancelled" or event.get("transparency") == "transparent":
                 continue
             private = event.get("extendedProperties", {}).get("private", {})

@@ -107,3 +107,68 @@ def test_tokens_are_encrypted_and_task_times_become_calendar_events() -> None:
         "timeZone": "America/Denver",
     }
     assert event["end"]["dateTime"] == "2026-09-03T15:15:00"
+
+
+def test_busy_event_lookup_follows_pages_and_excludes_own_events(monkeypatch):
+    from datetime import datetime, timezone
+    from unittest.mock import Mock
+
+    calendar = GoogleCalendarService(
+        object(),
+        Settings(
+            google_oauth_client_id="client-id",
+            google_oauth_client_secret="secret",
+            google_token_encryption_key="x" * 48,
+        ),
+    )
+    connection = {"timezone": "America/Denver"}
+    monkeypatch.setattr(calendar, "_get_connection", lambda _user: connection)
+    own = {"extendedProperties": {"private": {"habittraceTaskId": "owned"}}}
+    event = {
+        "start": {"dateTime": "2099-09-07T18:00:00Z"},
+        "end": {"dateTime": "2099-09-07T19:00:00Z"},
+        "summary": "External",
+    }
+    first = Mock(status_code=200)
+    first.json.return_value = {"items": [own], "nextPageToken": "page-2"}
+    second = Mock(status_code=200)
+    second.json.return_value = {"items": [event]}
+    request = Mock(side_effect=[(first, connection), (second, connection)])
+    monkeypatch.setattr(calendar, "_calendar_request", request)
+    events = calendar.list_busy_events(
+        "owner",
+        datetime(2099, 9, 6, tzinfo=timezone.utc),
+        datetime(2099, 9, 9, tzinfo=timezone.utc),
+    )
+    assert len(events) == 1
+    assert events[0]["title"] == "External"
+    assert "pageToken=page-2" in request.call_args.args[2]
+
+
+def test_incomplete_calendar_pages_are_reported_as_failure(monkeypatch):
+    from datetime import datetime, timezone
+    from unittest.mock import Mock
+
+    import pytest
+
+    from app.services.google_calendar_service import GoogleCalendarError
+
+    calendar = GoogleCalendarService(
+        object(),
+        Settings(
+            google_oauth_client_id="id",
+            google_oauth_client_secret="secret",
+            google_token_encryption_key="x" * 48,
+        ),
+    )
+    connection = {"timezone": "UTC"}
+    monkeypatch.setattr(calendar, "_get_connection", lambda _user: connection)
+    response = Mock(status_code=200)
+    response.json.return_value = {"items": [], "nextPageToken": "more"}
+    monkeypatch.setattr(calendar, "_calendar_request", lambda *args: (response, connection))
+    with pytest.raises(GoogleCalendarError, match="too many events"):
+        calendar.list_busy_events(
+            "owner",
+            datetime(2099, 9, 6, tzinfo=timezone.utc),
+            datetime(2099, 9, 9, tzinfo=timezone.utc),
+        )

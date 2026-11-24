@@ -16,6 +16,7 @@ This directory contains SQL for two separate data boundaries.
 | `group_announcements_schema.sql` | Primary application project | Group announcements and member replies |
 | `group_task_completion_schema.sql` | Primary application project | Per-assignee group task completion |
 | `group_personal_planning_schema.sql` | Primary application project | Shared duration/deadline timezone and private personal-plan links |
+| `group_planning_extensions.sql` | Primary application project | Multiple private work blocks, source-change snapshots and opt-in shared progress |
 | `profile_avatar.sql` | Primary application project | Optional `profiles.avatar_url` for Groups member photos |
 | `ai_schema.sql` | AI V2 project | AI plan inputs, outcomes, confirmed reasons, model versions, predictions, time recommendations, constraints, triggers, indexes, and RLS |
 | `verify_ai_schema.sql` | AI V2 project | Read-only post-deployment verification queries |
@@ -40,30 +41,75 @@ Existing deadlines without a timezone retain the legacy viewer-timezone interpre
 new group tasks record their creator's timezone. A date-only deadline means the
 end of that day for personal planning.
 
-Assigned members use **My prediction & plan** in Groups to review their own
-start time, effort requirements, expected energy/focus, prediction, conflicts,
-and up to three alternative times on the selected day (08:00–22:00).
-`POST /groups/{group_id}/tasks/{task_id}/personal-preview` is read-only and
-returns only the signed-in assignee's data. It uses the existing AI V2 model and
-personal history from the primary database; preview does not require AI DB writes.
-Model/history unavailability leaves confirmation available. Google Calendar
-conflicts are checked when connected; lookup failure is shown as a warning.
+Before deploying the extended group planning UI, apply
+`group_planning_extensions.sql` **after** `group_personal_planning_schema.sql`
+and `group_task_completion_schema.sql` in the primary project. This upgrade
+preserves existing links as the initial block, replaces user/source uniqueness
+with user/source/block-key uniqueness, and adds private source snapshots and
+an optional shared status. Apply migrations in this order; do not reapply the
+older personal-planning migration after the extension.
 
-`POST /groups/{group_id}/tasks/{task_id}/personal-plan` confirms a user-owned
-`tasks` row with `source_group_task_id`, after rechecking membership, assignment,
-deadline, and conflicts. A unique user/source index prevents duplicate copies
-across retries and devices. Database triggers validate assignment even for direct
-browser inserts. Group responses never include private predictions or linked plans.
-Existing task-to-AI delivery and personal execution tracking handle the new plan.
-Group completion remains a separate explicit action; group outcomes are not
-automatically converted into training labels. Changes to the shared task do not
-automatically rewrite confirmed personal plans. Group/task deletion clears the
-link while preserving the personal plan and its history.
+Assigned members use **My prediction & plan** in Groups to:
 
-Verify with the isolated PostgreSQL regression script (no production credentials):
+- Search 1, 7, 14 (default), or 31 days starting at the chosen work date, stopping
+  at the group deadline. Slots start every 30 minutes during 08:00–22:00. Up to
+  three alternatives favor different days and show estimated score, scheduled
+  busy minutes including the block, and slack after finishing. Busy intervals
+  are clipped to the day and merged. Expected energy/focus are held constant
+  during comparison; users can change them and review again. For deadlines more
+  than 31 days away, choose a later work date to search the next window.
+- Recheck and move a pending block, with its original schedule displayed before
+  confirmation. The edited block is excluded from its own conflict context.
+  Finished blocks and running timers cannot be rescheduled through this API.
+  Confirmation rechecks the group version, deadline, conflicts, and pending status.
+- Split a long task by choosing a smaller block duration, saving it, and using
+  **Plan another block** for the rest, including other dates. Allocation totals
+  and unallocated estimated minutes are shown. Each block is reviewed and saved
+  separately with a stable retry key; this is not a batch auto-scheduler.
+- Review a changed deadline/estimate. Existing plans with no source snapshot
+  also require a first review. Acknowledge only after pending blocks fit the new
+  deadline. Acknowledgment updates pending AI deadline metadata without moving
+  the schedule; historical execution inputs stay intact.
+- Explicitly share completion after recorded blocks cover the shared estimate
+  and no blocks remain pending (without an estimate, at least one successful
+  block is required). This only updates the caller's shared assignment outcome.
+  It does not create an execution, duplicate XP, or publish private inputs.
+  Sharing may be confirmed after the deadline; it is not evidence of on-time
+  completion. Normal group completion remains available separately.
+- Select **Plan confirmed**, **In progress**, or **Needs help** in the shared task
+  row, or clear it with **Not shared**. No status is published automatically.
+
+A private dashboard banner checks for source changes / completion follow-up on
+load, after data writes, and when returning to the tab. It is not a push service.
+Personal schedules, scores, and energy/focus inputs remain private. Google
+Calendar busy lookup follows pages (up to 5,000 events); incomplete lookup is
+reported as a warning. An unavailable model still permits availability-only
+suggestions and explicit confirmation.
+
+Private API routes under `/groups/{group_id}/tasks/{task_id}`:
+
+| Method | Suffix | Purpose |
+|---|---|---|
+| GET | `personal-plans` | Own block list, allocation and source-change status |
+| POST | `personal-preview` | Read-only prediction / alternatives; `personal_task_id` selects an existing pending block |
+| POST | `personal-plan` | Explicit create/update; `block_key` makes creation retries idempotent |
+| POST | `acknowledge-source` | Review with `expected_source_updated_at` |
+| POST | `linked-completion` | Publish caller's completion with `confirmed: true` |
+| PATCH | `progress` | Publish or clear caller's `shared_progress` only |
+
+`GET /groups/personal-review` returns the signed-in assignee's private follow-up
+items. Private responses use `Cache-Control: no-store`. Every route checks current
+membership and assignment. Group responses never contain linked personal plans
+or predictions. Existing task-to-AI delivery and execution tracking still handle
+each block. Group/task deletion clears links and preserves personal history.
+The basic link-validation trigger also applies to new split blocks, including
+direct browser inserts. Group tables retain RLS without browser write policies.
+
+Verify the original and upgrade migrations with isolated PostgreSQL (no production credentials):
 
 ```bash
 node supabase/tests/group_personal_planning.test.mjs /path/to/pglite/dist/index.js
+node supabase/tests/group_planning_extensions.test.mjs /path/to/pglite/dist/index.js
 ```
 
 The schema manages:

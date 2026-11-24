@@ -13,6 +13,8 @@ import {
   getGroupDetail,
   getGroups,
   logGroupTaskCompletion,
+  shareGroupProgress,
+  type GroupSharedProgress,
   joinGroup,
   leaveGroup,
   updateGroupMemberRole,
@@ -315,6 +317,14 @@ export default function GroupPage() {
           }
         : current,
     );
+  }
+
+  async function handleProgress(task: GroupTask, value: GroupSharedProgress) {
+    if (busyTaskId) return;
+    setBusyTaskId(task.id);
+    try { replaceTask(await shareGroupProgress(task.group_id, task.id, value)); }
+    catch (caught) { notice({ message: describeApiError(caught, "We couldn't share that status."), tone: "error" }); }
+    finally { setBusyTaskId(null); }
   }
 
   async function handleCompletion(task: GroupTask, outcome: "success" | "failed") {
@@ -793,6 +803,9 @@ export default function GroupPage() {
                                       name={name}
                                     />
                                     <span className="truncate">{name}</span>
+                                    {assignee.shared_progress && <span className="rounded-full bg-violet-50 px-2 py-0.5 text-xs text-violet-800">
+                                      {assignee.shared_progress === "planned" ? "Plan confirmed" : assignee.shared_progress === "in_progress" ? "In progress" : "Needs help"}
+                                    </span>}
                                   </li>
                                 );
                               })}
@@ -862,7 +875,20 @@ export default function GroupPage() {
                             })}
                           </div>
                         )}
-                        {userId && taskAssigneeIds(task).includes(userId) && !closed ? (
+                        {userId && taskAssigneeIds(task).includes(userId) && <label className="text-xs text-slate-600">
+                          Share my progress
+                          <select className="ml-2 min-h-9 rounded-lg border border-slate-200 bg-white px-2"
+                            disabled={busy}
+                            value={people.find((p) => p.user_id === userId)?.shared_progress ?? ""}
+                            onChange={(e) => void handleProgress(task, (e.target.value || null) as GroupSharedProgress)}>
+                            <option value="">Not shared</option>
+                            <option value="planned">Plan confirmed</option>
+                            <option value="in_progress">In progress</option>
+                            <option value="needs_help">Needs help</option>
+                          </select>
+                          <span className="block">Only this status is shared; personal inputs stay private.</span>
+                        </label>}
+                        {userId && taskAssigneeIds(task).includes(userId) ? (
                           <button className="btn-secondary" type="button" onClick={() => setPersonalPlanTask(task)}>
                             My prediction & plan
                           </button>
@@ -1141,7 +1167,7 @@ export default function GroupPage() {
       {userId && personalPlanTask && selectedGroupId === personalPlanTask.group_id && (
         <GroupPersonalPlan key={`${userId}:${personalPlanTask.id}`} task={personalPlanTask}
           onClose={() => setPersonalPlanTask(null)}
-          onAdded={() => notice({ tone: "success", message: "Added to your personal plans." })} />
+          onAdded={() => notice({ tone: "success", message: "Personal plan saved." })} />
       )}
       {copyDraft && (
         <QuickAddForm

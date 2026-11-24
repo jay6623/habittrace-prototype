@@ -14,6 +14,7 @@ from ..core.errors import (
     DomainValidationError,
     RepositoryError,
     ResourceConflictError,
+    ResourceNotFoundError,
 )
 from ..schemas.group import GroupPersonalPlanRequest
 from ..utils.timezone import get_timezone
@@ -44,20 +45,180 @@ class GroupPersonalPlanningService:
     def _assigned_task(self, user_id: UUID, group_id: UUID, task_id: UUID) -> dict:
         return self.groups.get_task_for_assignee(user_id, group_id, task_id)
 
-    def _linked_task(self, user_id: UUID, task_id: UUID) -> dict | None:
-        rows = (
+    def _linked_tasks(self, user_id: UUID, task_id: UUID) -> list[dict]:
+        return (
             self.db.table("tasks")
             .select("*")
             .eq("user_id", str(user_id))
             .eq("source_group_task_id", str(task_id))
-            .limit(1)
+            .order("planned_date")
             .execute()
         ).data
-        if not rows:
-            return None
-        if not isinstance(rows[0], dict):
-            raise RepositoryError()
-        return rows[0]
+
+    def _linked_task(
+        self, user_id: UUID, task_id: UUID, body: GroupPersonalPlanRequest
+    ) -> dict | None:
+        rows = self._linked_tasks(user_id, task_id)
+        if body.personal_task_id:
+            row = next((r for r in rows if r["id"] == str(body.personal_task_id)), None)
+            if row is None:
+                raise ResourceNotFoundError("Personal block not found.")
+            if row["task_status"] != "pending":
+                raise ResourceConflictError(
+                    "Recorded blocks cannot be rescheduled. Add a new block."
+                )
+            active = (
+                self.db.table("executions")
+                .select("id")
+                .eq("user_id", str(user_id))
+                .eq("task_id", row["id"])
+                .is_("task_status", "null")
+                .limit(1)
+                .execute()
+            ).data
+            if active:
+                raise ResourceConflictError("Finish the running block before rescheduling it.")
+            return row
+        return next(
+            (
+                r
+                for r in rows
+                if r.get("group_block_key", "00000000-0000-4000-8000-000000000001")
+                == str(body.block_key)
+            ),
+            None,
+        )
+
+    @staticmethod
+    def _snapshot(task: dict) -> dict:
+        return {
+            key: task.get(key)
+            for key in ("due_date", "due_time", "due_timezone_name", "estimated_duration_minutes")
+        }
+
+    @staticmethod
+    def _task_start(task: dict, timezone_name: str) -> datetime:
+        for pattern in ("%I:%M %p", "%I:%M%p", "%H:%M", "%H:%M:%S"):
+            try:
+                clock = datetime.strptime(task["planned_start_time"].upper(), pattern).time()
+                return datetime.combine(
+                    datetime.fromisoformat(task["planned_date"]).date(),
+                    clock,
+                    get_timezone(task.get("timezone_name") or timezone_name),
+                ).astimezone(UTC)
+            except ValueError:
+                continue
+        raise ValueError("Unreadable plan time")
+
+    def context(self, user_id: UUID, group_id: UUID, task_id: UUID) -> dict:
+        task = self._assigned_task(user_id, group_id, task_id)
+        rows = self._linked_tasks(user_id, task_id)
+        blocks = []
+        for row in rows:
+            try:
+                end = self._task_start(row, "UTC") + timedelta(minutes=row["planned_duration_min"])
+                deadline = self._deadline(task, row.get("timezone_name") or "UTC")
+                late = deadline is not None and end > deadline
+            except ValueError:
+                late = True
+            blocks.append(
+                {
+                    "task": row,
+                    "source_changed": row.get("group_source_snapshot") != self._snapshot(task),
+                    "finishes_after_deadline": late,
+                }
+            )
+        planned = sum(r["planned_duration_min"] for r in rows if r["task_status"] != "failed")
+        completed = sum(r["planned_duration_min"] for r in rows if r["task_status"] == "success")
+        estimate = task.get("estimated_duration_minutes")
+        own = next((a for a in task["assignees"] if a["user_id"] == str(user_id)), {})
+        return {
+            "group_task": task,
+            "blocks": blocks,
+            "planned_minutes": planned,
+            "completed_minutes": completed,
+            "remaining_minutes": max(0, estimate - planned) if estimate else None,
+            "can_share_completion": (
+                bool(rows)
+                and all(r["task_status"] != "pending" for r in rows)
+                and completed > 0
+                and (not estimate or completed >= estimate)
+            ),
+            "shared_outcome": own.get("outcome"),
+        }
+
+    def reviews(self, user_id: UUID) -> list[dict]:
+        result = []
+        linked_ids = {
+            str(r["source_group_task_id"])
+            for r in self.tasks.list_for_user(str(user_id))
+            if r.get("source_group_task_id")
+        }
+        if not linked_ids:
+            return result
+        for membership in self.groups.groups.list_memberships_for_user(str(user_id)):
+            group_id = UUID(str(membership["group_id"]))
+            for task in self.groups.groups.list_tasks(str(group_id)):
+                if str(task["id"]) not in linked_ids:
+                    continue
+                assignees = self.groups._task_assignee_ids(str(group_id), str(task["id"]), task)
+                if str(user_id) not in assignees:
+                    continue
+                context = self.context(user_id, group_id, UUID(str(task["id"])))
+                if any(b["source_changed"] for b in context["blocks"]) or (
+                    context["can_share_completion"] and context["shared_outcome"] != "success"
+                ):
+                    result.append(context)
+        return result
+
+    def acknowledge(
+        self, user_id: UUID, group_id: UUID, task_id: UUID, source_version: str
+    ) -> dict:
+        context = self.context(user_id, group_id, task_id)
+        if context["group_task"]["updated_at"] != source_version:
+            raise ResourceConflictError(
+                "The group task changed again. Review it before acknowledging."
+            )
+        if any(
+            b["finishes_after_deadline"] and b["task"]["task_status"] == "pending"
+            for b in context["blocks"]
+        ):
+            raise ResourceConflictError("Move blocks before the new deadline before acknowledging.")
+        for row in self._linked_tasks(user_id, task_id):
+            changes = {"group_source_snapshot": self._snapshot(context["group_task"])}
+            if row["task_status"] == "pending":
+                deadline = self._deadline(context["group_task"], row.get("timezone_name") or "UTC")
+                changes["ai_plan_details"] = {
+                    **row.get("ai_plan_details", {}),
+                    "deadline_at": deadline.isoformat() if deadline else None,
+                }
+                if (
+                    self.tasks.update(str(user_id), row["id"], changes, require_pending=True)
+                    is None
+                ):
+                    raise ResourceConflictError(
+                        "A block was recorded during review. Refresh and retry."
+                    )
+            else:
+                # Historical inputs/outcomes are immutable; only mark the change as reviewed.
+                self.db.table("tasks").update(changes).eq("id", row["id"]).eq(
+                    "user_id", str(user_id)
+                ).execute()
+        return self.context(user_id, group_id, task_id)
+
+    def share_completion(self, user_id: UUID, group_id: UUID, task_id: UUID) -> dict:
+        context = self.context(user_id, group_id, task_id)
+        if not context["can_share_completion"]:
+            raise ResourceConflictError(
+                "Complete all your personal blocks before sharing completion."
+            )
+        # This is a separate, explicit publication; it creates no execution or training label.
+        updated = self.groups.groups.set_assignee_outcome(
+            str(group_id), str(task_id), str(user_id), "success", datetime.now(UTC).isoformat()
+        )
+        if updated is None:
+            raise ResourceNotFoundError("Task assignment not found.")
+        return self.context(user_id, group_id, task_id)
 
     @staticmethod
     def _deadline(task: dict, timezone_name: str) -> datetime | None:
@@ -78,11 +239,13 @@ class GroupPersonalPlanningService:
         if deadline and start + timedelta(minutes=body.planned_duration_minutes) > deadline:
             raise DomainValidationError("The work block must finish by the group deadline.")
 
-    def _blocks(self, user_id: UUID, body: GroupPersonalPlanRequest) -> tuple[list, list[str]]:
+    def _blocks(
+        self, user_id: UUID, body: GroupPersonalPlanRequest, *, search_end: datetime | None = None
+    ) -> tuple[list, list[str]]:
         blocks = []
         warnings = []
         for task in self.tasks.list_for_user(str(user_id)):
-            if task.get("task_status") == "failed":
+            if task.get("task_status") == "failed" or task["id"] == str(body.personal_task_id):
                 continue
             start = None
             for pattern in ("%I:%M %p", "%I:%M%p", "%H:%M", "%H:%M:%S"):
@@ -111,9 +274,8 @@ class GroupPersonalPlanningService:
         day_start = datetime.combine(day, time.min, tz)
         day_end = datetime.combine(day + timedelta(days=1), time.min, tz)
         day_end = max(
-            day_end,
-            body.planned_start.astimezone(UTC)
-            + timedelta(minutes=body.planned_duration_minutes),
+            search_end or day_end,
+            body.planned_start.astimezone(UTC) + timedelta(minutes=body.planned_duration_minutes),
         )
         try:
             for event in self.calendar.list_busy_events(str(user_id), day_start, day_end):
@@ -138,12 +300,25 @@ class GroupPersonalPlanningService:
         start = body.planned_start.astimezone(UTC)
         tz = get_timezone(body.timezone_name)
         day = start.astimezone(tz).date()
-        daily = [(a, b) for a, b, _ in blocks if a.astimezone(tz).date() == day]
+        day_start = datetime.combine(day, time.min, tz).astimezone(UTC)
+        day_end = datetime.combine(day + timedelta(days=1), time.min, tz).astimezone(UTC)
+        # Clip overnight / all-day events and merge overlap to avoid counting busy time twice.
+        intervals = sorted(
+            (max(a, day_start), min(b, day_end))
+            for a, b, _ in blocks
+            if a < day_end and b > day_start
+        )
+        daily: list[tuple[datetime, datetime]] = []
+        for a, b in intervals:
+            if daily and a <= daily[-1][1]:
+                daily[-1] = (daily[-1][0], max(b, daily[-1][1]))
+            else:
+                daily.append((a, b))
         before = [(a, b) for a, b in daily if a < start]
         previous = max((b for _, b in before), default=None)
         deadline = self._deadline(task, body.timezone_name)
         return {
-            "id": "group-personal-preview",
+            "id": str(body.personal_task_id or "group-personal-preview"),
             "input_source": "user",
             "title": task["title"],
             "category": task["category"],
@@ -190,72 +365,135 @@ class GroupPersonalPlanningService:
         self, user_id: UUID, group_id: UUID, task_id: UUID, body: GroupPersonalPlanRequest
     ) -> dict:
         task = self._assigned_task(user_id, group_id, task_id)
-        linked = self._linked_task(user_id, task_id)
-        if linked:
+        linked = self._linked_task(user_id, task_id, body)
+        if linked and not body.personal_task_id:
             return {"personal_task": linked}
         self._validate_window(task, body)
-        blocks, warnings = self._blocks(user_id, body)
+        tz = get_timezone(body.timezone_name)
+        day = body.planned_start.astimezone(tz).date()
+        deadline = self._deadline(task, body.timezone_name)
+        last = day + timedelta(days=body.search_days - 1)
+        if deadline:
+            last = min(last, deadline.astimezone(tz).date())
+        search_end = datetime.combine(last + timedelta(days=1), time.min, tz)
+        blocks, warnings = self._blocks(user_id, body, search_end=search_end)
         result: dict = {
+            "personal_task": linked,
             "conflicts": self._conflicts(body.planned_start, body.planned_duration_minutes, blocks),
             "warnings": warnings,
             "candidates": [],
+            "search_start": day.isoformat(),
+            "search_end": last.isoformat(),
         }
-        if not self.model.is_ready:
-            warnings.append("Prediction is unavailable. You can still add your personal plan.")
-            return result
+        profile = None
+        scoring = self.model.is_ready
         try:
-            profile = self.personalization.build_profile(user_id)
-            result["prediction"] = self._score(task, body, blocks, profile)
-            tz = get_timezone(body.timezone_name)
-            day = body.planned_start.astimezone(tz).date()
-            # Search this local day's daytime hours only; every slot is re-scored.
-            candidates = []
+            if scoring:
+                profile = (
+                    self.personalization.build_profile(
+                        user_id, exclude_plan_id=body.personal_task_id
+                    )
+                    if body.personal_task_id
+                    else self.personalization.build_profile(user_id)
+                )
+                result["prediction"] = self._score(task, body, blocks, profile)
+        except (ValueError, TypeError, RuntimeError, RepositoryError, DatabaseUnavailableError):
+            logger.warning("Group personal prediction unavailable", exc_info=True)
+            scoring = False
+        if not scoring:
+            warnings.append("Prediction is unavailable. Available times are still shown.")
+        # Keep each day's best option, then compare days so alternatives cover multiple dates.
+        candidates = []
+        all_candidates = []
+        now = datetime.now(UTC)
+        for offset in range((last - day).days + 1):
+            candidate_day = day + timedelta(days=offset)
+            daily_candidates = []
             for minute in range(8 * 60, 22 * 60, 30):
-                start = datetime.combine(day, time(minute // 60, minute % 60), tz).astimezone(UTC)
-                if start == body.planned_start or start <= datetime.now(UTC):
+                start = datetime.combine(candidate_day, time(minute // 60, minute % 60), tz)
+                end = start.astimezone(UTC) + timedelta(minutes=body.planned_duration_minutes)
+                if start == body.planned_start or start <= now:
                     continue
-                candidate = body.model_copy(update={"planned_start": start})
-                deadline = self._deadline(task, body.timezone_name)
-                end = start + timedelta(minutes=body.planned_duration_minutes)
-                if end > datetime.combine(day, time(22), tz).astimezone(UTC):
+                if end > datetime.combine(candidate_day, time(22), tz).astimezone(UTC):
                     continue
                 if deadline and end > deadline:
                     continue
                 if self._conflicts(start, body.planned_duration_minutes, blocks):
                     continue
-                score = self._score(task, candidate, blocks, profile)
-                candidates.append(
+                candidate = body.model_copy(update={"planned_start": start.astimezone(UTC)})
+                probability = None
+                if scoring:
+                    try:
+                        probability = self._score(task, candidate, blocks, profile)[
+                            "success_probability"
+                        ]
+                    except (
+                        ValueError,
+                        TypeError,
+                        RuntimeError,
+                        RepositoryError,
+                        DatabaseUnavailableError,
+                    ):
+                        scoring = False
+                        warnings.append("Some times could not be scored; review availability.")
+                daily_candidates.append(
                     {
-                        "planned_start": start.isoformat(),
-                        "success_probability": score["success_probability"],
+                        "planned_start": start.astimezone(UTC).isoformat(),
+                        "success_probability": probability,
+                        "daily_planned_minutes": self._plan(task, candidate, blocks)[
+                            "daily_planned_minutes"
+                        ],
+                        "deadline_slack_minutes": int((deadline - end).total_seconds() // 60)
+                        if deadline
+                        else None,
                     }
                 )
-            result["candidates"] = sorted(
-                candidates, key=lambda c: (-c["success_probability"], c["planned_start"])
-            )[:3]
-        except (ValueError, TypeError, RuntimeError, RepositoryError, DatabaseUnavailableError):
-            logger.warning("Group personal prediction unavailable", exc_info=True)
-            warnings.append("Prediction is unavailable. You can still add your personal plan.")
+            all_candidates.extend(daily_candidates)
+            if daily_candidates:
+                candidates.append(min(daily_candidates, key=self._candidate_order))
+        if len(candidates) < 3:
+            # A near deadline may leave only one day. Offer other slots on that day too.
+            extras = sorted(
+                (c for c in all_candidates if c not in candidates), key=self._candidate_order
+            )
+            candidates.extend(extras[: 3 - len(candidates)])
+        result["candidates"] = sorted(candidates, key=self._candidate_order)[:3]
         return result
+
+    @staticmethod
+    def _candidate_order(candidate: dict) -> tuple:
+        score = candidate["success_probability"]
+        return (
+            -(score if score is not None else -1),
+            candidate["daily_planned_minutes"],
+            candidate["planned_start"],
+        )
 
     def confirm(
         self, user_id: UUID, group_id: UUID, task_id: UUID, body: GroupPersonalPlanRequest
     ) -> dict:
         task = self._assigned_task(user_id, group_id, task_id)
-        linked = self._linked_task(user_id, task_id)
-        if linked:
+        linked = self._linked_task(user_id, task_id, body)
+        if linked and not body.personal_task_id:
             return linked
+        if (
+            body.expected_source_updated_at is not None
+            and body.expected_source_updated_at != task.get("updated_at")
+        ):
+            raise ResourceConflictError("The group task changed. Review its new deadline first.")
         self._validate_window(task, body)
         blocks, _warnings = self._blocks(user_id, body)
         if self._conflicts(body.planned_start, body.planned_duration_minutes, blocks):
-            linked = self._linked_task(user_id, task_id)
-            if linked:
+            linked = self._linked_task(user_id, task_id, body)
+            if linked and not body.personal_task_id:
                 return linked
             raise ResourceConflictError("This time overlaps another plan. Choose another time.")
         plan = self._plan(task, body, blocks)
         local_start = body.planned_start.astimezone(get_timezone(body.timezone_name))
         payload = {
             "source_group_task_id": str(task_id),
+            "group_block_key": str(body.block_key),
+            "group_source_snapshot": self._snapshot(task),
             "title": task["title"],
             "task_category": task["category"],
             "planned_date": local_start.date().isoformat(),
@@ -277,11 +515,22 @@ class GroupPersonalPlanningService:
             },
         }
         try:
-            created = self.tasks.create(str(user_id), payload)
+            if body.personal_task_id:
+                payload.pop("source_group_task_id")
+                payload.pop("group_block_key")
+                created = self.tasks.update(
+                    str(user_id), str(body.personal_task_id), payload, require_pending=True
+                )
+                if created is None:
+                    raise ResourceConflictError(
+                        "This block was recorded or removed. Refresh your plans."
+                    )
+            else:
+                created = self.tasks.create(str(user_id), payload)
         except APIError as exc:
             if exc.code != "23505":
                 raise
-            linked = self._linked_task(user_id, task_id)
+            linked = self._linked_task(user_id, task_id, body)
             if linked is None:
                 raise
             return linked

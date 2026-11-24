@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import GroupPlanUpdates from "@/components/group/group-plan-updates";
 import Sidebar from "@/components/layout/sidebar";
 import TopBar from "@/components/layout/topbar";
 import MobileNav from "@/components/mobile/mobile-nav";
@@ -55,6 +56,7 @@ export default function DashboardLayout({
           {/\/dashboard\/(habits|scheduler)(\/(unlogged|generate))?$/.test(
             pathname,
           ) && <PlanTabs />}
+          <GroupPlanUpdates key={user.id} />
           {children}
         </main>
       </div>
