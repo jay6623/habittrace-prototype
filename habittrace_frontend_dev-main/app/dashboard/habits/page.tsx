@@ -24,6 +24,7 @@ import {
   type QuickAddDraft,
 } from "@/lib/mobile-task";
 import { outcomeConfirmation } from "@/lib/outcome";
+import PlanDecisions from "@/components/plan-decisions";
 import QuickAddForm from "@/components/mobile/quick-add-form";
 import LoggedPlanEditForm from "@/components/mobile/logged-plan-edit-form";
 import OutcomeSheet from "@/components/mobile/outcome-sheet";
@@ -69,6 +70,7 @@ function Plans() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [editing, setEditing] = useState<Task | "new" | null>(null);
+  const [decisionTask, setDecisionTask] = useState<Task | null>(null);
   const [editingLogged, setEditingLogged] = useState<Task | null>(null);
   const [removing, setRemoving] = useState<Task | null>(null);
   const [outcome, setOutcome] = useState<Task | null>(null);
@@ -439,6 +441,11 @@ function Plans() {
                         >
                           Edit
                         </button>
+                        {task.task_status !== "success" && <button
+                          className="block w-full rounded-lg px-3 py-2 text-left text-sm font-semibold text-violet-700 hover:bg-violet-50"
+                          onClick={(event) => { event.stopPropagation(); event.currentTarget.closest("details")?.removeAttribute("open"); setDecisionTask(task); }}>
+                          Compare plans & next steps
+                        </button>}
                         <button
                           className="block w-full rounded-lg px-3 py-2 text-left text-sm font-semibold text-rose-700 hover:bg-rose-50"
                           disabled={busy}
@@ -459,6 +466,7 @@ function Plans() {
           ))}
         </ul>
       )}
+      {decisionTask && <PlanDecisions task={decisionTask} onClose={() => setDecisionTask(null)} onApplied={() => void load()} />}
       {editing && (
         <QuickAddForm
           initialDate={date}

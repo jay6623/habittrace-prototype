@@ -27,6 +27,7 @@ from .routes import (
     google_calendar,
     groups,
     health,
+    planning_intelligence,
     predict,
     tasks,
 )
@@ -51,7 +52,7 @@ async def lifespan(app: FastAPI):
         ml.load()
     except Exception as exc:
         logger.error("ML model loading failed: %s", exc)
-        #load ML model to memeory to prevent delay
+        # load ML model to memeory to prevent delay
     try:
         get_ai_v2_ml_service().load()
     except Exception as exc:
@@ -106,3 +107,5 @@ app.include_router(account.router, prefix="/account", tags=["account"])
 app.include_router(groups.router, prefix="/groups", tags=["groups"])
 app.include_router(gamification.router, prefix="/gamification", tags=["gamification"])
 app.include_router(ai_v2_router)
+
+app.include_router(planning_intelligence.router)

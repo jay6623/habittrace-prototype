@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import PlanDecisions from "@/components/plan-decisions";
 import Link from "next/link";
 import Dialog from "@/components/ui/dialog";
 import {
@@ -50,6 +51,7 @@ export default function GroupPersonalPlan({
   const [energy, setEnergy] = useState(3);
   const [focus, setFocus] = useState(3);
   const [context, setContext] = useState<GroupPersonalContext | null>(null);
+  const [decisionTask, setDecisionTask] = useState<Task | null>(null);
   const [editing, setEditing] = useState<Task | null>(null);
   const [blockKey, setBlockKey] = useState(INITIAL_BLOCK);
   const [preview, setPreview] = useState<GroupPersonalPreview | null>(null);
@@ -258,6 +260,17 @@ export default function GroupPersonalPlan({
     { name: "My expected focus", value: focus, change: setFocus },
   ];
   const changed = context?.blocks.some((b) => b.source_changed);
+  if (decisionTask)
+    return (
+      <PlanDecisions
+        task={decisionTask}
+        onClose={() => setDecisionTask(null)}
+        onApplied={() => {
+          onAdded();
+          void getGroupPersonalContext(task.group_id, task.id).then(setContext);
+        }}
+      />
+    );
   return (
     <Dialog title="My group task plan" onClose={onClose} busy={busy}>
       <p className="font-semibold text-slate-900">{source.title}</p>
@@ -298,6 +311,8 @@ export default function GroupPersonalPlan({
           <p className="text-sm">
             {context.planned_minutes} min allocated ·{" "}
             {context.completed_minutes} planned min in completed blocks
+            {context.partial_progress_minutes > 0 &&
+              ` · ~${context.partial_progress_minutes} planned min credited from partial progress`}
             {context.remaining_minutes !== null &&
               ` · ${context.remaining_minutes} min still to allocate`}
           </p>
@@ -313,6 +328,15 @@ export default function GroupPersonalPlan({
                     {block.timezone_name || "UTC"}) ·{" "}
                     {block.planned_duration_min} min · {block.task_status}
                   </p>
+                  {block.task_status !== "success" && (
+                    <button
+                      type="button"
+                      className="mt-2 block text-sm text-violet-700 underline"
+                      onClick={() => setDecisionTask(block)}
+                    >
+                      Compare full alternatives / plan remaining work
+                    </button>
+                  )}
                   {source_changed && (
                     <p className="text-amber-800">Group details need review</p>
                   )}

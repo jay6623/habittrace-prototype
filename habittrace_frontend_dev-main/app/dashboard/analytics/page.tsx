@@ -1,4 +1,5 @@
 "use client";
+import PredictionEvaluationCard from "@/components/prediction-evaluation";
 
 import { useState, useEffect, useCallback } from "react";
 import {
@@ -753,6 +754,7 @@ export default function AnalyticsPage() {
           </div>
         </div>
       </div>
+      <PredictionEvaluationCard />
     </div>
   );
 }

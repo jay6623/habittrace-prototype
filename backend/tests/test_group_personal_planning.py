@@ -638,3 +638,37 @@ def test_concurrent_outcome_is_not_overwritten_by_rescheduling(
     assert result.status_code == 409
     assert database.rows["tasks"][0]["task_status"] == "success"
     assert database.rows["tasks"][0]["planned_start_time"] == first["planned_start_time"]
+
+
+def test_partial_progress_and_remaining_attempt_do_not_double_allocate_shared_work(
+    authenticated_client, setup
+):
+    database, _, _, _ = setup
+    database.rows["group_tasks"][0]["estimated_duration_minutes"] = 60
+    original = authenticated_client.post(CONFIRM, json=BODY).json()
+    database.rows["tasks"][0]["task_status"] = "failed"
+    database.rows["executions"] = [
+        {
+            "id": "result-1",
+            "user_id": str(USER_ID),
+            "task_id": original["id"],
+            "created_at": "2099-09-06T17:00:00Z",
+            "task_status": "failed",
+            "outcome_status": "partial",
+            "completion_ratio": 0.4,
+        }
+    ]
+    before = authenticated_client.get(CONTEXT).json()
+    assert before["partial_progress_minutes"] == 24
+    assert before["remaining_minutes"] == 36
+    assert not before["can_share_completion"]
+    next_input = {
+        **BODY,
+        "block_key": SECOND_KEY,
+        "planned_start": "2099-09-06T18:00:00Z",
+        "planned_duration_minutes": 36,
+    }
+    assert authenticated_client.post(CONFIRM, json=next_input).status_code == 200
+    assert authenticated_client.get(CONTEXT).json()["remaining_minutes"] == 0
+    database.rows["tasks"][1]["task_status"] = "success"
+    assert authenticated_client.get(CONTEXT).json()["can_share_completion"]

@@ -309,3 +309,22 @@ Never place either service-role key in a frontend `.env.local`, a `NEXT_PUBLIC_`
 Primary V1 task and execution rows use `pending`, `success`, and `failed`. An active execution has `actual_end_time = null` and `task_status = null` until completion.
 
 AI V2 outcomes use `not_started`, `partial`, `completed`, and `abandoned`. The frontend maps mobile choices to both models without changing the primary table contract.
+
+## Planning decisions and project forecasts
+
+Apply `planning_intelligence_schema.sql` to the PRIMARY DB after
+`group_planning_extensions.sql`, `task_ai_sync_schema.sql`, and
+`execution_outcome_sync_schema.sql`, before deploying the new UI.
+
+- Plans → task menu → **Compare plans & next steps** compares keeping, moving, buffering, or splitting the full work scope. Confirmation applies the server-created option atomically; retries return the same result. Comparisons expire after 15 minutes. Changed inputs, results, deadlines and conflicts require a new comparison. Recorded outcomes are preserved; remaining attempts use a private continuation link.
+- Outcome recording accepts optional partial progress, actual minutes and actual start. Unknown times remain unknown. Comparable-duration ranges describe observations, not confidence intervals.
+- Groups → **Project** connects predecessor tasks, creates/edits/removes milestones, and requires an owner/admin to confirm completion criteria. Cycles and cross-group edges are rejected.
+- Shared daily availability and remaining estimates are optional. Project forecasts read shared group data only, never personal calendars, scores or energy. Daily capacity uses the project's shared timezone and 08:00–22:00 calendar days, including weekends. Missing inputs remain unknown. Estimates apply per unfinished assignee unless overridden by that assignee. Help requests record discussion agreements without automatically changing assignments.
+- Insights displays private exposure/selection/result counts and Brier error, including chronological cohorts and model versions. Only exact applied snapshot matches with known post-selection actual starts count. Missing outcomes are excluded; partial means the block was not fully completed. These observational metrics do not establish causal benefit.
+
+Private comparison tables and the atomic apply RPC are backend-only.
+Verify without production credentials:
+
+```bash
+node supabase/tests/planning_intelligence.test.mjs /path/to/pglite/dist/index.js
+```

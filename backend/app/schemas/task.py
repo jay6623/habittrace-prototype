@@ -99,6 +99,7 @@ class TaskResponse(BaseModel):
     title: str
     notes: str | None = None
     source_group_task_id: str | None = None
+    continuation_of_task_id: str | None = None
     group_block_key: str | None = None
     task_category: str
     planned_start_time: str

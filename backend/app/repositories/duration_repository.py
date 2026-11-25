@@ -12,7 +12,8 @@ class DurationRepository(BaseRepository):
             self._execute(
                 self.db.table("executions")
                 .select(
-                    "task_id,ai_plan_input_id,actual_start_time,actual_end_time,outcome_status,task_status"
+                    "task_id,ai_plan_input_id,actual_start_time,actual_end_time,outcome_status,"
+                    "task_status,active_minutes,created_at"
                 )
                 .eq("user_id", owner)
                 .eq("task_status", "success")

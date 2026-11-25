@@ -166,3 +166,30 @@ def test_endpoint_requires_auth(client):
         },
     )
     assert response.status_code == 401
+
+
+def test_duration_range_uses_observed_distribution_not_a_confidence_interval():
+    result = recommend([observation(m) for m in [20, 30, 40, 50, 60]])
+    assert result.observed_lower_minutes == 30
+    assert result.observed_upper_minutes == 50
+    assert "not a confidence interval" in result.range_note
+
+
+def test_reported_active_minutes_work_without_inventing_actual_start_or_end():
+    rows = [observation() for _ in range(3)]
+    for row in rows:
+        row.update(
+            actual_start_time=None,
+            actual_end_time=None,
+            active_minutes=38,
+            created_at=(NOW - timedelta(hours=1)).isoformat(),
+        )
+    result = recommend(rows)
+    assert result.available
+    assert result.median_elapsed_minutes == 38
+    assert all(row["actual_start_time"] is None for row in rows)
+
+
+def test_short_fragments_with_same_title_do_not_shrink_full_task_estimate():
+    rows = [observation(planned=5) for _ in range(3)]
+    assert not recommend(rows).available

@@ -16,18 +16,25 @@ import {
 } from "@/lib/outcome";
 import Dialog from "@/components/ui/dialog";
 
-const CHOICES: { value: OutcomeChoice; title: string; detail: string; style: string }[] = [
+const CHOICES: {
+  value: OutcomeChoice;
+  title: string;
+  detail: string;
+  style: string;
+}[] = [
   {
     value: "completed",
     title: "Completed",
     detail: "I finished this plan",
-    style: "aria-checked:border-emerald-500 aria-checked:bg-emerald-50 aria-checked:ring-2 aria-checked:ring-emerald-200",
+    style:
+      "aria-checked:border-emerald-500 aria-checked:bg-emerald-50 aria-checked:ring-2 aria-checked:ring-emerald-200",
   },
   {
     value: "not_completed",
     title: "Not completed",
     detail: "I didn’t finish this plan",
-    style: "aria-checked:border-slate-500 aria-checked:bg-slate-50 aria-checked:ring-2 aria-checked:ring-slate-200",
+    style:
+      "aria-checked:border-slate-500 aria-checked:bg-slate-50 aria-checked:ring-2 aria-checked:ring-slate-200",
   },
 ];
 
@@ -52,7 +59,10 @@ export default function OutcomeSheet({
   const [formError, setFormError] = useState<string | null>(null);
   // Blocks a second Submit before the parent's `saving` state re-renders the form.
   const submitting = useRef(false);
-  const scheduledEnd = formatScheduledEnd(task.planned_start_time, task.planned_duration_min);
+  const scheduledEnd = formatScheduledEnd(
+    task.planned_start_time,
+    task.planned_duration_min,
+  );
   const busy = saving;
 
   function update(changes: Partial<OutcomeDraft>) {
@@ -79,16 +89,28 @@ export default function OutcomeSheet({
   return (
     <Dialog title={task.title} onClose={onDismiss} busy={saving}>
       <p className="mb-4 text-sm text-slate-500">
-        Scheduled {formatScheduledRange(task.planned_start_time, task.planned_duration_min)}
+        Scheduled{" "}
+        {formatScheduledRange(
+          task.planned_start_time,
+          task.planned_duration_min,
+        )}
         {activeStart && (
           <>
-            {" "}· started{" "}
-            {new Date(activeStart).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+            {" "}
+            · started{" "}
+            {new Date(activeStart).toLocaleTimeString("en-US", {
+              hour: "numeric",
+              minute: "2-digit",
+            })}
           </>
         )}
       </p>
       <form onSubmit={submit} noValidate>
-        <div role="radiogroup" aria-label="Outcome" className="grid grid-cols-2 gap-3">
+        <div
+          role="radiogroup"
+          aria-label="Outcome"
+          className="grid grid-cols-2 gap-3"
+        >
           {CHOICES.map((option) => (
             <button
               key={option.value}
@@ -96,18 +118,23 @@ export default function OutcomeSheet({
               role="radio"
               aria-checked={draft.choice === option.value}
               disabled={busy}
-              onClick={() => update({ choice: option.value })}
+              onClick={() =>
+                update({ choice: option.value, didNotStart: false })
+              }
               className={`min-h-20 rounded-2xl border border-slate-200 p-4 text-left transition ${option.style}`}
             >
               <span className="block font-semibold">{option.title}</span>
-              <span className="mt-1 block text-sm text-slate-600">{option.detail}</span>
+              <span className="mt-1 block text-sm text-slate-600">
+                {option.detail}
+              </span>
             </button>
           ))}
         </div>
 
         {draft.choice === "completed" && (
           <label className="mt-5 block text-sm font-semibold">
-            What time did you actually finish? <span className="font-normal text-slate-500">(optional)</span>
+            What time did you actually finish?{" "}
+            <span className="font-normal text-slate-500">(optional)</span>
             <input
               type="datetime-local"
               className="field mt-1"
@@ -123,6 +150,25 @@ export default function OutcomeSheet({
           </label>
         )}
 
+        {draft.choice === "completed" && (
+          <label className="mt-4 block text-sm font-semibold">
+            Minutes you actually worked{" "}
+            <span className="font-normal text-slate-500">(optional)</span>
+            <input
+              className="field mt-1"
+              type="number"
+              min="0"
+              max={MAX_MINUTES_SPENT}
+              value={draft.minutesSpent}
+              disabled={busy}
+              onChange={(e) => update({ minutesSpent: e.target.value })}
+            />
+            <span className="mt-1 block text-xs font-normal text-slate-500">
+              A reported duration helps estimate similar work. Leave blank if
+              unknown.
+            </span>
+          </label>
+        )}
         {draft.choice === "not_completed" && (
           <div className="mt-5 space-y-4">
             {!activeStart && (
@@ -132,7 +178,12 @@ export default function OutcomeSheet({
                   className="h-4 w-4"
                   checked={draft.didNotStart}
                   disabled={busy}
-                  onChange={(event) => update({ didNotStart: event.target.checked, minutesSpent: "" })}
+                  onChange={(event) =>
+                    update({
+                      didNotStart: event.target.checked,
+                      minutesSpent: "",
+                    })
+                  }
                 />
                 I didn’t start this task
               </label>
@@ -150,20 +201,47 @@ export default function OutcomeSheet({
                   className="field mt-1"
                   value={draft.minutesSpent}
                   disabled={busy}
-                  onChange={(event) => update({ minutesSpent: event.target.value })}
+                  onChange={(event) =>
+                    update({ minutesSpent: event.target.value })
+                  }
                 />
                 <span className="mt-1 block text-xs font-normal text-slate-500">
                   Leave blank if you’re not sure; it stays unrecorded.
                 </span>
               </label>
             )}
+            {!draft.didNotStart && (
+              <label className="block text-sm font-semibold">
+                How much of the work is done?{" "}
+                <span className="font-normal text-slate-500">(optional)</span>
+                <input
+                  className="field mt-1"
+                  type="number"
+                  min="0"
+                  max="99"
+                  placeholder="Progress in %"
+                  value={draft.progressPercent ?? ""}
+                  disabled={busy}
+                  onChange={(e) => update({ progressPercent: e.target.value })}
+                />
+                <span className="mt-1 block text-xs font-normal text-slate-500">
+                  For example, 50% records a partial result. You can plan the
+                  remaining work from Plans.
+                </span>
+              </label>
+            )}
             <label className="block text-sm font-semibold">
-              What got in the way? <span className="font-normal text-slate-500">(optional)</span>
+              What got in the way?{" "}
+              <span className="font-normal text-slate-500">(optional)</span>
               <select
                 className="field mt-1"
                 value={draft.reason}
                 disabled={busy}
-                onChange={(event) => update({ reason: event.target.value as FailureReasonCode | "" })}
+                onChange={(event) =>
+                  update({
+                    reason: event.target.value as FailureReasonCode | "",
+                  })
+                }
               >
                 <option value="">Prefer not to say</option>
                 {FAILURE_REASONS.map((reason) => (
@@ -176,13 +254,41 @@ export default function OutcomeSheet({
           </div>
         )}
 
+        {draft.choice && !draft.didNotStart && !activeStart && (
+          <details className="mt-4 rounded-xl border border-slate-200 p-3">
+            <summary className="cursor-pointer text-sm font-medium">
+              Record my actual start time (optional)
+            </summary>
+            <label className="mt-3 block text-sm">
+              When did you start?
+              <input
+                className="field mt-1"
+                type="datetime-local"
+                value={draft.actualStartAt ?? ""}
+                disabled={busy}
+                onChange={(e) => update({ actualStartAt: e.target.value })}
+              />
+            </label>
+            <p className="mt-1 text-xs text-slate-500">
+              Leave blank if unknown. A known start helps compare estimates made
+              before your work.
+            </p>
+          </details>
+        )}
         {(formError || error) && (
-          <p role="alert" className="mt-4 rounded-xl bg-rose-50 p-3 text-sm text-rose-800">
+          <p
+            role="alert"
+            className="mt-4 rounded-xl bg-rose-50 p-3 text-sm text-rose-800"
+          >
             {formError ?? error}
           </p>
         )}
 
-        <button type="submit" className="btn-primary mt-5 w-full disabled:opacity-60" disabled={!draft.choice || busy}>
+        <button
+          type="submit"
+          className="btn-primary mt-5 w-full disabled:opacity-60"
+          disabled={!draft.choice || busy}
+        >
           {saving ? "Saving…" : "Submit"}
         </button>
       </form>

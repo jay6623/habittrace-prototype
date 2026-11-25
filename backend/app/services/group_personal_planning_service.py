@@ -128,7 +128,32 @@ class GroupPersonalPlanningService:
                     "finishes_after_deadline": late,
                 }
             )
-        planned = sum(r["planned_duration_min"] for r in rows if r["task_status"] != "failed")
+        partial_progress = 0.0
+        if rows:
+            outcomes = (
+                self.db.table("executions")
+                .select("*")
+                .eq("user_id", str(user_id))
+                .in_("task_id", [r["id"] for r in rows])
+                .order("created_at", desc=True)
+                .execute()
+            ).data or []
+            latest = {}
+            for outcome in sorted(
+                outcomes, key=lambda o: (o.get("created_at", ""), o.get("id", "")), reverse=True
+            ):
+                latest.setdefault(outcome["task_id"], outcome)
+            for row in rows:
+                outcome = latest.get(row["id"], {})
+                if row["task_status"] == "failed" and outcome.get("outcome_status") == "partial":
+                    partial_progress += row["planned_duration_min"] * float(
+                        outcome.get("completion_ratio") or 0
+                    )
+        partial_minutes = int(partial_progress)
+        planned = (
+            sum(r["planned_duration_min"] for r in rows if r["task_status"] != "failed")
+            + partial_minutes
+        )
         completed = sum(r["planned_duration_min"] for r in rows if r["task_status"] == "success")
         estimate = task.get("estimated_duration_minutes")
         own = next((a for a in task["assignees"] if a["user_id"] == str(user_id)), {})
@@ -137,12 +162,13 @@ class GroupPersonalPlanningService:
             "blocks": blocks,
             "planned_minutes": planned,
             "completed_minutes": completed,
+            "partial_progress_minutes": partial_minutes,
             "remaining_minutes": max(0, estimate - planned) if estimate else None,
             "can_share_completion": (
                 bool(rows)
                 and all(r["task_status"] != "pending" for r in rows)
                 and completed > 0
-                and (not estimate or completed >= estimate)
+                and (not estimate or completed + partial_minutes >= estimate)
             ),
             "shared_outcome": own.get("outcome"),
         }
@@ -351,8 +377,10 @@ class GroupPersonalPlanningService:
         body: GroupPersonalPlanRequest,
         blocks: list,
         profile: Any,
+        *,
+        plan: dict | None = None,
     ) -> dict:
-        plan = self._plan(task, body, blocks)
+        plan = self._plan(task, body, blocks) if plan is None else plan
         result = self.personalization.apply(self.model.predict(plan), plan, profile)
         result["explanation"] = {
             **result.get("explanation", {}),

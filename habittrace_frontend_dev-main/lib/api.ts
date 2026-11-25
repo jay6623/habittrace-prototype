@@ -32,6 +32,7 @@ export interface Task {
   title: string;
   notes?: string | null;
   source_group_task_id?: string | null;
+  continuation_of_task_id?: string | null;
   group_block_key?: string | null;
   task_category: string;
   planned_start_time: string;
@@ -454,6 +455,7 @@ async function apiFetch<T>(
   }
 
   if (["POST", "PATCH", "PUT", "DELETE"].includes(options.method ?? "GET") && /^\/(tasks|executions|groups)(\/|$)/.test(path) && !path.endsWith("/personal-preview")) notifyDataChanged();
+  if (options.method === "POST" && /^\/planning\/comparisons\/[^/]+\/apply$/.test(path)) notifyDataChanged();
 
   // 204 No Content
   if (res.status === 204) return undefined as T;
@@ -1181,6 +1183,7 @@ export interface GroupPersonalContext {
   blocks: { task: Task; source_changed: boolean; finishes_after_deadline: boolean }[];
   planned_minutes: number;
   completed_minutes: number;
+  partial_progress_minutes: number;
   remaining_minutes: number | null;
   can_share_completion: boolean;
   shared_outcome: "success" | "failed" | null;
@@ -1402,4 +1405,255 @@ export function getDurationRecommendation(
   });
   if (excludeTaskId) params.set("exclude_task_id", excludeTaskId);
   return apiFetch<DurationRecommendation>(`/analytics/duration-recommendation?${params}`);
+}
+
+// Decision support: model scores remain per work block; no team-wide probability.
+export interface PlanChoiceBlock {
+  planned_start: string;
+  duration_minutes: number;
+  local_date: string;
+  local_time: string;
+  success_probability: number | null;
+  daily_minutes: number;
+  deadline_slack_minutes: number | null;
+  factors: { message: string; sample_count: number; direction: string }[];
+  actions: { code: string; title: string; detail: string }[];
+}
+export interface PlanChoice {
+  id: string;
+  title: string;
+  description: string;
+  available: boolean;
+  unavailable_reasons: string[];
+  blocks: PlanChoiceBlock[];
+  total_minutes: number;
+}
+export interface PlanComparison {
+  id: string;
+  task_title: string;
+  timezone_name: string;
+  options: PlanChoice[];
+  warnings: string[];
+  evidence: {
+    history_samples: number;
+    history_factors: { message: string; sample_count: number }[];
+    duration: DurationRecommendation & {
+      observed_lower_minutes: number | null;
+      observed_upper_minutes: number | null;
+      range_note: string;
+    };
+    progress_ratio: number | null;
+    remaining_minutes: number;
+    remaining_basis: string;
+    continuation: boolean;
+    note: string;
+  };
+}
+export function comparePlanChoices(
+  taskId: string,
+  remainingMinutes?: number,
+  expectedEnergy = 3,
+  expectedFocus = 3,
+): Promise<PlanComparison> {
+  return apiFetch("/planning/compare", {
+    method: "POST",
+    body: JSON.stringify({
+      task_id: taskId,
+      remaining_minutes: remainingMinutes,
+      expected_energy: expectedEnergy,
+      expected_focus: expectedFocus,
+    }),
+  });
+}
+export function recordComparisonViewed(
+  id: string,
+): Promise<{ recorded: boolean }> {
+  return apiFetch(`/planning/comparisons/${id}/viewed`, { method: "POST" });
+}
+export function applyPlanChoice(
+  id: string,
+  optionId: string,
+): Promise<{ tasks: Task[]; message: string }> {
+  return apiFetch(`/planning/comparisons/${id}/apply`, {
+    method: "POST",
+    body: JSON.stringify({ option_id: optionId, confirmed: true }),
+  });
+}
+export interface PredictionEvaluation {
+  by_model: {
+    model_version: string;
+    count: number;
+    brier_score: number | null;
+  }[];
+  generated: number;
+  shown: number;
+  selected: number;
+  evaluated: { count: number; brier_score: number | null };
+  earlier: { count: number; brier_score: number | null };
+  later: { count: number; brier_score: number | null };
+  note: string;
+  window: string;
+}
+export function getPredictionEvaluation(): Promise<PredictionEvaluation> {
+  return apiFetch("/planning/evaluation");
+}
+export interface ForecastTask {
+  task_id: string;
+  title: string;
+  status: "complete" | "at_risk" | "unknown" | "blocked" | "scheduled";
+  reasons: string[];
+  predecessor_ids: string[];
+  blocked_by: string[];
+  forecast_finish: string | null;
+  remaining_minutes: number | null;
+  assignee_ids: string[];
+  downstream_count: number;
+}
+export interface ProjectForecast {
+  tasks: ForecastTask[];
+  dependencies: { task_id: string; predecessor_id: string }[];
+  milestones: {
+    id: string;
+    title: string;
+    due_date: string;
+    task_ids: string[];
+    completion_criteria: string;
+    timezone_name?: string;
+    status: string;
+    forecast_finish: string | null;
+    slack_minutes: number | null;
+    missing_task_ids: string[];
+  }[];
+  workload: {
+    user_id: string;
+    name: string;
+    minutes_per_day: number | null;
+    available_until: string | null;
+    remaining_minutes: number;
+    has_unknown_work: boolean;
+    capacity_minutes: number | null;
+    spare_minutes: number | null;
+  }[];
+  suggestions: {
+    task_id: string;
+    title: string;
+    reason: string;
+    helper_ids: string[];
+  }[];
+  help_requests: {
+    id: string;
+    task_id: string;
+    requester_id: string;
+    helper_id: string;
+    message: string;
+    status: string;
+  }[];
+  assumptions: string[];
+  generated_at: string;
+  timezone_name: string;
+}
+export function getProjectForecast(groupId: string): Promise<ProjectForecast> {
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  return apiFetch(
+    `/groups/${groupId}/forecast?timezone_name=${encodeURIComponent(timezone)}`,
+  );
+}
+export function setProjectDependency(
+  groupId: string,
+  taskId: string,
+  predecessorId: string,
+  remove = false,
+) {
+  return apiFetch(`/groups/${groupId}/dependencies`, {
+    method: remove ? "DELETE" : "POST",
+    body: JSON.stringify({ task_id: taskId, predecessor_id: predecessorId }),
+  });
+}
+export function createProjectMilestone(
+  groupId: string,
+  input: {
+    title: string;
+    due_date: string;
+    task_ids: string[];
+    completion_criteria: string;
+    timezone_name?: string;
+  },
+) {
+  return apiFetch(`/groups/${groupId}/milestones`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+export function confirmProjectMilestone(groupId: string, id: string) {
+  return apiFetch(`/groups/${groupId}/milestones/${id}/confirm`, {
+    method: "POST",
+  });
+}
+export function shareProjectCapacity(
+  groupId: string,
+  minutes: number | null,
+  until: string | null,
+) {
+  return apiFetch(`/groups/${groupId}/my-capacity`, {
+    method: "PATCH",
+    body: JSON.stringify({ minutes_per_day: minutes, available_until: until }),
+  });
+}
+export function shareRemainingWork(
+  groupId: string,
+  taskId: string,
+  minutes: number | null,
+) {
+  return apiFetch(`/groups/${groupId}/tasks/${taskId}/my-remaining-work`, {
+    method: "PATCH",
+    body: JSON.stringify({ remaining_minutes: minutes }),
+  });
+}
+export function requestProjectHelp(
+  groupId: string,
+  taskId: string,
+  helperId: string,
+  message: string,
+) {
+  return apiFetch(`/groups/${groupId}/help-requests`, {
+    method: "POST",
+    body: JSON.stringify({ task_id: taskId, helper_id: helperId, message }),
+  });
+}
+export function replyProjectHelp(
+  groupId: string,
+  id: string,
+  status: "accepted" | "declined",
+) {
+  return apiFetch(`/groups/${groupId}/help-requests/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+}
+
+export function setProjectTimezone(groupId: string, timezoneName: string) {
+  return apiFetch(`/groups/${groupId}/planning-timezone`, {
+    method: "PATCH",
+    body: JSON.stringify({ timezone_name: timezoneName }),
+  });
+}
+
+export function editProjectMilestone(
+  groupId: string,
+  id: string,
+  input: {
+    title: string;
+    due_date: string;
+    task_ids: string[];
+    completion_criteria: string;
+    timezone_name: string;
+  },
+) {
+  return apiFetch(`/groups/${groupId}/milestones/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+export function removeProjectMilestone(groupId: string, id: string) {
+  return apiFetch(`/groups/${groupId}/milestones/${id}`, { method: "DELETE" });
 }

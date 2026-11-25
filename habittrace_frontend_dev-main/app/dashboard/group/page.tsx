@@ -47,10 +47,11 @@ import { useToast } from "@/components/ui/toast";
 import GroupAnnouncements from "@/components/group/group-announcements";
 import GroupSetup from "@/components/group/group-setup";
 import GroupTaskForm from "@/components/group/group-task-form";
+import ProjectForecastPanel from "@/components/group/project-forecast";
 import GroupPersonalPlan from "@/components/group/group-personal-plan";
 
 // ── Presentation maps ─────────────────────────────────────────────────────
-type Tab = "tasks" | "members" | "overview";
+type Tab = "tasks" | "project" | "members" | "overview";
 
 interface ToastState {
   message: string;
@@ -691,7 +692,7 @@ export default function GroupPage() {
 
       {/* Tab navigation */}
       <div className="flex rounded-xl border border-slate-200 overflow-hidden w-fit">
-        {(["tasks", "members", "overview"] as const).map((t) => (
+        {(["tasks", "project", "members", "overview"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -714,6 +715,11 @@ export default function GroupPage() {
       )}
 
       {/* Tasks tab */}
+      {activeDetail && tab === "project" && userId && (
+        <ProjectForecastPanel key={activeDetail.group.id} groupId={activeDetail.group.id} userId={userId}
+          tasks={tasks} isAdmin={activeDetail.group.role !== "member"} />
+      )}
+
       {activeDetail && tab === "tasks" && (
         <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
           <div className="p-5 border-b border-slate-200">

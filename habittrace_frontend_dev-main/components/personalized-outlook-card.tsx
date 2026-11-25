@@ -41,9 +41,9 @@ export default function PersonalizedOutlookCard() {
         {outlook?.available && outlook.predicted_success_probability !== null ? (
           <div className="shrink-0 rounded-xl bg-emerald-700 px-3 py-2 text-right text-white">
             <p className="text-2xl font-black tabular-nums">
-              {percent(outlook.predicted_success_probability)}
+              {outlook.task_count}
             </p>
-            <p className="text-[10px] font-semibold text-emerald-100">estimated</p>
+            <p className="text-[10px] font-semibold text-emerald-100">plans reviewed</p>
           </div>
         ) : null}
       </div>
@@ -97,7 +97,7 @@ export default function PersonalizedOutlookCard() {
 
       <div className="border-t border-emerald-100 bg-white/60 px-5 py-2.5 text-[11px] leading-4 text-slate-500">
         {outlook?.personalization.applied
-          ? `${outlook.personalization.sample_count} recorded outcomes used · ${Math.round(outlook.personalization.confidence * 100)}% personalization confidence`
+          ? `${outlook.personalization.sample_count} recorded outcomes used for adjustment · This is evidence size, not validated accuracy`
           : "Personalization improves as you record more outcomes."}
       </div>
     </section>

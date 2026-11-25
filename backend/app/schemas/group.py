@@ -333,6 +333,7 @@ class GroupPersonalContext(BaseModel):
     blocks: list[GroupPersonalBlock]
     planned_minutes: int
     completed_minutes: int
+    partial_progress_minutes: int = 0
     remaining_minutes: int | None
     can_share_completion: bool
     shared_outcome: Literal["success", "failed"] | None = None
