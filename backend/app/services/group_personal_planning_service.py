@@ -113,6 +113,20 @@ class GroupPersonalPlanningService:
     def context(self, user_id: UUID, group_id: UUID, task_id: UUID) -> dict:
         task = self._assigned_task(user_id, group_id, task_id)
         rows = self._linked_tasks(user_id, task_id)
+        outcomes = (
+            (
+                self.db.table("executions")
+                .select("*")
+                .eq("user_id", str(user_id))
+                .in_("task_id", [r["id"] for r in rows])
+                .execute()
+            ).data
+            if rows
+            else []
+        )
+        return self._context_data(user_id, task, rows, outcomes or [])
+
+    def _context_data(self, user_id, task, rows, outcomes):
         blocks = []
         for row in rows:
             try:
@@ -130,14 +144,6 @@ class GroupPersonalPlanningService:
             )
         partial_progress = 0.0
         if rows:
-            outcomes = (
-                self.db.table("executions")
-                .select("*")
-                .eq("user_id", str(user_id))
-                .in_("task_id", [r["id"] for r in rows])
-                .order("created_at", desc=True)
-                .execute()
-            ).data or []
             latest = {}
             for outcome in sorted(
                 outcomes, key=lambda o: (o.get("created_at", ""), o.get("id", "")), reverse=True
@@ -174,27 +180,63 @@ class GroupPersonalPlanningService:
         }
 
     def reviews(self, user_id: UUID) -> list[dict]:
+        rows = [r for r in self.tasks.list_for_user(str(user_id)) if r.get("source_group_task_id")]
+        if not rows:
+            return []
+        memberships = self.groups.groups.list_memberships_for_user(str(user_id))
+        group_ids = [str(m["group_id"]) for m in memberships]
+        if not group_ids:
+            return []
+        shared = (
+            self.db.table("group_tasks")
+            .select("*")
+            .in_("group_id", group_ids)
+            .in_("id", list({r["source_group_task_id"] for r in rows}))
+            .execute()
+        ).data or []
+        if not shared:
+            return []
+        assignments = (
+            self.db.table("group_task_assignees")
+            .select("*")
+            .in_("group_id", group_ids)
+            .in_("task_id", [t["id"] for t in shared])
+            .execute()
+        ).data or []
+        profiles = self.groups.groups.get_profiles(
+            list(
+                {r["user_id"] for r in assignments}
+                | {t["assigned_to"] for t in shared if t.get("assigned_to")}
+            )
+        )
+        outcomes = (
+            self.db.table("executions")
+            .select("*")
+            .eq("user_id", str(user_id))
+            .in_("task_id", [r["id"] for r in rows])
+            .execute()
+        ).data or []
         result = []
-        linked_ids = {
-            str(r["source_group_task_id"])
-            for r in self.tasks.list_for_user(str(user_id))
-            if r.get("source_group_task_id")
-        }
-        if not linked_ids:
-            return result
-        for membership in self.groups.groups.list_memberships_for_user(str(user_id)):
-            group_id = UUID(str(membership["group_id"]))
-            for task in self.groups.groups.list_tasks(str(group_id)):
-                if str(task["id"]) not in linked_ids:
-                    continue
-                assignees = self.groups._task_assignee_ids(str(group_id), str(task["id"]), task)
-                if str(user_id) not in assignees:
-                    continue
-                context = self.context(user_id, group_id, UUID(str(task["id"])))
-                if any(b["source_changed"] for b in context["blocks"]) or (
-                    context["can_share_completion"] and context["shared_outcome"] != "success"
-                ):
-                    result.append(context)
+        for task in shared:
+            people = [a for a in assignments if a["task_id"] == task["id"]]
+            ids = [a["user_id"] for a in people]
+            if not ids and task.get("assigned_to"):
+                ids = [str(task["assigned_to"])]
+            if str(user_id) not in ids:
+                continue
+            task = self.groups._with_assignees(
+                task,
+                ids,
+                profiles,
+                self.groups._outcomes_for(people, task["id"]),
+                self.groups._progress_for(people, task["id"]),
+            )
+            owned = [r for r in rows if r["source_group_task_id"] == task["id"]]
+            context = self._context_data(user_id, task, owned, outcomes)
+            if any(b["source_changed"] for b in context["blocks"]) or (
+                context["can_share_completion"] and context["shared_outcome"] != "success"
+            ):
+                result.append(context)
         return result
 
     def acknowledge(
@@ -449,25 +491,10 @@ class GroupPersonalPlanningService:
                 if self._conflicts(start, body.planned_duration_minutes, blocks):
                     continue
                 candidate = body.model_copy(update={"planned_start": start.astimezone(UTC)})
-                probability = None
-                if scoring:
-                    try:
-                        probability = self._score(task, candidate, blocks, profile)[
-                            "success_probability"
-                        ]
-                    except (
-                        ValueError,
-                        TypeError,
-                        RuntimeError,
-                        RepositoryError,
-                        DatabaseUnavailableError,
-                    ):
-                        scoring = False
-                        warnings.append("Some times could not be scored; review availability.")
                 daily_candidates.append(
                     {
                         "planned_start": start.astimezone(UTC).isoformat(),
-                        "success_probability": probability,
+                        "success_probability": None,
                         "daily_planned_minutes": self._plan(task, candidate, blocks)[
                             "daily_planned_minutes"
                         ],
@@ -477,8 +504,35 @@ class GroupPersonalPlanningService:
                     }
                 )
             all_candidates.extend(daily_candidates)
-            if daily_candidates:
-                candidates.append(min(daily_candidates, key=self._candidate_order))
+        if scoring and all_candidates:
+            plans = [
+                self._plan(
+                    task,
+                    body.model_copy(
+                        update={"planned_start": datetime.fromisoformat(c["planned_start"])}
+                    ),
+                    blocks,
+                )
+                for c in all_candidates
+            ]
+            try:
+                batch = getattr(type(self.model), "predict_many", None)
+                scores = (
+                    self.model.predict_many(plans)
+                    if callable(batch)
+                    else [self.model.predict(p) for p in plans]
+                )
+                for candidate, plan, score in zip(all_candidates, plans, scores, strict=True):
+                    candidate["success_probability"] = self.personalization.apply(
+                        score, plan, profile
+                    )["success_probability"]
+            except (ValueError, TypeError, RuntimeError, RepositoryError, DatabaseUnavailableError):
+                warnings.append("Some times could not be scored; review availability.")
+        by_day = {}
+        for candidate in all_candidates:
+            key = datetime.fromisoformat(candidate["planned_start"]).astimezone(tz).date()
+            by_day.setdefault(key, []).append(candidate)
+        candidates = [min(items, key=self._candidate_order) for items in by_day.values()]
         if len(candidates) < 3:
             # A near deadline may leave only one day. Offer other slots on that day too.
             extras = sorted(

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 
 from ..db.supabase_client import get_supabase, is_supabase_configured
 from ..dependencies.auth import CurrentUserId
@@ -25,20 +25,15 @@ def _require_db():
 @router.get("", response_model=list[TaskResponse])
 def list_tasks(
     user_id: CurrentUserId,
+    background_tasks: BackgroundTasks,
     date: str | None = Query(None, description="ISO date filter, e.g. 2024-01-15"),
 ):
     db = _require_db()
     svc = TaskService(db)
     rows = svc.list_for_user(str(user_id), date_filter=date)
-    # Retry only a small batch on reads; stop after an outage to avoid a slow
-    # remote request for every task. The queue remains durable for later reads.
-    retried = 0
-    for index, task in enumerate(rows):
-        if task.get("ai_sync_status") == "pending" and retried < 3:
-            rows[index] = sync_task_ai_safely(db, task)
-            retried += 1
-            if rows[index].get("ai_sync_status") != "synced":
-                break
+    # Durable outbox delivery runs after the response, never on the list's critical path.
+    for task in [r for r in rows if r.get("ai_sync_status") == "pending"][:3]:
+        background_tasks.add_task(sync_task_ai_safely, db, dict(task))
     return rows
 
 
@@ -60,9 +55,14 @@ def ensure_task_ai_plan(task_id: str, body: TaskAISyncRequest, user_id: CurrentU
         # Validation is shared with task writes. The DB trigger captures the
         # existing plan as a new snapshot, never a backdated training example.
         update = TaskUpdate(timezone_name=body.timezone_name)
-        task = svc.update(str(user_id), task_id, {
-            **update.model_dump(exclude_unset=True), "ai_sync_status": "pending",
-        })
+        task = svc.update(
+            str(user_id),
+            task_id,
+            {
+                **update.model_dump(exclude_unset=True),
+                "ai_sync_status": "pending",
+            },
+        )
     if task is None or task.get("ai_sync_status") != "synced":
         raise HTTPException(status_code=503, detail="AI plan sync is pending. Please retry later.")
     return task

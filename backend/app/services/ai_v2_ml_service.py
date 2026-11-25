@@ -11,6 +11,7 @@ from typing import Any
 import pandas as pd
 
 from ..config import settings
+from ..core.timing import timed
 from .ai_explanation import build_plan_explanation
 
 logger = logging.getLogger(__name__)
@@ -69,13 +70,25 @@ class AIV2MLService:
         return self.success_model is not None and self.failure_model is not None
 
     def predict(self, plan: dict[str, Any]) -> dict[str, Any]:
+        return self.predict_many([plan])[0]
+
+    @timed("model")
+    def predict_many(self, plans: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not plans:
+            return []
         if not self.is_ready:
             raise RuntimeError("AI V2 models are not loaded")
         assert self.success_model is not None
         assert self.failure_model is not None
-        frame = pd.DataFrame([plan])
-        success_probability = float(self.success_model.predict_success_probability(frame)[0])
-        failure_frame = self.failure_model.predict_reason_probabilities(frame).iloc[0]
+        frame = pd.DataFrame(plans)
+        probabilities = self.success_model.predict_success_probability(frame)
+        failure_frames = self.failure_model.predict_reason_probabilities(frame)
+        return [
+            self._result(plan, float(probabilities[i]), failure_frames.iloc[i])
+            for i, plan in enumerate(plans)
+        ]
+
+    def _result(self, plan, success_probability, failure_frame):
         failure_probabilities = {
             str(reason): float(probability)
             for reason, probability in failure_frame.to_dict().items()

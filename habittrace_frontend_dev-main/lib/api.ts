@@ -432,11 +432,29 @@ function parseErrorBody(text: string): { detail: string | null; code: string | n
   }
 }
 
-async function apiFetch<T>(
-  path: string,
-  options: RequestInit = {}
-): Promise<T> {
+const pendingReads = new Map<string, Promise<unknown>>();
+async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+  if ((options.method ?? "GET") !== "GET") {
+    pendingReads.clear();
+    return apiFetchUnshared<T>(path, options);
+  }
+  if (options.signal || options.headers) return apiFetchUnshared<T>(path, options);
   const headers = await buildHeaders();
+  const key = JSON.stringify([path, headers, options]);
+  const existing = pendingReads.get(key);
+  if (existing) return existing as Promise<T>;
+  const promise = apiFetchUnshared<T>(path, options, headers);
+  pendingReads.set(key, promise);
+  try { return await promise; }
+  finally { if (pendingReads.get(key) === promise) pendingReads.delete(key); }
+}
+
+async function apiFetchUnshared<T>(
+  path: string,
+  options: RequestInit = {},
+  preparedHeaders?: HeadersInit
+): Promise<T> {
+  const headers = preparedHeaders ?? await buildHeaders();
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
     cache: options.cache ?? "no-store",

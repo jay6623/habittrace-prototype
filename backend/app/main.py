@@ -18,6 +18,7 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from .config import get_cors_allow_origins, get_settings, parse_proxy_trusted_hosts
 from .core.errors import register_application_error_handlers
+from .core.timing import RequestTimingMiddleware
 from .routes import (
     account,
     analytics,
@@ -74,6 +75,7 @@ if _rp:
 
 app = FastAPI(**_app_kwargs)
 register_application_error_handlers(app)
+app.add_middleware(RequestTimingMiddleware)
 
 # ── CORS (inner) ────────────────────────────────────────────────────────────
 app.add_middleware(

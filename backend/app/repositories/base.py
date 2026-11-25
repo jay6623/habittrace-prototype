@@ -15,6 +15,7 @@ from ..core.errors import (
     RepositoryError,
     ResourceConflictError,
 )
+from ..core.timing import timed
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,7 @@ class BaseRepository:
     def __init__(self, db: Client) -> None:
         self.db = db
 
+    @timed("db")
     def _execute(
         self,
         query: Any,

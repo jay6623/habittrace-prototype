@@ -14,6 +14,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from supabase import Client
 
 from ..config import Settings, settings
+from ..core.timing import timed
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +145,7 @@ class GoogleCalendarService:
             logger.warning("Google Calendar task sync failed for user %s: %s", user_id, exc)
             self._update_connection(user_id, last_error=message)
 
+    @timed("calendar")
     def list_busy_events(
         self,
         user_id: str,

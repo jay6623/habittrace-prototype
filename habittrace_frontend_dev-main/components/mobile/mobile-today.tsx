@@ -101,10 +101,9 @@ export default function MobileToday() {
     setLoading(true);
     setLoadError(null);
     try {
-      const [todayTasks, active, allTasks] = await Promise.all([
+      const [todayTasks, active] = await Promise.all([
         getTasks(today),
         getActiveExecutions(),
-        getTasks(),
       ]);
       const knownTaskIds = new Set(todayTasks.map((task) => task.id));
       const missingTaskIds = Array.from(
@@ -118,7 +117,10 @@ export default function MobileToday() {
       );
 
       setTasks([...todayTasks, ...activeTasks].sort(taskSort));
-      setUnloggedCount(countUnloggedAttention(allTasks, today));
+      // History only updates the badge; it must not delay today’s plans.
+      void getTasks()
+        .then(allTasks => setUnloggedCount(countUnloggedAttention(allTasks, today)))
+        .catch(() => {});
       setActiveExecutions(
         active.reduce<Record<string, Execution>>((byTask, execution) => {
           if (!byTask[execution.task_id]) byTask[execution.task_id] = execution;

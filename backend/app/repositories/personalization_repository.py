@@ -14,7 +14,7 @@ class PersonalizationRepository(BaseRepository):
     def list_completed_tasks(self, user_id: UUID) -> list[dict]:
         rows: list[dict] = []
         offset = 0
-        while True:
+        while offset < 400:
             response = self._execute(
                 self.db.table(self.table_name)
                 .select(
@@ -24,10 +24,12 @@ class PersonalizationRepository(BaseRepository):
                 .eq("user_id", str(user_id))
                 .in_("task_status", ["success", "failed"])
                 .order("created_at", desc=True)
-                .range(offset, offset + self.page_size - 1)
+                .range(offset, min(offset + self.page_size, 400) - 1)
             )
             page = list(response.data or [])
             if not page:
                 return rows
             rows.extend(page)
             offset += len(page)
+
+        return rows

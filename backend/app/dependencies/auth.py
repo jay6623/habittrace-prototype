@@ -11,6 +11,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from supabase import Client
 from supabase_auth.errors import AuthApiError, AuthError, AuthRetryableError
 
+from ..core.timing import timed
 from .database import get_auth_database
 
 _bearer = HTTPBearer(auto_error=False)
@@ -24,6 +25,7 @@ def _unauthorized() -> HTTPException:
     )
 
 
+@timed("auth")
 def get_current_user_id(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
     db: Annotated[Client, Depends(get_auth_database)],
