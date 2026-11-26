@@ -357,7 +357,7 @@ export default function DailyScheduleGeneratorPage() {
       {error && <p role="alert" className="rounded-2xl bg-rose-50 p-4 text-sm text-rose-800">{error}</p>}
 
       <form className="space-y-6" onSubmit={generate}>
-        <section className="panel grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <section className="panel phone-form-grid grid grid-cols-2 gap-3 lg:gap-4 lg:grid-cols-4">
           <label className="text-sm font-semibold">
             Day
             <input className="field mt-2" type="date" required value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} />
@@ -379,7 +379,7 @@ export default function DailyScheduleGeneratorPage() {
         </section>
 
         <section className="space-y-4">
-          <div className="flex items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-xl font-bold">Tasks to place</h2>
               <p className="mt-1 text-sm text-slate-500">Title, category, duration, and importance help the AI choose a better time.</p>
@@ -395,12 +395,12 @@ export default function DailyScheduleGeneratorPage() {
                   <button type="button" className="text-sm font-semibold text-rose-700" onClick={() => setTasks((current) => current.filter((item) => item.clientId !== task.clientId))}>Remove</button>
                 )}
               </div>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-[minmax(0,2fr)_1fr_1fr_1fr]">
-                <label className="text-sm font-semibold">
+              <div className="phone-form-grid grid grid-cols-2 gap-3 lg:gap-4 lg:grid-cols-[minmax(0,2fr)_1fr_1fr_1fr]">
+                <label className="col-span-2 lg:col-span-1 text-sm font-semibold">
                   Title
                   <input className="field mt-2" required maxLength={200} placeholder="e.g. Finish project outline" value={task.title} onChange={(event) => updateTask(task.clientId, "title", event.target.value)} />
                 </label>
-                <label className="text-sm font-semibold">
+                <label className="col-span-2 lg:col-span-1 text-sm font-semibold">
                   Category
                   <select className="field mt-2" required value={task.category} onChange={(event) => updateTask(task.clientId, "category", event.target.value)}>
                     <option value="" disabled>Choose category</option>

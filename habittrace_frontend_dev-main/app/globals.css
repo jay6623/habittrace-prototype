@@ -126,3 +126,61 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   bottom: -13rem;
   background: radial-gradient(circle, rgb(167 139 250 / .24), transparent 70%);
 }
+
+/* Native date/time controls must shrink inside narrow mobile form columns. */
+.field { min-width: 0; max-width: 100%; }
+@media (max-width: 1023px) {
+  .field { font-size: 1rem; }
+}
+
+/* Compact phone workspace: preserve readable text and 44px primary controls. */
+@media (max-width: 1023px) {
+  [data-mobile-layout="compact"] h1 { font-size: 1.25rem; line-height: 1.4; }
+  [data-mobile-layout="compact"] .panel { padding: 1rem; border-radius: 1rem; }
+  [data-mobile-layout="compact"] > .space-y-6 > :not(:last-child) { margin-block-end: 1rem; }
+  [data-mobile-layout="compact"] :where(h1, h2, h3, p, label, dd) { overflow-wrap: anywhere; }
+  [data-mobile-layout="compact"] :where(input, select, textarea) { min-width: 0; max-width: 100%; }
+  .dashboard-topbar { padding: .5rem .75rem; }
+  .mobile-progress-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .375rem; }
+  .mobile-progress-grid > * { min-width: 0; padding: .625rem .375rem; border-radius: .75rem; }
+  .mobile-progress-grid p:first-child { font-size: 1.125rem; line-height: 1.5; }
+  .mobile-progress-grid p:last-child { font-size: .6875rem; }
+  .mobile-group-stats { gap: .5rem; }
+  .mobile-group-stats > * { min-width: 0; padding: .75rem; }
+  .mobile-level-card { padding: 1rem; }
+  .mobile-level-card .mobile-level-icon { width: 3rem; height: 3rem; border-radius: .75rem; }
+  .mobile-level-card h2 { font-size: 1.25rem; }
+  .mobile-xp-stats { gap: .5rem; }
+  .mobile-xp-stats > * { padding: .75rem; min-width: 0; }
+}
+
+@media (max-width: 359px) {
+  [data-mobile-layout="compact"] .phone-form-grid { grid-template-columns: minmax(0, 1fr); }
+  [data-mobile-layout="compact"] .phone-form-grid > * { grid-column: auto; }
+}
+
+/* The visual viewport shrinks with the phone keyboard, unlike layout viewport units. */
+@media (max-width: 1023px) {
+  .mobile-form-dialog {
+    position: fixed; inset: auto; margin: 0;
+    left: calc(var(--coach-viewport-left, 0px) + var(--coach-viewport-width, 100vw) / 2);
+    top: calc(var(--coach-viewport-top, 0px) + var(--coach-viewport-height, 100dvh) / 2);
+    transform: translate(-50%, -50%);
+    max-height: calc(var(--coach-viewport-height, 100dvh) - 1rem);
+    width: calc(var(--coach-viewport-width, 100vw) - 1rem);
+    overflow-y: auto; overscroll-behavior: contain;
+  }
+  .mobile-form-dialog :where(input, select, textarea) { min-width: 0; max-width: 100%; font-size: 1rem; }
+  .mobile-form-dialog :where(label, p, h2, h3) { overflow-wrap: anywhere; }
+  .mobile-form-dialog :where(form, fieldset) { min-width: 0; }
+  .mobile-coach-launcher { bottom: max(6rem, calc(var(--mobile-nav-height, 4rem) + 2rem)); }
+  #main-content { padding-bottom: calc(var(--mobile-nav-height, 4rem) + 7rem); }
+  html { scroll-padding-bottom: calc(var(--mobile-nav-height, 4rem) + 7rem); scroll-padding-top: 5rem; }
+  #main-content :where(button, a, input, select, textarea) { scroll-margin-block: 1rem; }
+  .mobile-progress-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 4.5rem), 1fr)); }
+}
+
+@media (max-width: 1023px) {
+  nav[aria-label="Mobile navigation"] > * { min-width: 0; text-align: center; overflow-wrap: anywhere; padding-inline: .125rem; }
+  .dashboard-topbar { padding-top: max(.5rem, env(safe-area-inset-top)); }
+}

@@ -670,7 +670,7 @@ export default function ProjectForecastPanel({
                   );
                 }}
               >
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-3">
                   <label className="text-sm">
                     Minutes per day
                     <input

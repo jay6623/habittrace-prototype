@@ -177,7 +177,7 @@ export default function ProfileMenu({
 
         {open && (
           <div
-            className={`absolute z-50 w-72 rounded-2xl border border-slate-200 bg-white p-3 text-slate-950 shadow-xl ${
+            className={`absolute z-50 w-72 max-w-[calc(100vw-2rem)] max-h-[70dvh] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-3 text-slate-950 shadow-xl ${
               menuPlacement === "down"
                 ? "left-auto right-0 top-full mt-3 origin-top-right"
                 : "bottom-full left-0 mb-3 origin-bottom-left sm:left-auto sm:right-0 sm:origin-bottom-right"

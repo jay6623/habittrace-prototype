@@ -107,8 +107,8 @@ export default function GroupSetup({
 
   const chooser =
     mode === "empty" ? (
-      <section className="mx-auto max-w-3xl py-6">
-        <div className="mb-8 text-center">
+      <section className="mx-auto max-w-3xl py-2 lg:py-6">
+        <div className="mb-4 lg:mb-8 text-center">
           <h2 className="text-2xl font-bold tracking-tight text-slate-950">
             Start coordinating together
           </h2>
@@ -119,7 +119,7 @@ export default function GroupSetup({
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <button
-            className="group flex min-h-44 flex-col items-start justify-between rounded-[1.75rem] border border-slate-200 bg-white p-6 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
+            className="group flex min-h-32 lg:min-h-44 flex-col items-start justify-between rounded-[1.75rem] border border-slate-200 bg-white p-4 lg:p-6 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
             onClick={() => openDialog("create")}
             type="button"
           >
@@ -136,7 +136,7 @@ export default function GroupSetup({
             </span>
           </button>
           <button
-            className="group flex min-h-44 flex-col items-start justify-between rounded-[1.75rem] border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-6 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
+            className="group flex min-h-32 lg:min-h-44 flex-col items-start justify-between rounded-[1.75rem] border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-4 lg:p-6 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
             onClick={() => openDialog("join")}
             type="button"
           >

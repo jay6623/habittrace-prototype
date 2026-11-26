@@ -24,6 +24,7 @@ import {
 } from "@/lib/mobile-task";
 import { outcomeConfirmation } from "@/lib/outcome";
 import OutcomeSheet from "./outcome-sheet";
+import MobileDetails from "@/components/ui/mobile-details";
 import QuickAddForm from "./quick-add-form";
 import PersonalizedOutlookCard from "@/components/personalized-outlook-card";
 import { countUnloggedAttention } from "@/lib/unlogged";
@@ -346,9 +347,9 @@ export default function MobileToday() {
           </button>
         </section>
       ) : (
-        <>
+        <div className="flex flex-col lg:block">
           <div
-            className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4"
+            className="mobile-progress-grid order-3 mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:mt-5"
             aria-label="Today’s progress"
           >
             {[
@@ -394,10 +395,8 @@ export default function MobileToday() {
               </p>
             </Link>
           </div>
-          <div className="mt-5">
-            <PersonalizedOutlookCard />
-          </div>
-          <section className="mt-5" aria-labelledby="current-plan-title">
+          <div className="order-6 mt-4 lg:mt-5"><MobileDetails title="Your personalized outlook"><PersonalizedOutlookCard /></MobileDetails></div>
+          <section className="order-1 mt-2 lg:mt-5" aria-labelledby="current-plan-title">
             <div className="mb-3 flex items-center justify-between">
               <h2
                 className="text-sm font-bold text-slate-700"
@@ -413,7 +412,7 @@ export default function MobileToday() {
             </div>
 
             {currentTask ? (
-              <div className="rounded-3xl bg-slate-950 p-5 text-white shadow-xl shadow-slate-300">
+              <div className="rounded-2xl bg-slate-950 p-4 lg:rounded-3xl lg:p-5 text-white shadow-xl shadow-slate-300">
                 {activeExecutions[currentTask.id] && (
                   <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-emerald-400/15 px-3 py-1.5 text-xs font-bold text-emerald-300">
                     <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-300" />
@@ -423,7 +422,7 @@ export default function MobileToday() {
                     )}
                   </div>
                 )}
-                <h3 className="break-words text-2xl font-bold leading-tight">
+                <h3 className="break-words text-xl font-bold leading-tight lg:text-2xl">
                   {currentTask.title}
                 </h3>
                 <p className="mt-3 text-sm text-slate-300">
@@ -435,7 +434,7 @@ export default function MobileToday() {
                   </p>
                 )}
                 <button
-                  className="mt-6 min-h-14 w-full rounded-2xl bg-white px-3 text-base font-bold text-slate-950 transition hover:bg-slate-100"
+                  className="mt-3 min-h-11 lg:mt-6 lg:min-h-14 w-full rounded-2xl bg-white px-3 text-base font-bold text-slate-950 transition hover:bg-slate-100"
                   onClick={() => openOutcome(currentTask)}
                   type="button"
                 >
@@ -453,7 +452,7 @@ export default function MobileToday() {
           </section>
 
           <button
-            className="mt-4 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl border-2 border-slate-950 bg-white px-4 text-base font-bold text-slate-950 transition hover:bg-slate-100"
+            className="order-2 mt-3 flex min-h-11 lg:mt-4 lg:min-h-14 w-full items-center justify-center gap-2 rounded-2xl border-2 border-slate-950 bg-white px-4 text-base font-bold text-slate-950 transition hover:bg-slate-100"
             onClick={() => setQuickAddOpen(true)}
             type="button"
           >
@@ -466,10 +465,10 @@ export default function MobileToday() {
             Quick Add
           </button>
 
-          <Link href="/dashboard/habits" className="btn-secondary mt-3 w-full">
+          <Link href="/dashboard/habits" className="btn-secondary order-5 mt-3 w-full">
             View or reschedule plans
           </Link>
-          <section className="mt-7" aria-labelledby="remaining-plan-title">
+          <section className="order-4 mt-4 lg:mt-7" aria-labelledby="remaining-plan-title">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-lg font-bold" id="remaining-plan-title">
                 Remaining today
@@ -531,7 +530,7 @@ export default function MobileToday() {
               </ul>
             )}
           </section>
-        </>
+        </div>
       )}
 
       {toast && (

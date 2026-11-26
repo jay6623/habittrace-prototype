@@ -473,7 +473,7 @@ export default function GroupPage() {
 
   const groupSidebar =
     groups.length > 0 ? (
-      <aside className="rounded-2xl border border-slate-200 bg-white p-3 lg:sticky lg:top-20 lg:w-56 lg:shrink-0">
+      <aside className="hidden lg:block rounded-2xl border border-slate-200 bg-white p-3 lg:sticky lg:top-20 lg:w-56 lg:shrink-0">
         <div className="px-2 pb-2 pt-1 text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
           Your groups
         </div>
@@ -590,8 +590,16 @@ export default function GroupPage() {
   return (
     <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:gap-4">
       {groupSidebar}
+      <div className="flex min-w-0 items-end gap-2 lg:hidden">
+        <label className="min-w-0 flex-1 text-xs font-semibold text-slate-500">Your groups
+          <select aria-label="Choose group" className="field mt-1" value={selectedGroupId ?? ""} onChange={(event) => selectGroup(event.target.value)}>
+            {groups.map((group) => <option key={group.id} value={group.id}>{group.name} ({group.role})</option>)}
+          </select>
+        </label>
+        <button type="button" className="btn-secondary shrink-0" onClick={() => setShowSetup((open) => !open)}>New / Join</button>
+      </div>
 
-      <div className="min-w-0 flex-1 space-y-5">
+      <div className="flex min-w-0 flex-1 flex-col gap-3 lg:block lg:space-y-5">
       {header}
 
       {showSetup && (
@@ -642,7 +650,7 @@ export default function GroupPage() {
       )}
 
       {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="mobile-group-stats order-last grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white rounded-2xl border border-slate-200 p-4">
           <div className="text-xs text-slate-500">Group success rate</div>
           <div
@@ -691,13 +699,13 @@ export default function GroupPage() {
       )}
 
       {/* Tab navigation */}
-      <div className="flex rounded-xl border border-slate-200 overflow-hidden w-fit">
+      <div className="flex flex-wrap rounded-xl border border-slate-200 w-fit max-w-full">
         {(["tasks", "project", "members", "overview"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             type="button"
-            className={`px-4 py-2 text-sm font-medium capitalize transition-colors border-r border-slate-200 last:border-r-0 ${
+            className={`min-h-11 px-3 py-2 text-sm font-medium capitalize transition-colors border-r border-slate-200 last:border-r-0 ${
               tab === t
                 ? "bg-slate-900 text-white"
                 : "bg-white text-slate-500 hover:text-slate-700"
@@ -766,9 +774,9 @@ export default function GroupPage() {
                     (assignee) => shownOutcome(task, assignee.outcome) === "success",
                   );
                 return (
-                  <div key={task.id} className="px-5 py-4">
+                  <div key={task.id} className="px-3 py-3 lg:px-5 lg:py-4">
                     <div className="flex flex-wrap items-center gap-4">
-                      <div className="flex min-w-0 flex-1 items-start gap-3">
+                      <div className="flex min-w-0 basis-full lg:basis-auto flex-1 items-start gap-3">
                         <div
                           className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${
                             everyoneCompleted ? "bg-emerald-500" : "bg-slate-300"
@@ -835,7 +843,7 @@ export default function GroupPage() {
                                 >
                                   <button
                                     aria-pressed={outcome === "success"}
-                                    className={`border-r border-slate-200 px-2.5 py-1 text-xs font-medium disabled:opacity-60 ${
+                                    className={`border-r border-slate-200 min-h-11 lg:min-h-0 px-2.5 py-1 text-xs font-medium disabled:opacity-60 ${
                                       outcome === "success"
                                         ? "bg-emerald-600 text-white"
                                         : "bg-white text-slate-500 hover:bg-slate-50"

@@ -76,6 +76,7 @@ function Plans() {
   const [outcome, setOutcome] = useState<Task | null>(null);
   const [outcomeError, setOutcomeError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [filter, setFilter] = useState("all");
   const [planFilters, setPlanFilters] = useState<PlanFilterState>(ALL_PLAN_FILTERS);
   const request = useRef(0);
@@ -202,16 +203,16 @@ function Plans() {
   return (
     <div className="space-y-4 pb-6">
       <header className="overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-lime-50 shadow-sm">
-        <div className="flex flex-wrap items-center gap-3 px-4 py-4 sm:px-5">
-          <div className="mr-auto min-w-48">
+        <div className="flex flex-wrap items-center gap-2 px-3 py-3 lg:gap-3 lg:px-5 lg:py-4">
+          <div className="order-0 mr-auto min-w-0 lg:min-w-48">
             <h1 className="text-2xl font-bold tracking-tight text-slate-950">Your plans</h1>
             <p className="mt-0.5 text-sm text-emerald-900/65">
               Make room for what matters today.
             </p>
           </div>
-          <div className="flex items-center rounded-xl border border-emerald-100 bg-white p-1 shadow-sm">
+          <div className="order-2 lg:order-none flex items-center rounded-xl border border-emerald-100 bg-white p-1 shadow-sm">
             <button
-              className="grid min-h-9 min-w-9 place-items-center rounded-lg text-slate-500 transition hover:bg-emerald-50 hover:text-emerald-800"
+              className="grid min-h-11 min-w-11 place-items-center rounded-lg text-slate-500 transition hover:bg-emerald-50 hover:text-emerald-800"
               aria-label="Previous day"
               onClick={() => offset(-1)}
             >
@@ -219,7 +220,7 @@ function Plans() {
             </button>
             <input
               aria-label="Plan date"
-              className="min-h-9 w-[8.8rem] border-0 bg-transparent px-2 text-sm font-semibold text-slate-800 outline-none"
+              className="min-h-11 w-[8rem] lg:w-[8.8rem] border-0 bg-transparent px-2 text-sm font-semibold text-slate-800 outline-none"
               type="date"
               value={date}
               onChange={(e) => {
@@ -227,7 +228,7 @@ function Plans() {
               }}
             />
             <button
-              className="grid min-h-9 min-w-9 place-items-center rounded-lg text-slate-500 transition hover:bg-emerald-50 hover:text-emerald-800"
+              className="grid min-h-11 min-w-11 place-items-center rounded-lg text-slate-500 transition hover:bg-emerald-50 hover:text-emerald-800"
               aria-label="Next day"
               onClick={() => offset(1)}
             >
@@ -235,11 +236,13 @@ function Plans() {
             </button>
           </div>
           <button
-            className="min-h-11 rounded-xl border border-emerald-200 bg-white px-4 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-50"
+            className="order-3 lg:order-none min-h-11 rounded-xl border border-emerald-200 bg-white px-3 lg:px-4 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-50"
             onClick={() => setDate(localDateString())}
           >
             Today
           </button>
+          <button type="button" aria-expanded={filtersOpen} aria-controls="plan-list-filters" onClick={() => setFiltersOpen((open) => !open)} className="btn-secondary order-4 lg:hidden">Filters{filter !== "all" || planFilters.category !== "all" || planFilters.priority !== "all" ? " (active)" : ""}</button>
+          <div id="plan-list-filters" className={`${filtersOpen ? "flex" : "hidden"} order-5 w-full flex-wrap gap-2 lg:contents`}>
           <select
             aria-label="Filter plans by status"
             className="min-h-11 rounded-xl border border-emerald-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none focus:border-emerald-500"
@@ -252,8 +255,9 @@ function Plans() {
             <option value="failed">Not completed</option>
           </select>
           <PlanFilters filters={planFilters} onChange={setPlanFilters} />
+          </div>
           <button
-            className="inline-flex min-h-11 items-center justify-center rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-700"
+            className="order-1 lg:order-none inline-flex min-h-11 items-center justify-center rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-700"
             onClick={() => setEditing("new")}
           >
             + Add plan
@@ -417,7 +421,7 @@ function Plans() {
                   >
                     <summary
                       aria-label={`More actions for ${task.title}`}
-                      className="grid min-h-9 min-w-9 list-none place-items-center rounded-lg text-lg font-bold text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 [&::-webkit-details-marker]:hidden"
+                      className="grid min-h-11 min-w-11 list-none place-items-center rounded-lg text-lg font-bold text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 [&::-webkit-details-marker]:hidden"
                     >
                       ···
                     </summary>

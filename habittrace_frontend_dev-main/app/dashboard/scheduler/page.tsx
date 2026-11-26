@@ -303,7 +303,7 @@ function Scheduler() {
             . Suggested times only use this window.
           </p>
         </div>
-        <div className="grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+        <div className="phone-form-grid grid grid-cols-2 gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
           <label className="text-sm font-medium">
             From
             <input
@@ -328,7 +328,7 @@ function Scheduler() {
           </label>
           <button
             type="button"
-            className="btn-primary"
+            className="btn-primary col-span-2 sm:col-span-1"
             disabled={savingAvailability || !user}
             onClick={() => void saveDailyAvailability()}
           >
@@ -479,7 +479,7 @@ function Scheduler() {
                     </p>
 
                     <div className="mt-6 rounded-2xl border border-violet-200 bg-violet-50 p-4">
-                      <div className="flex items-start justify-between gap-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
                           <p className="text-xs font-bold uppercase tracking-[0.14em] text-violet-700">
                             Personalized recommendation · Experimental

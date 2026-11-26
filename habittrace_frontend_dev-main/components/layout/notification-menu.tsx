@@ -89,7 +89,7 @@ export default function NotificationMenu() {
       </button>
       {open && (
         <div
-          className="absolute right-0 z-30 mt-2 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl"
+          className="absolute left-0 lg:left-auto lg:right-0 z-30 mt-2 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl"
           id={panelId}
         >
           <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold">
@@ -100,7 +100,7 @@ export default function NotificationMenu() {
               No notifications yet. New alerts from plans, groups, and settings will show up here.
             </p>
           ) : (
-            <ul className="max-h-96 overflow-y-auto">
+            <ul className="max-h-[60dvh] lg:max-h-96 overflow-y-auto">
               {history.map((item) => (
                 <li key={item.id} className="border-b border-slate-100 px-4 py-3 last:border-b-0">
                   <div className="flex items-start gap-2">

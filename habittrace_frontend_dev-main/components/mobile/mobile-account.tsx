@@ -79,8 +79,8 @@ export default function MobileAccount() {
   const initial = (name || user?.email || "H").charAt(0).toUpperCase();
 
   return (
-    <main
-      className="mx-auto min-h-dvh w-full max-w-lg overflow-x-hidden bg-slate-50 px-4 pb-[calc(6rem+env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] text-slate-950"
+    <section
+      className="mx-auto w-full max-w-lg text-slate-950"
       lang="en"
     >
       <header className="flex items-center gap-3 py-3">
@@ -101,7 +101,7 @@ export default function MobileAccount() {
 
       <section className="mt-4 rounded-3xl bg-slate-950 p-5 text-white shadow-xl shadow-slate-300">
         <div className="flex items-center gap-4">
-          <div className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl bg-white text-2xl font-bold text-slate-950">
+          <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-white text-2xl font-bold text-slate-950">
             {initial}
           </div>
           <div className="min-w-0">
@@ -160,7 +160,7 @@ export default function MobileAccount() {
         )}
 
         <button
-          className="mt-5 min-h-13 w-full rounded-2xl bg-slate-950 px-4 text-sm font-bold text-white hover:bg-slate-800 disabled:opacity-60"
+          className="mt-5 min-h-11 w-full rounded-2xl bg-slate-950 px-4 text-sm font-bold text-white hover:bg-slate-800 disabled:opacity-60"
           disabled={saving || signingOut || name.trim() === displayName}
           type="submit"
         >
@@ -170,7 +170,7 @@ export default function MobileAccount() {
 
       <section className="mt-5 overflow-hidden rounded-3xl border border-slate-200 bg-white">
         <Link
-          className="flex min-h-14 items-center justify-between border-b border-slate-100 px-5 text-sm font-bold text-slate-800 hover:bg-slate-50"
+          className="flex min-h-11 items-center justify-between border-b border-slate-100 px-5 text-sm font-bold text-slate-800 hover:bg-slate-50"
           href="/forgot-password"
         >
           Password & security
@@ -179,7 +179,7 @@ export default function MobileAccount() {
           </span>
         </Link>
         <button
-          className="min-h-14 w-full px-5 text-left text-sm font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+          className="min-h-11 w-full px-5 text-left text-sm font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
           disabled={saving || signingOut}
           onClick={() => void handleSignOut()}
           type="button"
@@ -192,6 +192,6 @@ export default function MobileAccount() {
         Your plans are linked to this signed-in account, not to the display
         name.
       </p>
-    </main>
+    </section>
   );
 }

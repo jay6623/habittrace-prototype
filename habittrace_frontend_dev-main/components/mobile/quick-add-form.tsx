@@ -282,7 +282,7 @@ export default function QuickAddForm({
             onChange={(e) => update("notes", e.target.value)}
           />
         </label>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-3">
             <label className="space-y-2 text-sm font-semibold">
               Date
               <DatePicker
@@ -371,7 +371,7 @@ export default function QuickAddForm({
               {suggestionError && <p role="alert">{suggestionError}</p>}
             </div>
           </fieldset>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-3">
             <label className="space-y-2 text-sm font-semibold">
               Category
               <select

@@ -349,20 +349,20 @@ export default function IntegrationsPage() {
       )}
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="bg-white rounded-2xl border border-slate-200 p-4">
+      <div className="grid grid-cols-3 gap-2 lg:gap-4">
+        <div className="bg-white rounded-2xl border border-slate-200 p-2.5 lg:p-4">
           <div className="text-xs text-slate-500">Connected</div>
           <div className="text-2xl font-bold mt-1 text-emerald-600">
             {connectedCount}
           </div>
         </div>
-        <div className="bg-white rounded-2xl border border-slate-200 p-4">
+        <div className="bg-white rounded-2xl border border-slate-200 p-2.5 lg:p-4">
           <div className="text-xs text-slate-500">Available</div>
           <div className="text-2xl font-bold mt-1">
             {INTEGRATIONS.filter((i) => !i.comingSoon).length}
           </div>
         </div>
-        <div className="bg-white rounded-2xl border border-slate-200 p-4">
+        <div className="bg-white rounded-2xl border border-slate-200 p-2.5 lg:p-4">
           <div className="text-xs text-slate-500">Coming soon</div>
           <div className="text-2xl font-bold mt-1">
             {INTEGRATIONS.filter((i) => i.comingSoon).length}
@@ -396,13 +396,13 @@ export default function IntegrationsPage() {
               intg.connected ? "border-emerald-200" : "border-slate-200"
             }`}
           >
-            <div className="flex items-start justify-between gap-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="flex items-center gap-3">
                 <div className="h-11 w-11 rounded-xl bg-slate-100 grid place-items-center text-2xl shrink-0">
                   {intg.icon}
                 </div>
                 <div>
-                  <div className="font-semibold text-sm flex items-center gap-1.5">
+                  <div className="font-semibold text-sm flex flex-wrap items-center gap-1.5">
                     {intg.name}
                     {intg.comingSoon && (
                       <span className="text-xs px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 font-normal">
