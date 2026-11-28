@@ -300,6 +300,7 @@ python -m mypy src
 The V1 model package does not currently include an automated test suite; validate changes with its CLI train, evaluate, and predict commands.
 
 ## Component documentation
+
 - `habittrace_frontend_dev-main/README.md`: frontend routes, PWA behavior, scripts, and deployment
 - `habittrace_model_dev-main/README.md`: V1 model data contract and CLI
 - `habittrace_model_dev-main/README 2.md`: V1 model design and compatibility notes
