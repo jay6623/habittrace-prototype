@@ -64,7 +64,9 @@ export default function TopBar() {
   }
   const title = path.includes("group")
     ? "Groups"
-    : path.includes("analytics")
+    : path.includes("levels")
+      ? "Levels"
+      : path.includes("analytics")
       ? "Insights"
       : /settings|integrations/.test(path)
         ? "Settings"
@@ -74,8 +76,8 @@ export default function TopBar() {
             ? "Plans"
           : "Today";
   return (
-    <header className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur sm:px-6">
-      <p className="font-semibold">{title}</p>
+    <header className="dashboard-topbar sticky top-0 z-20 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur sm:px-6">
+      <p className="hidden font-semibold lg:block">{title}</p>
       <div className="flex min-w-0 flex-1 items-center justify-end gap-3 sm:max-w-xl">
       <NotificationMenu />
       <div
@@ -119,7 +121,7 @@ export default function TopBar() {
           }}
         />
         {open && query.trim() && (
-          <div className="absolute right-0 mt-2 w-full min-w-64 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
+          <div className="fixed inset-x-3 top-[calc(4rem+env(safe-area-inset-top))] lg:absolute lg:inset-x-auto lg:right-0 lg:top-auto lg:mt-2 lg:w-full lg:min-w-64 max-h-[60dvh] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
             {loading ? (
               <p role="status" className="p-4 text-sm">
                 Searching…

@@ -417,7 +417,7 @@ export default function GroupPersonalPlan({
             {editing ? "Review changes to this block" : "Plan a work block"}
           </p>
           <fieldset disabled={busy} className="space-y-4 disabled:opacity-60">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-3">
               <label className={label}>
                 Work date
                 <input
@@ -495,7 +495,7 @@ export default function GroupPersonalPlan({
                 ))}
               </select>
             </label>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-3">
               {levels.map((level) => (
                 <label className={label} key={level.name}>
                   {level.name}

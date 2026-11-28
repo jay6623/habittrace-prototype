@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import type { GroupMember, GroupTaskCreate, GroupTaskPriority } from "@/lib/api";
 import { GROUP_TASK_TITLE_MAX_LENGTH, describeApiError, memberName } from "@/lib/group";
 import { TASK_CATEGORIES } from "@/lib/mobile-task";
@@ -50,13 +50,28 @@ export default function GroupTaskForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const dialogRef = useRef<HTMLDialogElement>(null);
   useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape" && !saving) onDismiss();
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onDismiss, saving]);
+    const dialog = dialogRef.current;
+    const previous = document.activeElement as HTMLElement | null;
+    dialog?.showModal();
+    const viewport = window.visualViewport;
+    const update = () => {
+      dialog?.style.setProperty("--coach-viewport-height", `${viewport?.height ?? window.innerHeight}px`);
+      dialog?.style.setProperty("--coach-viewport-top", `${viewport?.offsetTop ?? 0}px`);
+      dialog?.style.setProperty("--coach-viewport-left", `${viewport?.offsetLeft ?? 0}px`);
+      dialog?.style.setProperty("--coach-viewport-width", `${viewport?.width ?? window.innerWidth}px`);
+    };
+    update();
+    viewport?.addEventListener("resize", update);
+    viewport?.addEventListener("scroll", update);
+    return () => {
+      viewport?.removeEventListener("resize", update);
+      viewport?.removeEventListener("scroll", update);
+      dialog?.close();
+      previous?.focus();
+    };
+  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -95,18 +110,9 @@ export default function GroupTaskForm({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !saving) onDismiss();
-      }}
-    >
-      <section
-        aria-labelledby="group-task-title"
-        aria-modal="true"
-        className="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-3xl bg-white shadow-2xl"
-        role="dialog"
-      >
+    <dialog ref={dialogRef} aria-labelledby="group-task-title"
+      onCancel={(event) => { event.preventDefault(); if (!saving) onDismiss(); }}
+      className="mobile-form-dialog m-auto max-h-[92dvh] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-3xl bg-white shadow-2xl backdrop:bg-slate-950/45">
         <form onSubmit={handleSubmit}>
           <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white/95 px-5 py-4 backdrop-blur">
             <div>
@@ -117,7 +123,7 @@ export default function GroupTaskForm({
             </div>
             <button
               aria-label="Close"
-              className="grid h-10 w-10 place-items-center rounded-full bg-slate-100 text-xl text-slate-600 transition hover:bg-slate-200 disabled:opacity-50"
+              className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-slate-100 text-xl text-slate-600 transition hover:bg-slate-200 disabled:opacity-50"
               disabled={saving}
               onClick={onDismiss}
               type="button"
@@ -170,7 +176,7 @@ export default function GroupTaskForm({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-3">
               <div>
                 <label className={labelClass} htmlFor="group-task-category">
                   Category
@@ -214,7 +220,7 @@ export default function GroupTaskForm({
               </fieldset>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-3">
               <div>
                 <label className={labelClass} htmlFor="group-task-date">
                   Due date <span className="font-normal text-slate-400">(optional)</span>
@@ -265,7 +271,7 @@ export default function GroupTaskForm({
 
           <div className="sticky bottom-0 flex justify-end gap-2 border-t border-slate-100 bg-white px-5 py-4">
             <button
-              className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-sm font-medium transition-colors disabled:opacity-60"
+              className="min-h-11 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-sm font-medium transition-colors disabled:opacity-60"
               disabled={saving}
               onClick={onDismiss}
               type="button"
@@ -273,7 +279,7 @@ export default function GroupTaskForm({
               Cancel
             </button>
             <button
-              className="px-4 py-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+              className="min-h-11 px-4 py-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60"
               disabled={saving}
               type="submit"
             >
@@ -281,7 +287,6 @@ export default function GroupTaskForm({
             </button>
           </div>
         </form>
-      </section>
-    </div>
+    </dialog>
   );
 }

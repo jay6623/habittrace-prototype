@@ -244,7 +244,7 @@ export default function LoggedPlanEditForm({
               onChange={(e) => setNotes(e.target.value)}
             />
           </label>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-3">
             <label className="space-y-2 text-sm font-semibold">
               Date
               <input

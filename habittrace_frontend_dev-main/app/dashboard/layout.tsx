@@ -47,23 +47,23 @@ export default function DashboardLayout({
         <TopBar />
         <main
           id="main-content"
+          data-mobile-layout="compact"
           className={
             pathname.startsWith("/dashboard/group")
-              ? "w-full px-3 pb-32 pt-6 sm:px-4 lg:pb-24"
-              : "mx-auto max-w-7xl px-4 pb-32 pt-6 sm:px-6 lg:pb-24"
+              ? "w-full px-3 pb-[calc(10rem+env(safe-area-inset-bottom))] pt-3 lg:pt-6 sm:px-4 lg:pb-24"
+              : "mx-auto max-w-7xl px-3 pb-[calc(10rem+env(safe-area-inset-bottom))] pt-3 sm:px-6 lg:pb-24 lg:pt-6"
           }
         >
           {/\/dashboard\/(habits|scheduler)(\/(unlogged|generate))?$/.test(
             pathname,
           ) && <PlanTabs />}
-          <GroupPlanUpdates key={user.id} />
-          {children}
+          {pathname.includes("/calendar") ? <>{children}<div className="mt-5"><GroupPlanUpdates key={user.id} /></div></> : <><GroupPlanUpdates key={user.id} />{children}</>}
         </main>
       </div>
       <MobileNav />
       <button
         onClick={() => setCoach(true)}
-        className="btn-primary fixed bottom-24 right-4 z-30 shadow-lg lg:bottom-6"
+        className="mobile-coach-launcher btn-primary fixed bottom-24 right-4 z-30 shadow-lg lg:bottom-6"
       >
         Ask coach
       </button>

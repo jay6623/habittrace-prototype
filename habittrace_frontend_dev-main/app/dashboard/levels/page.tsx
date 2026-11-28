@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import MobileDetails from "@/components/ui/mobile-details";
 import Link from "next/link";
 import {
   BarElement,
@@ -181,7 +182,7 @@ function ProgressBar({
 
 function LevelCard({ data }: { data: XpSummary }) {
   return (
-    <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 via-indigo-600 to-fuchsia-600 p-4 text-white shadow-lg shadow-violet-200 sm:p-5 lg:col-span-2">
+    <section className="mobile-level-card relative overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 via-indigo-600 to-fuchsia-600 p-4 text-white shadow-lg shadow-violet-200 sm:p-5 lg:col-span-2">
       {/* Soft light spots for depth; purely decorative. */}
       <div
         aria-hidden="true"
@@ -193,7 +194,7 @@ function LevelCard({ data }: { data: XpSummary }) {
       />
       <div className="relative flex flex-wrap items-center gap-4">
         <div
-          className="grid h-20 w-20 shrink-0 place-items-center rounded-2xl bg-white/15 ring-1 ring-white/30 backdrop-blur"
+          className="mobile-level-icon grid h-20 w-20 shrink-0 place-items-center rounded-2xl bg-white/15 ring-1 ring-white/30 backdrop-blur"
           aria-hidden="true"
         >
           <div className="text-center leading-none">
@@ -491,7 +492,7 @@ export default function LevelsPage() {
         <StreakCard streak={data.streak} />
       </div>
 
-      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4" aria-label="XP stats">
+      <section className="mobile-xp-stats grid grid-cols-2 gap-3 lg:grid-cols-4" aria-label="XP stats">
         {stats.map((stat, i) => (
           <div key={stat.label} className="rounded-2xl border border-slate-200 bg-white p-4">
             <div className="flex items-center gap-2 text-xs text-slate-500">
@@ -521,20 +522,20 @@ export default function LevelsPage() {
         </section>
       ) : (
         <div className="grid gap-3 lg:grid-cols-5">
-          <section className="flex flex-col rounded-2xl border border-slate-200 bg-white p-4 lg:col-span-3">
+          <section className="order-2 lg:order-none flex flex-col rounded-2xl border border-slate-200 bg-white p-4 lg:col-span-3">
             <h2 className="font-semibold">XP over the last 14 days</h2>
             {/* Fills the row on desktop so it lines up with the Recent XP list. */}
             <div className="relative mt-3 min-h-56 flex-1">
               <Bar data={chartData} options={chartOptions} />
             </div>
           </section>
-          <section className="rounded-2xl border border-slate-200 bg-white p-4 lg:col-span-2">
+          <section className="order-1 lg:order-none rounded-2xl border border-slate-200 bg-white p-4 lg:col-span-2">
             <h2 className="font-semibold">Recent XP</h2>
             <ul className="mt-2 divide-y divide-slate-100">
               {data.recent.slice(0, 6).map((event) => (
                 <li key={event.task_id} className="flex items-center gap-3 py-2.5">
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium">{event.title}</div>
+                    <div className="break-words text-sm font-medium lg:truncate">{event.title}</div>
                     <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
                       <span>{longDay(event.planned_date)}</span>
                       <span aria-hidden="true">·</span>
@@ -595,6 +596,7 @@ export default function LevelsPage() {
         </ul>
       </section>
 
+      <MobileDetails title="How XP works">
       <section className="rounded-2xl border border-violet-100 bg-violet-50/40 p-4">
         <h2 className="font-semibold">How XP works</h2>
         <ul className="mt-2 space-y-1.5 text-sm text-slate-600">
@@ -618,7 +620,7 @@ export default function LevelsPage() {
           </li>
           <li>Each new level needs 100 XP more than the last one.</li>
         </ul>
-      </section>
+      </section>      </MobileDetails>
     </div>
   );
 }

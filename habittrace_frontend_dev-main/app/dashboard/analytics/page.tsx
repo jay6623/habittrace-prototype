@@ -15,6 +15,7 @@ import {
   Legend,
   Filler,
 } from "chart.js";
+import MobileDetails from "@/components/ui/mobile-details";
 import Link from "next/link";
 import { useDataRefresh } from "@/lib/refresh";
 import { Line, Bar, Doughnut } from "react-chartjs-2";
@@ -365,9 +366,9 @@ export default function AnalyticsPage() {
     );
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 flex flex-col lg:block">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <ProfileAvatar size="md" />
           <div>
@@ -386,7 +387,7 @@ export default function AnalyticsPage() {
               <button
                 key={range}
                 onClick={() => setTimeRange(range)}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors border-r border-slate-200 last:border-r-0 ${
+                className={`min-h-11 px-3 py-1.5 text-xs font-medium transition-colors border-r border-slate-200 last:border-r-0 ${
                   timeRange === range
                     ? "bg-slate-900 text-white"
                     : "bg-white text-slate-500 hover:text-slate-700"
@@ -403,6 +404,7 @@ export default function AnalyticsPage() {
         </div>
       </div>
 
+      <div className="order-2 lg:order-none"><MobileDetails title="Personalized patterns and next steps">
       <section className="overflow-hidden rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-lime-50 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-emerald-100 px-4 py-4 sm:px-5">
           <div>
@@ -484,8 +486,10 @@ export default function AnalyticsPage() {
         </div>
       </section>
 
+      </MobileDetails></div>
+
       {/* Stats Row */}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+      <div className="order-1 lg:order-none grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
         {stats.map((stat) => (
           <div
             key={stat.label}
@@ -509,7 +513,7 @@ export default function AnalyticsPage() {
       </div>
 
       {/* Row 1: Execution Trend + Success Rate + Time of Day */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div className="order-3 lg:order-none grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className="bg-white rounded-xl border border-slate-200 p-3">
           <div className="text-sm font-semibold">Execution trend</div>
           <div className="text-xs text-slate-500 mb-2">
@@ -600,7 +604,7 @@ export default function AnalyticsPage() {
       </div>
 
       {/* Row 2: Planning obstacles by Category + Why tasks fail + Key Insights */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div className="order-3 lg:order-none grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className="bg-white rounded-xl border border-slate-200 p-3">
           <div className="text-sm font-semibold">
             Planning obstacles by category

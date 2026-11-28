@@ -82,11 +82,14 @@ export default function DatePicker({
   const today = todayValue();
 
   return (
-    <div ref={rootRef} className="relative">
+    <>
+    <input type="date" aria-label={ariaLabel} required={required} value={value}
+      onChange={(event) => { if (event.target.value) onChange(event.target.value); }}
+      className="field lg:hidden" />
+    <div ref={rootRef} className="relative hidden lg:block">
       <input
         className="sr-only"
         tabIndex={-1}
-        required={required}
         value={value}
         onChange={() => undefined}
         aria-hidden="true"
@@ -210,5 +213,6 @@ export default function DatePicker({
         </div>
       )}
     </div>
+    </>
   );
 }

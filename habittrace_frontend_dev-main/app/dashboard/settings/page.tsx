@@ -209,12 +209,17 @@ function Settings({
   }
 
   return (
-    <div className="max-w-3xl space-y-6">
+    <div className="max-w-3xl space-y-4 lg:space-y-6">
       <header>
         <h1 className="text-3xl font-bold">Your preferences</h1>
         <p className="mt-2 text-slate-500">Make planning fit your day.</p>
       </header>
-      <form onSubmit={save} className="panel space-y-5">
+      <nav aria-label="Settings sections" className="grid grid-cols-3 gap-2 lg:hidden">
+        <a className="btn-secondary text-center" href="#profile-planning">Planning</a>
+        <a className="btn-secondary text-center" href="#connections">Calendars</a>
+        <a className="btn-secondary text-center" href="#records">Records</a>
+      </nav>
+      <form id="profile-planning" onSubmit={save} className="panel space-y-5">
         <h2 className="text-lg font-semibold">Profile & planning</h2>
 
         <div className="relative w-fit" ref={menuRef}>
@@ -222,7 +227,7 @@ function Settings({
             aria-expanded={avatarMenuOpen}
             aria-haspopup="menu"
             aria-label="Change profile picture"
-            className="grid h-20 w-20 place-items-center overflow-hidden rounded-full bg-slate-950 text-lg font-bold text-white ring-2 ring-slate-200 transition hover:ring-slate-400"
+            className="grid h-14 w-14 lg:h-20 lg:w-20 place-items-center overflow-hidden rounded-full bg-slate-950 text-lg font-bold text-white ring-2 ring-slate-200 transition hover:ring-slate-400"
             disabled={avatarBusy || busy}
             onClick={() => setAvatarMenuOpen((open) => !open)}
             type="button"
@@ -310,7 +315,7 @@ function Settings({
             Find a time only suggests slots inside this window. You can still add
             plans outside it manually.
           </p>
-          <div className="mt-3 grid grid-cols-2 gap-4">
+          <div className="mt-3 grid grid-cols-1 min-[360px]:grid-cols-2 gap-3 lg:gap-4">
             <label className="text-sm font-medium">
               From
               <input
@@ -350,7 +355,7 @@ function Settings({
           {busy ? "Working…" : "Save preferences"}
         </button>
       </form>
-      <section className="panel">
+      <section id="connections" className="panel">
         <h2 className="text-lg font-semibold">Connected calendars</h2>
         <p className="my-3 text-sm text-slate-500">
           Choose whether to send your plans to Google Calendar. Importing
@@ -360,7 +365,7 @@ function Settings({
           Manage connections
         </Link>
       </section>
-      <section className="panel">
+      <section id="records" className="panel">
         <h2 className="text-lg font-semibold">Your records</h2>
         <p className="my-3 text-sm text-slate-500">
           Download your personal plans, execution history and saved profile
